@@ -1,0 +1,10 @@
+[submodule "darknet"]
+	path = darknet
+	url = https://github.com/icemelon9/darknet
+[submodule "caffe"]
+	path = caffe
+	url = https://github.com/icemelon9/caffe_serving.git
+[submodule "tensorflow"]
+	path = tensorflow
+	url = https://github.com/icemelon9/tensorflow.git
+	branch = nexus

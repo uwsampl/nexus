@@ -1,0 +1,7 @@
+model_db: config/model_db.yml
+model_profile_dir: /home/haichen/nexus-models/model_profiles
+model_dir:
+  darknet: /home/haichen/nexus-models/models/darknet
+  caffe: /home/haichen/nexus-models/models/caffe
+  tensorflow: /home/haichen/nexus-models/models/tensorflow
+  

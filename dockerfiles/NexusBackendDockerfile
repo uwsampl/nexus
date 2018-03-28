@@ -1,0 +1,5 @@
+FROM nexus/base
+
+ADD . /nexus/
+RUN cd /nexus && make cleanall && make -j$($(nproc)-1) backend
+ENV PATH /nexus/build/bin:$PATH

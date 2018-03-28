@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package nexus;
+
+import "google/protobuf/empty.proto";
+import "nnquery.proto";
+
+service SchedulerCtrl {
+  rpc Register(RegisterRequest) returns (RegisterReply) {}
+  rpc Unregister(UnregisterRequest) returns (RpcReply) {}
+  rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
+  rpc UnloadModel(ModelSession) returns (RpcReply) {}
+}
+
+service FrontendCtrl {
+  rpc UpdateBackends(BackendsUpdate) returns (BackendsUpdateReply) {}
+  rpc UpdateModelRoutes(ModelRouteList) returns (RpcReply) {}
+  rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
+}
+
+service BackendCtrl {
+  rpc UpdateModelTable(ModelTable) returns (RpcReply) {}
+  rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
+}
+
+enum NodeType {
+  FRONTEND_NODE = 0;
+  BACKEND_NODE = 1;
+}
+
+enum CtrlStatus {
+  CTRL_OK = 0;
+  
+  // User facing error code
+  // Service unavailable
+  SERVICE_UNAVAILABLE = 1;
+  // No available backends
+  NO_AVAILABLE_RESOURCE = 2;
+  // Model session not loaded
+  MODEL_SESSION_NOT_LOADED = 3;
+  // Invalid query
+  MODEL_TYPE_NOT_SUPPORT = 4;
+  // Input type incorrect
+  INPUT_TYPE_INCORRECT = 5;
+  // Latency SLA timeout
+  TIMEOUT = 6;
+
+  // Internal control error code
+  CTRL_SERVER_UNREACHABLE = 100;
+  CTRL_NOT_REGISTERED = 101;
+  CTRL_MODEL_NOT_SUPPORTED = 102;
+  CTRL_ROUTE_TABLE_VERSION_MISMATCH = 103;
+
+  CTRL_BACKEND_NODE_ID_CONFLICT = 200;
+  CTRL_NOT_ENOUGH_BACKENDS = 201;
+
+  CTRL_FRONTEND_NODE_ID_CONFLICT = 300;
+  CTRL_INVALID_LOAD_MODEL_REQUEST = 301;
+}
+
+message RpcReply {
+  CtrlStatus status = 1;
+}
+
+message RegisterRequest {
+  NodeType node_type = 1;
+  uint32 node_id = 2;
+  string server_port = 3;
+  string rpc_port = 4;
+  string gpu_device_name = 10;
+  uint64 gpu_available_memory = 11;
+}
+
+message RegisterReply {
+  // reply whether the rpc succeeds
+  CtrlStatus status = 1;
+  // epoch time in millisecond
+  double epoch_time = 2;
+  // piggy back route table for frontend node
+  BackendsUpdate init_backend_pool = 10;
+  // piggy back model table for backend node
+  ModelTable init_model_table = 11;
+}
+
+message UnregisterRequest {
+  NodeType node_type = 1;
+  uint32 node_id = 2;
+}
+
+message CheckAliveRequest {
+  NodeType node_type = 1;
+  uint32 node_id = 2;
+}
+
+message BackendInfo {
+  uint32 node_id = 1;
+  string server_address = 2;
+}
+
+message BackendsUpdate {
+  uint32 curr_version = 1;
+  uint32 base_version = 2;
+  repeated BackendInfo add_backend = 3;
+  repeated BackendInfo remove_backend = 4;
+}
+
+message BackendsUpdateReply {
+  CtrlStatus status = 1;
+  uint32 version = 2;
+}
+
+message ModelRoute {
+  message BackendRate {
+    uint32 node_id = 1;
+    float rate = 2;
+  }
+  ModelSession model_session = 1;
+  repeated BackendRate backend_rate = 2;
+}
+
+message ModelRouteList {
+  repeated ModelRoute model_route = 1;
+}
+
+message LoadModelRequest {
+  uint32 node_id = 1;
+  ModelSession model_session = 2;
+  float estimate_workload = 3;
+  //uint32 num_gpus = 4;
+}
+
+message LoadModelReply {
+  CtrlStatus status = 1;
+  ModelRoute model_route = 2;
+}
+
+message ModelInstanceDesc {
+  ModelSession model_session = 1;
+  uint32 batch = 2;
+  uint32 max_batch = 3;
+  float forward_latency = 4;
+  uint64 memory_usage = 5;
+  float throughput = 6;
+  float workload = 7;
+}
+
+message ModelTable {
+  repeated ModelInstanceDesc model_instance_desc = 1;
+}
+
+message ModelStats {
+  string model_session_id = 1;
+  repeated uint64 rps = 2;
+}
+
+message GetStatsRequest {
+  
+}
+
+message GetStatsReply {
+  repeated ModelStats model_stats = 1;
+}

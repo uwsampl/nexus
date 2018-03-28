@@ -1,0 +1,12 @@
+*~
+*.o
+*.pyc
+*.d
+.DS_Store*
+*.swp
+
+obj/
+lib/
+bin/
+build/
+python/nexus/proto/
