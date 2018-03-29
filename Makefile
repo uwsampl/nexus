@@ -34,7 +34,6 @@ CXX_COMMON_SRCS := $(wildcard src/nexus/common/*.cpp)
 CXX_APP_SRCS := $(wildcard src/nexus/app/*.cpp)
 CXX_BACKEND_SRCS := $(wildcard src/nexus/backend/*.cpp)
 CXX_BACKEND_LIB_SRCS := $(filter-out src/nexus/backend/backend_main.cpp, $(CXX_BACKEND_SRCS))
-$(warning $(CXX_BACKEND_LIB_SRCS))
 CXX_SCHEDULER_SRCS := $(wildcard src/nexus/scheduler/*.cpp)
 
 CXX_COMMON_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_COMMON_SRCS)) $(PROTO_OBJS)
@@ -42,7 +41,6 @@ CXX_APP_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_APP_SRCS))
 CXX_BACKEND_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_SRCS))
 CXX_BACKEND_LIB_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_LIB_SRCS))
 CXX_SCHEDULER_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_SCHEDULER_SRCS))
-$(warning $(CXX_BACKEND_LIB_OBJS))
 
 OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS)
 DEPS := ${OBJS:.o=.d}
