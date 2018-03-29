@@ -12,7 +12,7 @@ class ObjRecApp : public nexus::app::AppBase {
   }
 
   void Setup() final {
-    model_ = GetModelHandler("caffe", "vgg16", 1, 100, 50.);
+    model_ = GetModelHandler("caffe", "vgg16", 1, 1000, 40.);
   }
 
   void Process(const RequestProto& request, ReplyProto* reply) final {

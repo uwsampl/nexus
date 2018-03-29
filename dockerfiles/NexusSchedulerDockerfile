@@ -1,5 +1,5 @@
 FROM nexus/base
 
-ADD . /nexus/
+RUN cd / && git clone https://github.com/uwsaml/nexus.git
 RUN cd /nexus && make cleanall && make -j$($(nproc)-1) scheduler
 ENV PATH /nexus/build/bin:$PATH

@@ -36,7 +36,8 @@ RUN apt-get update && apt-get install -y \
   python-dev \
   python-pip \
   python-setuptools \
-  openjdk-8-jdk
+  openjdk-8-jdk \
+  git
 
 RUN pip install --upgrade pip && pip install numpy scipy
 
@@ -71,6 +72,8 @@ RUN cd /tmp && mkdir protobuf && cd protobuf && \
 RUN cd /tmp && git clone -b v1.4.3 https://github.com/grpc/grpc && \
     cd grpc && git submodule update --init && make -j$(nproc) && \
     make install
+
+RUN rm -r /tmp
 
 # Link cudnn to /usr/local/cuda
 RUN ln -s /usr/include/cudnn.h /usr/local/cuda/include/

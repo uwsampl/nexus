@@ -1,6 +1,6 @@
 FROM nexus/base
 
-ADD . /nexus/
+RUN cd / && git clone https://github.com/uwsaml/nexus.git
 RUN cd /nexus && make cleanall && make -j$($(nproc)-1) lib
 ENV LIBRARY_PATH /nexus/build/lib:$LIBRARY_PATH
 ENV LD_LIBRARY_PATH /nexus/build/lib:$LD_LIBRARY_PATH

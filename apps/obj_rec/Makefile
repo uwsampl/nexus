@@ -9,9 +9,9 @@ LD_FLAGS = -lm -pthread -lglog -lgflags -lboost_system -lboost_thread \
 	-L/usr/local/cuda/lib64 -lcuda -lcudart \
 	-L../../build/lib -lnexus -Wl,-rpath,../../build/lib
 
-all: bin/obj_rec_app
+all: bin/obj_rec
 
-bin/obj_rec_app : obj/obj_rec_app.o
+bin/obj_rec : obj/obj_rec.o
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) -o $@
 

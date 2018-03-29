@@ -25,69 +25,45 @@ models:
   - framework: caffe
     model_name: vgg_face
     type: classification
-    cfg_file: vgg_face_caffe/VGG_FACE_deploy.prototxt
-    weight_file: vgg_face_caffe/VGG_FACE.caffemodel
-    class_names: vgg_face_caffe/names.txt
+    cfg_file: vgg_face/1/VGG_FACE_deploy.prototxt
+    weight_file: vgg_face/1/VGG_FACE.caffemodel
+    class_names: vgg_face/names.txt
     mean_value: [99.5503, 115.7630, 151.2761]
   - framework: caffe
     model_name: F1 # face recongition
     type: classification
-    cfg_file: F1/F1.prototxt
-    weight_file: F1/F1.caffemodel
-    class_names: F1/names.txt
+    cfg_file: F1/1/F1.prototxt
+    weight_file: F1/1/F1.caffemodel
+    class_names: F1/1/names.txt
     mean_value: [99.5503, 115.7630, 151.2761]
-  - framework: caffe
-    model_name: F1_prefix # face recongition
-    type: classification
-    cfg_file: F1/F1.prototxt
-    weight_file: F1/F1.caffemodel
-    class_names: F1/names.txt
-    mean_value: [99.5503, 115.7630, 151.2761]
-    prefix_layer: drop6
   - framework: caffe
     model_name: F1_msr201 # face recongition
     type: classification
-    cfg_file: F1_msr201/F1_msr201.prototxt
-    weight_file: F1_msr201/F1_msr201.caffemodel
+    cfg_file: F1_msr201/1/F1_msr201.prototxt
+    weight_file: F1_msr201/1/F1_msr201.caffemodel
     class_names: F1_msr201/msr201_names.txt
     mean_value: [99.5503, 115.7630, 151.2761]
   - framework: caffe
     model_name: F2 # face recongition
     type: classification
-    cfg_file: F2/F2.prototxt
-    weight_file: F2/F2.caffemodel
+    cfg_file: F2/1/F2.prototxt
+    weight_file: F2/1/F2.caffemodel
     class_names: F2/names.txt
     mean_value: [99.5503, 115.7630, 151.2761]
-  - framework: caffe
-    model_name: F2_prefix # face recongition
-    type: classification
-    cfg_file: F2/F2.prototxt
-    weight_file: F2/F2.caffemodel
-    class_names: F2/names.txt
-    mean_value: [99.5503, 115.7630, 151.2761]
-    prefix_layer: drop6
   - framework: caffe
     model_name: F2_msr201 # face recongition
     type: classification
-    cfg_file: F2_msr201/F2_msr201.prototxt
-    weight_file: F2_msr201/F2_msr201.caffemodel
+    cfg_file: F2_msr201/1/F2_msr201.prototxt
+    weight_file: F2_msr201/1/F2_msr201.caffemodel
     class_names: F2_msr201/msr201_names.txt
     mean_value: [99.5503, 115.7630, 151.2761]
   - framework: caffe
     model_name: vgg_s
     type: classification
-    cfg_file: vgg_s/vgg_s.prototxt
-    weight_file: vgg_s/vgg_s.caffemodel
+    cfg_file: vgg_s/1/vgg_s.prototxt
+    weight_file: vgg_s/1/vgg_s.caffemodel
     class_names: vgg_s/synset_words.txt
-    mean_file: vgg_s/vgg_s_mean.binaryproto
-  - framework: caffe
-    model_name: vgg_s_prefix
-    type: classification
-    cfg_file: vgg_s/vgg_s.prototxt
-    weight_file: vgg_s/vgg_s.caffemodel
-    class_names: vgg_s/synset_words.txt
-    mean_file: vgg_s/vgg_s_mean.binaryproto
-    prefix_layer: drop7
+    mean_file: vgg_s/1/vgg_s_mean.binaryproto
   - framework: caffe
     model_name: vgg16
     type: classification
@@ -98,8 +74,8 @@ models:
   - framework: caffe
     model_name: googlenet_cars
     type: classification
-    cfg_file: googlenet_cars/deploy.prototxt
-    weight_file: googlenet_cars/googlenet_finetune_web_car_iter_10000.caffemodel
+    cfg_file: googlenet_cars/1/deploy.prototxt
+    weight_file: googlenet_cars/1/googlenet_finetune_web_car_iter_10000.caffemodel
     class_names: googlenet_cars/make_model_names.txt
     mean_file: googlenet_cars/imagenet_mean.binaryproto
   - framework: caffe
@@ -113,8 +89,6 @@ models:
     # default size, aspect ratio 4:3
     image_height: 540
     image_width: 720
-    #target_size: 600
-    #max_size: 720
     mean_value: [102.9801, 115.9465, 122.7717]
     max_boxes: 300
     max_timestep: 15

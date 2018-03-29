@@ -33,12 +33,16 @@ GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
 CXX_COMMON_SRCS := $(wildcard src/nexus/common/*.cpp)
 CXX_APP_SRCS := $(wildcard src/nexus/app/*.cpp)
 CXX_BACKEND_SRCS := $(wildcard src/nexus/backend/*.cpp)
+CXX_BACKEND_LIB_SRCS := $(filter-out src/nexus/backend/backend_main.cpp, $(CXX_BACKEND_SRCS))
+$(warning $(CXX_BACKEND_LIB_SRCS))
 CXX_SCHEDULER_SRCS := $(wildcard src/nexus/scheduler/*.cpp)
 
 CXX_COMMON_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_COMMON_SRCS)) $(PROTO_OBJS)
 CXX_APP_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_APP_SRCS))
 CXX_BACKEND_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_SRCS))
+CXX_BACKEND_LIB_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_LIB_SRCS))
 CXX_SCHEDULER_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_SCHEDULER_SRCS))
+$(warning $(CXX_BACKEND_LIB_OBJS))
 
 OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS)
 DEPS := ${OBJS:.o=.d}
@@ -72,7 +76,6 @@ ifeq ($(USE_CAFFE), 1)
 	BACKEND_LD_FLAGS += -L$(CAFFE_BUILD_DIR)/lib -lcaffe -Wl,-rpath,$(CAFFE_BUILD_DIR)/lib
 endif
 ifeq ($(USE_DARKNET), 1)
-#CXXFLAGS += -DGPU -DCUDNN -DOPENCV
 	BACKEND_DEPS += $(DARKNET_BUILD_DIR)/lib/libdarknet.so
 	BACKEND_LD_FLAGS += -L$(DARKNET_BUILD_DIR)/lib -ldarknet -Wl,-rpath,$(DARKNET_BUILD_DIR)/lib
 endif
@@ -83,7 +86,7 @@ ifeq ($(USE_TENSORFLOW), 1)
 	BACKEND_LD_FLAGS += `pkg-config --libs tensorflow`
 endif
 
-all: proto python lib backend scheduler
+all: proto python lib backend scheduler tool
 
 $(CAFFE_BUILD_DIR)/lib/libcaffe.so:
 	cd caffe; $(MAKE) proto && $(MAKE) all && $(MAKE) pycaffe; cd -
@@ -105,6 +108,8 @@ backend: build/bin/backend
 
 scheduler: build/bin/scheduler
 
+tool: build/bin/profiler
+
 build/lib/libnexus.so: $(CXX_COMMON_OBJS) $(CXX_APP_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) $(DLL_LINK_FLAGS) $^ -o $@ $(LD_FLAGS)
@@ -116,6 +121,10 @@ build/bin/backend: $(CXX_COMMON_OBJS) $(CXX_BACKEND_OBJS)
 build/bin/scheduler: $(CXX_COMMON_OBJS) $(CXX_SCHEDULER_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) -o $@
+
+build/bin/profiler: $(CXX_COMMON_OBJS) $(CXX_BACKEND_LIB_OBJS) build/obj/tools/profiler/profiler.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS) -o $@
 
 build/gen/%.pb.cc build/gen/%.pb.h: src/nexus/%.proto
 	@mkdir -p $(@D)
@@ -142,9 +151,13 @@ build/obj/%.o: src/nexus/%.cpp | $(PROTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+build/obj/tools/%.o: tools/%.cpp | $(PROTO_GEN_HEADERS)
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $(BACKEND_CXXFLAGS) -c $< -o $@
+
 .PRECIOUS: %.pb.cc %.pb.h %.grpc.pb.cc %.grpc.pb.h $(PROTO_GEN_HEADERS) $(PROTO_GEN_CC)
 
-.PHONY: proto python lib backend scheduler \
+.PHONY: proto python lib backend scheduler tool \
 	clean clean-darknet clean-caffe clean-tensorflow cleanall
 
 clean:
