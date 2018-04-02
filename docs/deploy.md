@@ -40,18 +40,18 @@ docker version >= 1.20) to manage a cluster.
 
 First create the swarm on a master server, run
 ```
-docker swarm init
+$ docker swarm init
 ```
 This server serves as a manager node of the swarm.
 
 To add worker nodes to this swarm, we need to get the token by running command
 on the master node
 ```
-docker swarm join-token worker
+$ docker swarm join-token worker
 ```
 The example output of this command is
 ```
-docker swarm join \
+$ docker swarm join \
 --token SWMTKN-1-49nj1cmql0jkz5s954yi3oex3nedyz0fb0xx14ie39trti4wxv-8vxv8rssmk743ojnwacrr2e7c \
 192.168.99.100:2377
 ```
@@ -59,7 +59,7 @@ Copy this piece of code and run it on the worker server.
 
 To check nodes and their roles in the swarm, run the following command on a manager node
 ```
-docker node ls
+$ docker node ls
 ```
 
 #### Create overlay network
@@ -68,13 +68,14 @@ After the swarm is created, we then need to create a overlay network to allow
 dockers in the swarm to communicate with each other. Run the following command on
 a manager node.
 ```
-docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus-network
+$ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus-network
 ```
 
 ### Step 3: Start Nexus service
 First, start the scheduler
 ```
-$ docker run [--network nexus-network] -d -v /path/to/nexus-models:/nexus-models:ro --name scheduler nexus/scheduler scheduler -config /nexus/config/scheduler_docker.yml
+$ docker run [--network nexus-network] -d -v /path/to/nexus-models:/nexus-models:ro \
+--name scheduler nexus/scheduler scheduler -config /nexus/config/scheduler_docker.yml
 ```
 After the scheduler starts, we need to retrieve the IP address of scheduler.
 ```
@@ -82,9 +83,13 @@ $ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' s
 ```
 Start a backend server on each GPU.
 ```
-$ docker run [--network nexus-network] --runtime=nvidia -d -v /path/to/nexus-models:/nexus-models:ro --name backend0 nexus/backend backend -config /nexus/config/backend_docker.yml -sch_addr $(scheduler IP):10001 -gpu $(gpu index)
+$ docker run [--network nexus-network] --runtime=nvidia -d \
+-v /path/to/nexus-models:/nexus-models:ro --name backend0 nexus/backend backend \
+-config /nexus/config/backend_docker.yml -sch_addr $(scheduler IP):10001 \
+-gpu $(gpu index)
 ```
 Start an application serving at port 12345, e.g., object recognition.
 ```
-$ docker run [--network nexus-network] -d -p 12345:9001 --name objrec nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP):10001
+$ docker run [--network nexus-network] -d -p 12345:9001 --name objrec \
+nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP):10001
 ```
