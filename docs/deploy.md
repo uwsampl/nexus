@@ -13,17 +13,10 @@ Deployment
 ### Step 1: Download Model Zoo
 Nexus publishes public model zoo on the Amazon S3. To download the model zoo
 from S3, you need to install [AWS CLI](https://aws.amazon.com/cli/) via
-`pip install awscli`, and configure AWS CLI by
-```
-$ aws configure
-AWS Access Key ID [None]: AKIAIOSFODNN7EXAMPLE
-AWS Secret Access Key [None]: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-Default region name [None]:
-Default output format [None]:
-```
-During the configuration, you need to provide your AWS access key ID and
+`pip install awscli`, and configure AWS CLI by `aws configure`.
+The configuration will prompt you to provide your AWS access key ID and
 secret access key. Instructions for creating the access key pair can be found
-on [AWS website](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html).
+at [AWS user guide](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html).
 
 To download the Nexus public model zoo, run
 ```
