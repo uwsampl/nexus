@@ -14,44 +14,27 @@ libhdf5-serial-dev
 ```
 
 Required libraries
-* protobuf >= 3.2.0
+* protobuf >= 3.5.0
 * [grpc](https://github.com/grpc/grpc/blob/master/INSTALL.md) >= v1.4.x
 * OpenCV >= 3.0
-* CUDA 8.0
+* bazel >= 0.10.0
+* CUDA >= 8.0
+* CUDNN >= 6.0
 
 Compile Nexus
 -------------
 ```
-$ git clone https://github.com/uwsaml/nexus.git
+$ git clone --recursive https://github.com/uwsaml/nexus.git
 $ cd nexus
-$ git submodule update --init
+$ git submodule update --init --recursive
 $ make all
-```
-
-Build docker image
-------------------
-This step requires the installation of [docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/)(>=1.12).
-
-There are four docker images that needs to be built. First we need to build the
-base docker image that installs all dependent libraries required for Nexus.
-```
-$ cd nexus/dockerfiles
-$ docker build -t nexus/base -f NexusBaseDockerfile .
-```
-
-Next we can the docker images for backend, scheduler, and application library
-respectively.
-```
-$ docker build -t nexus/base -f NexusBackendDockerfile .
-$ docker build -t nexus/base -f NexusSchedulerDockerfile .
-$ docker build -t nexus/base -f NexusAppLibDockerfile .
 ```
 
 Compile sample applications
 ---------------------------
 In the Nexus repo, we provide a few sample applications located at `nexus/apps`.
-In each application, you can compile the application by running `make` under the
-application directory. You can also build the application docker image by
+Go to the directory at each application, e.g., nexus/apps/obj_rec/, you can
+compile the application by
 ```
-$ docker build -t nexus/app_name -f Dockerfile .
+$ make
 ```

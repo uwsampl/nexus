@@ -6,4 +6,5 @@ cluster.
 Contents
 --------
 * [Compile from source](docs/compile.md)
+* [Build docker image](docs/docker.md)
 * [Deploy Nexus](docs/deploy.md)
