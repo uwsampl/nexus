@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-#include "backend/model_ins.h"
+#include "nexus/backend/model_ins.h"
 // Darknet headers
 extern "C" {
 #include "darknet_server.h"

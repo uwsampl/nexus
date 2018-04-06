@@ -1,8 +1,8 @@
 #include <glog/logging.h>
 #include <unordered_set>
 
-#include "common/model_profile.h"
-#include "backend/backend_server.h"
+#include "nexus/common/model_profile.h"
+#include "nexus/backend/backend_server.h"
 
 namespace nexus {
 namespace backend {

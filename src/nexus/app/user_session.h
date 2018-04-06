@@ -1,7 +1,7 @@
 #ifndef NEXUS_APP_USER_SESSION_H_
 #define NEXUS_APP_USER_SESSION_H_
 
-#include "common/connection.h"
+#include "nexus/common/connection.h"
 
 namespace nexus {
 namespace app {

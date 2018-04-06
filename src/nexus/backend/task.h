@@ -7,12 +7,12 @@
 #include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
 
-#include "backend/batch.h"
-#include "common/block_queue.h"
-#include "common/connection.h"
-#include "common/model_def.h"
-#include "proto/nnquery.pb.h"
-#include "proto/control.pb.h"
+#include "nexus/backend/batch.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/common/connection.h"
+#include "nexus/common/model_def.h"
+#include "nexus/proto/nnquery.pb.h"
+#include "nexus/proto/control.pb.h"
 
 namespace nexus {
 namespace backend {

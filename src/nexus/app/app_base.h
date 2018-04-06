@@ -1,7 +1,7 @@
 #ifndef NEXUS_APP_APP_BASE_H_
 #define NEXUS_APP_APP_BASE_H_
 
-#include "app/frontend.h"
+#include "nexus/app/frontend.h"
 
 namespace nexus {
 namespace app {

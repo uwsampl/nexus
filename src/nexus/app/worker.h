@@ -4,7 +4,7 @@
 #include <atomic>
 #include <thread>
 
-#include "common/block_queue.h"
+#include "nexus/common/block_queue.h"
 
 namespace nexus {
 namespace app {

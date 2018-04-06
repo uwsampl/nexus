@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "common/util.h"
-#include "backend/backend_server.h"
+#include "nexus/common/util.h"
+#include "nexus/backend/backend_server.h"
 
 using namespace nexus::backend;
 

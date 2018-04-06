@@ -1,4 +1,4 @@
-#include "model_def.h"
+#include "nexus/common/model_def.h"
 
 namespace nexus {
 

@@ -1,10 +1,10 @@
 #include <glog/logging.h>
 #include <thread>
 
-#include "backend/backend_server.h"
-#include "backend/caffe_model.h"
-#include "backend/gpu_executor.h"
-#include "common/device.h"
+#include "nexus/backend/backend_server.h"
+#include "nexus/backend/caffe_model.h"
+#include "nexus/backend/gpu_executor.h"
+#include "nexus/common/device.h"
 
 namespace nexus {
 namespace backend {

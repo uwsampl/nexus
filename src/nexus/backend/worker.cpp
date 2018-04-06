@@ -1,9 +1,9 @@
 #include <chrono>
 #include <glog/logging.h>
 
-#include "backend/backend_server.h"
-#include "backend/model_ins.h"
-#include "backend/worker.h"
+#include "nexus/backend/backend_server.h"
+#include "nexus/backend/model_ins.h"
+#include "nexus/backend/worker.h"
 
 namespace nexus {
 namespace backend {

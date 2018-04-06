@@ -3,7 +3,7 @@
 
 #include <boost/shared_ptr.hpp>
 
-#include "backend/model_ins.h"
+#include "nexus/backend/model_ins.h"
 
 // Caffe headers
 // avoid redefined keywords from darknet

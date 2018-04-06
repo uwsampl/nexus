@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "proto/control.grpc.pb.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 namespace scheduler {

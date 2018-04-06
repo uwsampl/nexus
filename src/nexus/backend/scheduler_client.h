@@ -6,7 +6,7 @@
 #include <memory>
 #include <thread>
 
-#include "proto/control.grpc.pb.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 namespace backend {

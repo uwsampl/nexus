@@ -3,8 +3,8 @@
 
 #include <unordered_map>
 
-#include "common/connection.h"
-#include "proto/control.pb.h"
+#include "nexus/common/connection.h"
+#include "nexus/proto/control.pb.h"
 
 namespace nexus {
 

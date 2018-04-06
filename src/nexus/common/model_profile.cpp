@@ -1,8 +1,8 @@
 #include <boost/filesystem.hpp>
 #include <fstream>
 
-#include "common/model_profile.h"
-#include "common/util.h"
+#include "nexus/common/model_profile.h"
+#include "nexus/common/util.h"
 
 namespace fs = boost::filesystem;
 

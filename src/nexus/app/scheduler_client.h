@@ -3,8 +3,8 @@
 
 #include <grpc++/grpc++.h>
 
-#include "proto/control.grpc.pb.h"
-#include "proto/nnquery.pb.h"
+#include "nexus/proto/control.grpc.pb.h"
+#include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
 namespace app {

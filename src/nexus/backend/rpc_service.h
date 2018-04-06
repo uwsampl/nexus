@@ -3,8 +3,8 @@
 
 #include <grpc++/grpc++.h>
 
-#include "common/rpc_service_base.h"
-#include "proto/control.grpc.pb.h"
+#include "nexus/common/rpc_service_base.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 namespace backend {

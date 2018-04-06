@@ -1,12 +1,11 @@
-#include "backend/caffe_densecap_model.h"
-
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 
-#include "common/image.h"
-#include "common/util.h"
+#include "nexus/backend/caffe_densecap_model.h"
+#include "nexus/common/image.h"
+#include "nexus/common/util.h"
 // Caffe headers
 #include "caffe/layers/slice_layer.hpp"
 #include "caffe/util/nms.hpp"

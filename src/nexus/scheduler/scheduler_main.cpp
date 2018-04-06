@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
 
-#include "common/util.h"
-#include "scheduler/scheduler.h"
+#include "nexus/common/util.h"
+#include "nexus/scheduler/scheduler.h"
 
 using namespace nexus::scheduler;
 

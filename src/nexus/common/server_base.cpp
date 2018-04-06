@@ -1,7 +1,7 @@
-#include "common/server_base.h"
-
 #include <glog/logging.h>
 #include <signal.h>
+
+#include "nexus/common/server_base.h"
 
 namespace nexus {
 

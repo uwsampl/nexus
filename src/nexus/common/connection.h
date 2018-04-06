@@ -6,7 +6,7 @@
 #include <memory>
 #include <mutex>
 
-#include "common/message.h"
+#include "nexus/common/message.h"
 
 namespace nexus {
 

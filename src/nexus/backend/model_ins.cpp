@@ -1,15 +1,14 @@
-#include "backend/model_ins.h"
-
 #include <chrono>
 #include <glog/logging.h>
 #include <thread>
 
-#include "common/model_profile.h"
-#include "common/time_util.h"
-#include "backend/caffe_densecap_model.h"
-#include "backend/caffe_model.h"
-#include "backend/darknet_model.h"
-#include "backend/tensorflow_model.h"
+#include "nexus/common/model_profile.h"
+#include "nexus/common/time_util.h"
+#include "nexus/backend/caffe_densecap_model.h"
+#include "nexus/backend/caffe_model.h"
+#include "nexus/backend/darknet_model.h"
+#include "nexus/backend/model_ins.h"
+#include "nexus/backend/tensorflow_model.h"
 
 namespace nexus {
 namespace backend {

@@ -1,8 +1,9 @@
-#include "image.h"
 #include <glog/logging.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <string>
+
+#include "nexus/common/image.h"
 
 namespace nexus {
 

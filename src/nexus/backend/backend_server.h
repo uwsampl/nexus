@@ -10,16 +10,16 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
-#include "backend/gpu_executor.h"
-#include "backend/model_ins.h"
-#include "backend/rpc_service.h"
-#include "backend/scheduler_client.h"
-#include "backend/task.h"
-#include "backend/worker.h"
-#include "common/block_queue.h"
-#include "common/model_def.h"
-#include "common/server_base.h"
-#include "common/spinlock.h"
+#include "nexus/backend/gpu_executor.h"
+#include "nexus/backend/model_ins.h"
+#include "nexus/backend/rpc_service.h"
+#include "nexus/backend/scheduler_client.h"
+#include "nexus/backend/task.h"
+#include "nexus/backend/worker.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/common/model_def.h"
+#include "nexus/common/server_base.h"
+#include "nexus/common/spinlock.h"
 
 namespace nexus {
 namespace backend {

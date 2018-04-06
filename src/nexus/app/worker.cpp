@@ -1,5 +1,5 @@
-#include "app/frontend.h"
-#include "app/worker.h"
+#include "nexus/app/frontend.h"
+#include "nexus/app/worker.h"
 
 namespace nexus {
 namespace app {

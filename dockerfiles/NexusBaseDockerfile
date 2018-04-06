@@ -79,7 +79,7 @@ RUN rm -r /tmp/*
 # Link cudnn to /usr/local/cuda
 RUN ln -s /usr/include/cudnn.h /usr/local/cuda/include/
 RUN ln -s /usr/lib/x86_64-linux-gnu/libcudnn.so /usr/local/cuda/lib64/
-RUN ln -s /usr/lib/x86_64-linux-gnu/libcudnn.so.5 /usr/local/cuda/lib64/
+RUN ln -s /usr/lib/x86_64-linux-gnu/libcudnn.so.7 /usr/local/cuda/lib64/
 
 # Update a database for mlocate
 RUN updatedb

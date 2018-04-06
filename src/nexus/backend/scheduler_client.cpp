@@ -1,8 +1,8 @@
 #include <glog/logging.h>
 
-#include "backend/backend_server.h"
-#include "backend/scheduler_client.h"
-#include "common/time_util.h"
+#include "nexus/backend/backend_server.h"
+#include "nexus/backend/scheduler_client.h"
+#include "nexus/common/time_util.h"
 
 namespace nexus {
 namespace backend {

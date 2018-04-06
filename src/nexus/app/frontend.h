@@ -8,19 +8,19 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "app/rpc_service.h"
-#include "app/scheduler_client.h"
-#include "app/user_session.h"
-#include "app/worker.h"
-#include "common/backend_pool.h"
-#include "common/block_queue.h"
-#include "common/connection.h"
-#include "common/model_def.h"
-#include "common/model_handler.h"
-#include "common/server_base.h"
-#include "common/spinlock.h"
-#include "proto/control.pb.h"
-#include "proto/nnquery.pb.h"
+#include "nexus/app/rpc_service.h"
+#include "nexus/app/scheduler_client.h"
+#include "nexus/app/user_session.h"
+#include "nexus/app/worker.h"
+#include "nexus/common/backend_pool.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/common/connection.h"
+#include "nexus/common/model_def.h"
+#include "nexus/common/model_handler.h"
+#include "nexus/common/server_base.h"
+#include "nexus/common/spinlock.h"
+#include "nexus/proto/control.pb.h"
+#include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
 namespace app {

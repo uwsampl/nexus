@@ -9,20 +9,23 @@ ROOTDIR = $(CURDIR)
 # protobuf srcs and objs
 PROTO_SRC_DIR = src/nexus/proto
 PROTO_SRCS := $(PROTO_SRC_DIR)/nnquery.proto
-PROTO_GEN_HEADERS := ${PROTO_SRCS:src/nexus/%.proto=build/gen/%.pb.h}
-PROTO_GEN_CC := ${PROTO_SRCS:src/nexus/%.proto=build/gen/%.pb.cc}
+PROTO_GEN_HEADERS := ${PROTO_SRCS:src/%.proto=build/gen/%.pb.h}
+PROTO_GEN_CC := ${PROTO_SRCS:src/%.proto=build/gen/%.pb.cc}
 PROTO_OBJS := ${PROTO_SRCS:src/nexus/%.proto=build/obj/%.pb.o}
 # gen python code
 PROTO_GEN_PY_DIR = python/nexus/proto
 PROTO_GEN_PY := $(patsubst $(PROTO_SRC_DIR)/%.proto, $(PROTO_GEN_PY_DIR)/%_pb2.py, $(PROTO_SRCS))
 # grpc protobuf
 GRPC_PROTO_SRCS := $(PROTO_SRC_DIR)/control.proto
-PROTO_GEN_HEADERS += ${GRPC_PROTO_SRCS:src/nexus/%.proto=build/gen/%.pb.h} \
-	${GRPC_PROTO_SRCS:src/nexus/%.proto=build/gen/%.grpc.pb.h}
-PROTO_GEN_CC += ${GRPC_PROTO_SRCS:src/nexus/%.proto=build/gen/%.pb.cc} \
-	${GRPC_PROTO_SRCS:src/nexus/%.proto=build/gen/%.grpc.pb.cc}
+PROTO_GEN_HEADERS += ${GRPC_PROTO_SRCS:src/%.proto=build/gen/%.pb.h} \
+	${GRPC_PROTO_SRCS:src/%.proto=build/gen/%.grpc.pb.h}
+PROTO_GEN_CC += ${GRPC_PROTO_SRCS:src/%.proto=build/gen/%.pb.cc} \
+	${GRPC_PROTO_SRCS:src/%.proto=build/gen/%.grpc.pb.cc}
 PROTO_OBJS += ${GRPC_PROTO_SRCS:src/nexus/%.proto=build/obj/%.pb.o} \
 	${GRPC_PROTO_SRCS:src/nexus/%.proto=build/obj/%.grpc.pb.o}
+$(warning $(PROTO_GEN_HEADERS))
+$(warning $(PROTO_GEN_CC))
+$(warning $(PROTO_OBJS))
 
 # protoc config
 PROTOC = `which protoc`
@@ -48,7 +51,7 @@ DEPS := ${OBJS:.o=.d}
 # c++ configs
 CXX = g++
 WARNING = -Wall -Wfatal-errors -Wno-unused -Wno-unused-result
-CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc/nexus -Ibuild/gen
+CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc -Ibuild/gen
 # Automatic dependency generation
 CXXFLAGS += -MMD -MP
 LD_FLAGS = -lm -pthread -lglog -lgflags -lboost_system -lboost_thread \
@@ -137,11 +140,11 @@ build/bin/profiler: $(CXX_COMMON_OBJS) $(CXX_BACKEND_LIB_OBJS) build/obj/tools/p
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS) -o $@
 
-build/gen/%.pb.cc build/gen/%.pb.h: src/nexus/%.proto
+build/gen/%.pb.cc build/gen/%.pb.h: src/%.proto
 	@mkdir -p $(@D)
 	$(PROTOC) -I$(PROTO_SRC_DIR) --cpp_out=$(@D) $<
 
-build/gen/%.grpc.pb.cc build/gen/%.grpc.pb.h: src/nexus/%.proto | build/gen/%.pb.h
+build/gen/%.grpc.pb.cc build/gen/%.grpc.pb.h: src/%.proto | build/gen/%.pb.h
 	@mkdir -p $(@D)
 	$(PROTOC) -I$(PROTO_SRC_DIR) --grpc_out=$(@D) --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<
 
@@ -150,7 +153,7 @@ $(PROTO_GEN_PY_DIR)/%_pb2.py: $(PROTO_SRC_DIR)/%.proto
 	touch $(@D)/__init__.py
 	$(PROTOC) --proto_path=$(PROTO_SRC_DIR) --python_out=$(@D) $<
 
-build/obj/%.pb.o: build/gen/%.pb.cc build/gen/%.pb.h
+build/obj/%.pb.o: build/gen/nexus/%.pb.cc build/gen/nexus/%.pb.h
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 

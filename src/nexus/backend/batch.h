@@ -5,9 +5,9 @@
 #include <condition_variable>
 #include <memory>
 
-#include "backend/slice.h"
-#include "common/block_queue.h"
-#include "common/data_type.h"
+#include "nexus/backend/slice.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/common/data_type.h"
 
 namespace nexus {
 namespace backend {

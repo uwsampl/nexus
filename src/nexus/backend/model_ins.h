@@ -8,14 +8,14 @@
 #include <unordered_map>
 #include <yaml-cpp/yaml.h>
 
-#include "backend/batch.h"
-#include "backend/task.h"
-#include "common/block_queue.h"
-#include "common/metric.h"
-#include "common/model_def.h"
-#include "common/spinlock.h"
-#include "proto/nnquery.pb.h"
-#include "proto/control.pb.h"
+#include "nexus/backend/batch.h"
+#include "nexus/backend/task.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/common/metric.h"
+#include "nexus/common/model_def.h"
+#include "nexus/common/spinlock.h"
+#include "nexus/proto/nnquery.pb.h"
+#include "nexus/proto/control.pb.h"
 
 namespace nexus {
 namespace backend {

@@ -1,7 +1,7 @@
 #ifndef NEXUS_BACKEND_TENSORFLOW_MODEL_H_
 #define NEXUS_BACKEND_TENSORFLOW_MODEL_H_
 
-#include "backend/model_ins.h"
+#include "nexus/backend/model_ins.h"
 // Tensorflow headers
 #include "tensorflow/core/framework/allocator.h"
 #include "tensorflow/core/public/session.h"

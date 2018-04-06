@@ -5,8 +5,8 @@
 #include <string>
 #include <thread>
 
-#include "common/block_queue.h"
-#include "backend/task.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/backend/task.h"
 
 namespace nexus {
 namespace backend {

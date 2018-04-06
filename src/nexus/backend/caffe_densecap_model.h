@@ -1,7 +1,7 @@
 #ifndef NEXUS_BACKEND_CAFFE_DENSECAP_MODEL_H_
 #define NEXUS_BACKEND_CAFFE_DENSECAP_MODEL_H_
 
-#include "model_ins.h"
+#include "nexus/backend/model_ins.h"
 
 // Caffe headers
 // avoid redefined keywords from darknet

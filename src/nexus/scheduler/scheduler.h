@@ -11,13 +11,13 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
-#include "common/model_def.h"
-#include "common/model_profile.h"
-#include "common/rpc_call.h"
-#include "common/rpc_service_base.h"
-#include "proto/control.grpc.pb.h"
-#include "scheduler/backend_rpc_client.h"
-#include "scheduler/frontend_rpc_client.h"
+#include "nexus/common/model_def.h"
+#include "nexus/common/model_profile.h"
+#include "nexus/common/rpc_call.h"
+#include "nexus/common/rpc_service_base.h"
+#include "nexus/proto/control.grpc.pb.h"
+#include "nexus/scheduler/backend_rpc_client.h"
+#include "nexus/scheduler/frontend_rpc_client.h"
 
 namespace nexus {
 namespace scheduler {

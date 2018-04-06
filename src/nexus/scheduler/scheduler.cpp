@@ -2,7 +2,7 @@
 #include <glog/logging.h>
 #include <unordered_set>
 
-#include "scheduler/scheduler.h"
+#include "nexus/scheduler/scheduler.h"
 
 namespace fs = boost::filesystem;
 

@@ -4,9 +4,9 @@
 #include <opencv2/opencv.hpp>
 #include <unordered_set>
 
-#include "backend/darknet_model.h"
-#include "common/image.h"
-#include "proto/control.pb.h"
+#include "nexus/backend/darknet_model.h"
+#include "nexus/common/image.h"
+#include "nexus/proto/control.pb.h"
 
 namespace fs = boost::filesystem;
 

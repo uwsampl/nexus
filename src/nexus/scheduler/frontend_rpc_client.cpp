@@ -1,5 +1,5 @@
-#include "scheduler/frontend_rpc_client.h"
-#include "scheduler/scheduler.h"
+#include "nexus/scheduler/frontend_rpc_client.h"
+#include "nexus/scheduler/scheduler.h"
 
 namespace nexus {
 namespace scheduler {

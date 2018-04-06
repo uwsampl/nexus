@@ -8,8 +8,8 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
-#include "common/model_def.h"
-#include "proto/control.grpc.pb.h"
+#include "nexus/common/model_def.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 namespace scheduler {

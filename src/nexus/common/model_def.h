@@ -7,8 +7,8 @@
 #include <unordered_map>
 #include <utility>
 
-#include "common/util.h"
-#include "proto/nnquery.pb.h"
+#include "nexus/common/util.h"
+#include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
 

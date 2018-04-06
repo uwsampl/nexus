@@ -1,7 +1,7 @@
 #include <glog/logging.h>
 
-#include "common/backend_pool.h"
-#include "common/util.h"
+#include "nexus/common/backend_pool.h"
+#include "nexus/common/util.h"
 
 namespace nexus {
 

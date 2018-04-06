@@ -1,6 +1,6 @@
-#include "common/connection.h"
-
 #include <glog/logging.h>
+
+#include "nexus/common/connection.h"
 
 namespace nexus {
 

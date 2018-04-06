@@ -1,7 +1,7 @@
 #include <cstring>
 #include <glog/logging.h>
 
-#include "common/message.h"
+#include "nexus/common/message.h"
 
 namespace nexus {
 

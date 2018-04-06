@@ -5,8 +5,8 @@
 #include <type_traits>
 #include <unordered_map>
 
-#include "common/buffer.h"
-#include "proto/nnquery.pb.h"
+#include "nexus/common/buffer.h"
+#include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
 

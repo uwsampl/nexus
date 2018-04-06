@@ -1,8 +1,8 @@
 #include <glog/logging.h>
 #include <google/protobuf/text_format.h>
 
-#include "app/frontend.h"
-#include "app/scheduler_client.h"
+#include "nexus/app/frontend.h"
+#include "nexus/app/scheduler_client.h"
 
 namespace nexus {
 namespace app {

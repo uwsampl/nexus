@@ -1,8 +1,8 @@
 #include <glog/logging.h>
 
-#include "common/model_profile.h"
-#include "scheduler/backend_rpc_client.h"
-#include "scheduler/scheduler.h"
+#include "nexus/common/model_profile.h"
+#include "nexus/scheduler/backend_rpc_client.h"
+#include "nexus/scheduler/scheduler.h"
 
 namespace nexus {
 namespace scheduler {

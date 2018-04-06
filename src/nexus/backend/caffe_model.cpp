@@ -3,11 +3,11 @@
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 
-#include "backend/caffe_model.h"
-#include "backend/slice.h"
-#include "common/image.h"
-#include "common/util.h"
-#include "proto/control.pb.h"
+#include "nexus/backend/caffe_model.h"
+#include "nexus/backend/slice.h"
+#include "nexus/common/image.h"
+#include "nexus/common/util.h"
+#include "nexus/proto/control.pb.h"
 
 namespace fs = boost::filesystem;
 

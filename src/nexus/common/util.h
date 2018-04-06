@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include "common/device.h"
+#include "nexus/common/device.h"
 
 namespace nexus {
 

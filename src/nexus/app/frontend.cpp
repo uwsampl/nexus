@@ -1,6 +1,6 @@
 #include <limits>
 
-#include "app/frontend.h"
+#include "nexus/app/frontend.h"
 
 namespace nexus {
 namespace app {

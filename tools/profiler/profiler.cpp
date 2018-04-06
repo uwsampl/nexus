@@ -12,11 +12,11 @@
 #include <unordered_map>
 #include <yaml-cpp/yaml.h>
 
-#include "common/device.h"
-#include "common/block_queue.h"
-#include "common/model_def.h"
-#include "backend/model_ins.h"
-#include "proto/nnquery.pb.h"
+#include "nexus/common/device.h"
+#include "nexus/common/block_queue.h"
+#include "nexus/common/model_def.h"
+#include "nexus/backend/model_ins.h"
+#include "nexus/proto/nnquery.pb.h"
 
 DEFINE_int32(gpu, 0, "GPU device id");
 DEFINE_int32(repeat, 10, "repeat times");

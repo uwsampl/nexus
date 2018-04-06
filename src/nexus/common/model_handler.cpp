@@ -1,8 +1,8 @@
 #include <glog/logging.h>
 #include <typeinfo>
 
-#include "common/model_def.h"
-#include "common/model_handler.h"
+#include "nexus/common/model_def.h"
+#include "nexus/common/model_handler.h"
 
 namespace nexus {
 

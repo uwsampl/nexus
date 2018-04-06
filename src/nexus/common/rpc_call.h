@@ -11,32 +11,6 @@ enum RpcCallStatus {
   RPC_CALL_FINISH,
 };
 
-/*
-template<class ServiceType>
-class RpcCallBase {
- public:
-  RpcCallBase(ServiceType* service, grpc::ServerCompletionQueue* cq) :
-      service_(service),
-      cq_(cq),
-      status_(RPC_CALL_CREATE) {
-  }
-
-  std::string PeerAddress() {
-    return ctx_.peer();
-  }
-
-  virtual ~RpcCallBase() {}
-
-  virtual void Proceed() = 0;
-
- protected:
-  ServiceType* service_;
-  grpc::ServerCompletionQueue* cq_;
-  grpc::ServerContext ctx_;
-  RpcCallStatus status_;
-};
-*/
-
 class RpcCallBase {
  public:
   RpcCallBase(grpc::ServerCompletionQueue* cq) :

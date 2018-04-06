@@ -2,7 +2,8 @@
 #define NEXUS_COMMON_IMAGE_H_
 
 #include <opencv2/core/core.hpp>
-#include "proto/nnquery.pb.h"
+
+#include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
 

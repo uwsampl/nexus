@@ -5,7 +5,7 @@
 #include <thread>
 #include <vector>
 
-#include "backend/model_ins.h"
+#include "nexus/backend/model_ins.h"
 
 namespace nexus {
 namespace backend {

@@ -4,9 +4,9 @@
 #include <fstream>
 #include <opencv2/opencv.hpp>
 
-#include "backend/slice.h"
-#include "common/image.h"
-#include "common/util.h"
+#include "nexus/backend/slice.h"
+#include "nexus/common/image.h"
+#include "nexus/common/util.h"
 // Tensorflow headers
 #include "tensorflow/core/common_runtime/direct_session.h"
 #include "tensorflow/core/common_runtime/gpu/process_state.h"

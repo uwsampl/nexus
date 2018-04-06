@@ -8,9 +8,9 @@
 #include <string>
 #include <unordered_map>
 
-#include "common/backend_pool.h"
-#include "common/data_type.h"
-#include "proto/nnquery.pb.h"
+#include "nexus/common/backend_pool.h"
+#include "nexus/common/data_type.h"
+#include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
 
