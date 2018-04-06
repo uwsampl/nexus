@@ -1,4 +1,4 @@
-FROM nvidia/cuda:8.0-cudnn5-devel-ubuntu16.04
+FROM nvidia/cuda:9.1-cudnn7-devel-ubuntu16.04
 
 ENV LD_LIBRARY_PATH /usr/local/lib:/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs:$LD_LIBRARY_PATH
 
@@ -41,12 +41,12 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install --upgrade pip && pip install numpy scipy
 
-# Install bazel 0.5.2
+# Install bazel 0.11.1
 RUN mkdir -p /tmp && cd /tmp && \
-    wget https://github.com/bazelbuild/bazel/releases/download/0.5.2/bazel-0.5.2-without-jdk-installer-linux-x86_64.sh && \
-    chmod +x bazel-0.5.2-without-jdk-installer-linux-x86_64.sh && \
-    ./bazel-0.5.2-without-jdk-installer-linux-x86_64.sh
-    
+    wget https://github.com/bazelbuild/bazel/releases/download/0.11.1/bazel-0.11.1-without-jdk-installer-linux-x86_64.sh && \
+    chmod +x bazel-0.11.1-without-jdk-installer-linux-x86_64.sh && \
+    ./bazel-0.11.1-without-jdk-installer-linux-x86_64.sh
+
 # Install opencv 3.1.0
 RUN wget https://github.com/Itseez/opencv/archive/3.1.0.zip -P /tmp/ && \
     cd /tmp && unzip 3.1.0.zip && cd opencv-3.1.0 && mkdir build && \
@@ -59,21 +59,22 @@ RUN wget https://github.com/Itseez/opencv/archive/3.1.0.zip -P /tmp/ && \
 # Add OpenCV 3rd party library path
 ENV LIBRARY_PATH $LIBRARY_PATH:/usr/local/share/OpenCV/3rdparty/lib/
 ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH:/usr/local/share/OpenCV/3rdparty/lib/
-    
-# Install protobuf 3.2.0
+
+# Install protobuf 3.5.0
 RUN cd /tmp && mkdir protobuf && cd protobuf && \
-    wget https://github.com/google/protobuf/releases/download/v3.2.0/protoc-3.2.0-linux-x86_64.zip && \
-    unzip protoc-3.2.0-linux-x86_64.zip && cp bin/protoc /usr/local/bin/ && \
-    wget https://github.com/google/protobuf/releases/download/v3.2.0/protobuf-python-3.2.0.zip && \
-    unzip protobuf-python-3.2.0.zip && cd protobuf-3.2.0 && ./configure && \
+    wget https://github.com/google/protobuf/releases/download/v3.5.0/protoc-3.5.0-linux-x86_64.zip && \
+    unzip protoc-3.5.0-linux-x86_64.zip && \
+    cp bin/protoc /usr/local/bin/ && \
+    wget https://github.com/google/protobuf/releases/download/v3.5.0/protobuf-python-3.5.0.zip && \
+    unzip protobuf-python-3.5.0.zip && cd protobuf-3.5.0 && ./configure && \
     make -j$(nproc) && make install
 
-# Install grpc 1.4.3
-RUN cd /tmp && git clone -b v1.4.3 https://github.com/grpc/grpc && \
-    cd grpc && git submodule update --init && make -j$(nproc) && \
+# Install grpc 1.10.x
+RUN cd /tmp && git clone -b v1.10.x https://github.com/grpc/grpc && \
+    cd grpc && git submodule update --init && make -j$(nproc) HAS_SYSTEM_PROTOBUF=false && \
     make install
 
-RUN rm -r /tmp
+RUN rm -r /tmp/*
 
 # Link cudnn to /usr/local/cuda
 RUN ln -s /usr/include/cudnn.h /usr/local/cuda/include/
@@ -82,9 +83,3 @@ RUN ln -s /usr/lib/x86_64-linux-gnu/libcudnn.so.5 /usr/local/cuda/lib64/
 
 # Update a database for mlocate
 RUN updatedb
-
-#ADD . /nexus/
-#RUN cd /nexus && ./configure && make cleanall && make -j$($(nproc)-1) all
-
-# Add Nexus binary and library path
-#ENV PATH /nexus/build/bin:$PATH

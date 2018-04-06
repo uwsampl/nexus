@@ -7,7 +7,7 @@
 #include "backend/model_ins.h"
 // Darknet headers
 extern "C" {
-#include "../../darknet/darknet_server.h"
+#include "darknet_server.h"
 }
 
 namespace nexus {

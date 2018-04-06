@@ -80,7 +80,7 @@ TensorflowModel::TensorflowModel(int gpu_id, std::string model_id,
   // Get the GPU allocator for creating input buffer
   tf::ProcessState* process_state = tf::ProcessState::singleton();
   gpu_allocator_ = process_state->GetGPUAllocator(
-      gpu_option_.config.gpu_options(), gpu_id, 0);
+      gpu_option_.config.gpu_options(), tf::TfGpuId(gpu_id), 0);
 }
 
 TensorflowModel::~TensorflowModel() {

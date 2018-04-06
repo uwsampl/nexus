@@ -61,21 +61,25 @@ ifeq ($(USE_GPU), 1)
 endif
 
 # library dependency
-DARKNET_BUILD_DIR = $(ROOTDIR)/src/darknet
-CAFFE_BUILD_DIR = $(ROOTDIR)/caffe/build
-TENSORFLOW_BUILD_DIR = $(ROOTDIR)/tensorflow/build
+DARKNET_ROOT_DIR = $(ROOTDIR)/frameworks/darknet
+DARKNET_BUILD_DIR = $(DARKNET_ROOT_DIR)
+CAFFE_ROOT_DIR = $(ROOTDIR)/frameworks/caffe
+CAFFE_BUILD_DIR = $(CAFFE_ROOT_DIR)/build
+TENSORFLOW_ROOT_DIR = $(ROOTDIR)/frameworks/tensorflow
+TENSORFLOW_BUILD_DIR = $(TENSORFLOW_ROOT_DIR)/build
 
 BACKEND_DEPS =
 BACKEND_CXXFLAGS = 
 BACKEND_LD_FLAGS = 
 ifeq ($(USE_CAFFE), 1)
 	BACKEND_DEPS += $(CAFFE_BUILD_DIR)/lib/libcaffe.so
-	BACKEND_CXXFLAGS += -I$(ROOTDIR)/caffe/include -I$(CAFFE_BUILD_DIR)/src
+	BACKEND_CXXFLAGS += -I$(CAFFE_ROOT_DIR)/include -I$(CAFFE_BUILD_DIR)/src
 	BACKEND_LD_FLAGS += -L$(CAFFE_BUILD_DIR)/lib -lcaffe -Wl,-rpath,$(CAFFE_BUILD_DIR)/lib
 endif
 ifeq ($(USE_DARKNET), 1)
-	BACKEND_DEPS += $(DARKNET_BUILD_DIR)/lib/libdarknet.so
-	BACKEND_LD_FLAGS += -L$(DARKNET_BUILD_DIR)/lib -ldarknet -Wl,-rpath,$(DARKNET_BUILD_DIR)/lib
+	BACKEND_DEPS += $(DARKNET_BUILD_DIR)/libdarknet.so
+	BACKEND_CXXFLAGS += -I$(DARKNET_ROOT_DIR)/src -I$(DARKNET_ROOT_DIR)/include
+	BACKEND_LD_FLAGS += -L$(DARKNET_BUILD_DIR) -ldarknet -Wl,-rpath,$(DARKNET_BUILD_DIR)
 endif
 ifeq ($(USE_TENSORFLOW), 1)
 	export PKG_CONFIG_PATH:=$(TENSORFLOW_BUILD_DIR)/lib/pkgconfig:${PKG_CONFIG_PATH}
@@ -86,15 +90,24 @@ endif
 
 all: proto python lib backend scheduler tool
 
-$(CAFFE_BUILD_DIR)/lib/libcaffe.so:
-	cd caffe; $(MAKE) proto && $(MAKE) all && $(MAKE) pycaffe; cd -
+caffe: $(CAFFE_BUILD_DIR)/lib/libcaffe.so
+darknet: $(DARKNET_BUILD_DIR)/libdarknet.so
+tensorflow: $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so
 
-$(DARKNET_BUILD_DIR)/lib/libdarknet.so:
-	cd src/darknet; $(MAKE) all; cd -
+$(CAFFE_BUILD_DIR)/lib/libcaffe.so:
+	cd $(CAFFE_ROOT_DIR) && $(MAKE) proto && $(MAKE) all && $(MAKE) pycaffe && cd -
+
+$(DARKNET_BUILD_DIR)/libdarknet.so:
+	cd $(DARKNET_ROOT_DIR) && $(MAKE) all && cd -
 
 $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so:
-	mkdir -p $(TENSORFLOW_BUILD_DIR)
-	cd $(TENSORFLOW_BUILD_DIR); cmake -DCMAKE_INSTALL_PREFIX=. .. && make && make install
+	@mkdir -p $(TENSORFLOW_BUILD_DIR)
+	cd $(TENSORFLOW_BUILD_DIR) && cmake -DCMAKE_INSTALL_PREFIX=. .. && make
+	@if [ -e $(TENSORFLOW_ROOT_DIR)/bazel-bin/tensorflow/libtensorflow_cc.so ]; then \
+	 	cd $(TENSORFLOW_BUILD_DIR) && make install; \
+	else \
+		echo "Build Tensorflow failed"; exit 0; \
+	fi
 
 proto: $(PROTO_GEN_CC)
 
@@ -155,20 +168,20 @@ build/obj/tools/%.o: tools/%.cpp | $(PROTO_GEN_HEADERS)
 
 .PRECIOUS: %.pb.cc %.pb.h %.grpc.pb.cc %.grpc.pb.h $(PROTO_GEN_HEADERS) $(PROTO_GEN_CC)
 
-.PHONY: proto python lib backend scheduler tool \
+.PHONY: proto python lib backend scheduler tool darknet caffe tensorflow \
 	clean clean-darknet clean-caffe clean-tensorflow cleanall
 
 clean:
 	rm -rf build $(PROTO_GEN_PY_DIR) $(PROTO_GEN_CC) $(PROTO_GEN_HEADERS)
 
 clean-darknet:
-	cd src/darknet; $(MAKE) clean; cd -
+	cd $(DARKNET_ROOT_DIR) && $(MAKE) clean && cd -
 
 clean-caffe:
-	cd caffe; $(MAKE) clean; cd -
+	cd $(CAFFE_ROOT_DIR) && $(MAKE) clean && cd -
 
 clean-tensorflow:
-	rm -rf $(TENSORFLOW_BUILD_DIR) tensorflow/.tf_configure.bazelrc
+	rm -rf $(TENSORFLOW_BUILD_DIR) $(TENSORFLOW_ROOT_DIR)/.tf_configure.bazelrc
 
 cleanall: clean clean-darknet clean-caffe clean-tensorflow
 
