@@ -23,9 +23,6 @@ PROTO_GEN_CC += ${GRPC_PROTO_SRCS:src/%.proto=build/gen/%.pb.cc} \
 	${GRPC_PROTO_SRCS:src/%.proto=build/gen/%.grpc.pb.cc}
 PROTO_OBJS += ${GRPC_PROTO_SRCS:src/nexus/%.proto=build/obj/%.pb.o} \
 	${GRPC_PROTO_SRCS:src/nexus/%.proto=build/obj/%.grpc.pb.o}
-$(warning $(PROTO_GEN_HEADERS))
-$(warning $(PROTO_GEN_CC))
-$(warning $(PROTO_OBJS))
 
 # protoc config
 PROTOC = `which protoc`

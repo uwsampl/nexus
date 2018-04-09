@@ -22,23 +22,24 @@ namespace backend {
 
 class ModelInstance {
  public:
-  ModelInstance(int gpu_id, std::string model_id, std::string model_name,
-                ModelType type, uint32_t batch, uint32_t max_batch,
+  ModelInstance(int gpu_id, const std::string& model_name,
+                uint32_t version, const std::string& type,
+                uint32_t batch, uint32_t max_batch,
                 BlockPriorityQueue<Task>& task_queue);
 
   ~ModelInstance() {}
 
-  std::string model_id() const { return model_id_; }
-
   std::string model_name() const { return model_name_; }
 
+  std::string type() const { return type_; }
+  
   uint32_t batch() const { return batch_; }
 
   uint32_t max_batch() const { return max_batch_; }
 
-  ModelType type() const { return type_; }
-  
-  virtual Framework framework() const = 0;
+  virtual std::string framework() const = 0;
+
+  virtual std::string profile_id() const = 0;
 
   void Init();
 
@@ -77,9 +78,9 @@ class ModelInstance {
 
  protected:
   int gpu_id_;
-  std::string model_id_;
   std::string model_name_;
-  ModelType type_;
+  uint32_t version_;
+  std::string type_;
   uint32_t batch_;
   uint32_t max_batch_;
   bool need_update_max_batch_;

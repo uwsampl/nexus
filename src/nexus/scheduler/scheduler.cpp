@@ -2,6 +2,7 @@
 #include <glog/logging.h>
 #include <unordered_set>
 
+#include "nexus/common/model_db.h"
 #include "nexus/scheduler/scheduler.h"
 
 namespace fs = boost::filesystem;
@@ -14,46 +15,48 @@ INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, LoadModel, LoadModelRequest, LoadModelReply);
 INSTANTIATE_RPC_CALL(AsyncService, UnloadModel, ModelSession, RpcReply);
 
-Scheduler::Scheduler(std::string port, size_t nthreads, double epoch) :
+Scheduler::Scheduler(std::string port, size_t nthreads, double epoch,
+                     std::string model_db_root) :
     AsyncRpcServiceBase(port, nthreads),
     epoch_(static_cast<unsigned long>(epoch * 1000)),
     backend_pool_version_(0) {
+  ModelDatabase::Singleton().Init(model_db_root);
 }
 
-void Scheduler::LoadConfigFile(const std::string& config_file) {
-  LOG(INFO) << "Load config file from " << config_file;
-  YAML::Node config = YAML::LoadFile(config_file);
-  CHECK(config["model_profile_dir"]) << " is missing";
-  ModelProfileTable::Singleton().Init(
-      config["model_profile_dir"].as<std::string>());
+void Scheduler::LoadWorkloadFile(const std::string& workload_file) {
+  LOG(INFO) << "Load workload file from " << workload_file;
+  YAML::Node config = YAML::LoadFile(workload_file);
   if (!config["backends"]) {
     return;
   }
   // Load static workload configuration
   for (uint i = 0; i < config["backends"].size(); ++i) {
     const YAML::Node& backend_info = config["backends"][i];
-    std::unordered_map<ModelId, YAML::Node> models;
-    LOG(INFO) << "backend " << i << " to load models:";
-    for (uint j = 0; j < backend_info["models"].size(); ++j) {
-      const YAML::Node& model_info = backend_info["models"][j];
+    std::vector<YAML::Node> workload;
+    LOG(INFO) << "Workload " << i << ":";
+    for (uint j = 0; j < backend_info["workloads"].size(); ++j) {
+      const YAML::Node& model_info = backend_info["workloads"][j];
       if (!model_info["framework"]) {
-        LOG(FATAL) << "Missing framework in the model config";
+        LOG(FATAL) << "Missing framework in the workload config";
       }
       if (!model_info["model_name"]) {
-      LOG(FATAL) << "Missing model_name in the model config";
+        LOG(FATAL) << "Missing model_name in the workload config";
       }
-      if (!model_info["max_batch"]) {
-        LOG(FATAL) << "Missing max_batch in the model config";
+      if (!model_info["version"]) {
+        LOG(FATAL) << "Missing version in the workload config";
       }
-      Framework framework = get_Framework(
-          model_info["framework"].as<std::string>());
-      std::string model_name = model_info["model_name"].as<std::string>();
-      size_t max_batch = model_info["max_batch"].as<size_t>();
-      ModelId model_id(framework, model_name);
-      LOG(INFO) << "- " << model_id << ", " << max_batch;
-      models.emplace(model_id, model_info);
+      if (!model_info["batch"]) {
+        LOG(FATAL) << "Missing batch in the workload config";
+      }
+      if (!model_info["latency_sla"]) {
+        LOG(FATAL) << "Missing latency_sla in the workload config";
+      }
+      LOG(INFO) << "- " << model_info["framework"] << ":" <<
+          model_info["model_name"] << ":" << model_info["version"] <<
+          ", batch " << model_info["max_batch"];
+      workload.push_back(model_info);
     }
-    workloads_.push_back(models);
+    workloads_.push_back(workload);
   }
 }
 
@@ -185,7 +188,17 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
     reply->set_status(CTRL_INVALID_LOAD_MODEL_REQUEST);
     return;
   }
-  std::string model_sess_id = ModelSessionToString(request.model_session());
+  ModelSession model_sess(request.model_session());
+  auto info = ModelDatabase::Singleton().GetModelInfo(
+      ModelSessionToModelID(model_sess));
+  if (info["resizable"] && info["resizable"].as<bool>()) {
+    if (model_sess.image_height() == 0) {
+      // Set default image size for resizable CNN
+      model_sess.set_image_height(info["image_height"].as<uint32_t>());
+      model_sess.set_image_width(info["image_width"].as<uint32_t>());
+    }
+  }
+  std::string model_sess_id = ModelSessionToString(model_sess);
   std::vector<std::pair<BackendRpcClientPtr, ModelInstanceDesc>> assign_backends;
   {
     // TODO: check if model_sess_id already exists
@@ -207,7 +220,7 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
       }
       ModelInstanceDesc model_desc;
       float occupancy;
-      backend->PrepareLoadModel(request.model_session(), workload, &model_desc,
+      backend->PrepareLoadModel(model_sess, workload, &model_desc,
                                 &occupancy);
       if (model_desc.batch() == 0) {
         continue;
@@ -223,7 +236,7 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
       return;
     }
     ModelRoute route;
-    route.mutable_model_session()->CopyFrom(request.model_session());
+    route.mutable_model_session()->CopyFrom(model_sess);
     for (auto item : assign_backends) {
       auto backend = item.first;
       const auto& model_desc = item.second;
@@ -314,8 +327,8 @@ void Scheduler::RegisterBackend(BackendRpcClientPtr backend,
       LOG(INFO) << "Assign workload " << assign_load_id << " to backend " <<
           backend->node_id();
       auto workload = workloads_[assign_load_id];
-      for (auto iter : workload) {
-        backend->LoadModel(iter.first, iter.second);
+      for (auto model_info : workload) {
+        backend->LoadModel(model_info);
       }
       backend->set_workload_id(assign_load_id);
       backend->GetModelTable(reply->mutable_init_model_table());

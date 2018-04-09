@@ -46,7 +46,7 @@ class BackendRpcClient {
 
   void LoadModel(const ModelInstanceDesc& model_desc);
 
-  void LoadModel(const ModelId& model, const YAML::Node& model_info);
+  void LoadModel(const YAML::Node& model_info);
 
   CtrlStatus UpdateModelTable();
 

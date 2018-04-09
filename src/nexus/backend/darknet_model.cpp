@@ -2,6 +2,7 @@
 #include <fstream>
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
+#include <sstream>
 #include <unordered_set>
 
 #include "nexus/backend/darknet_model.h"
@@ -34,37 +35,40 @@ image cvmat_to_image(const cv::Mat& cv_img_rgb) {
 
 }
 
-DarknetModel::DarknetModel(int gpu_id, std::string model_id,
-                           std::string model_name, ModelType type,
+DarknetModel::DarknetModel(int gpu_id, const std::string& model_name,
+                           uint32_t version, const std::string& type,
                            uint32_t batch, uint32_t max_batch,
                            BlockPriorityQueue<Task>& task_queue,
                            const YAML::Node& info) :
-    ModelInstance(gpu_id, model_id, model_name, type, batch, max_batch,
+    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
                   task_queue) {
   // load darknet model
+  CHECK(info["cfg_file"]) << "Missing cfg_file in the model info";
+  CHECK(info["weight_file"]) << "Missing weight_file in the model info";
   fs::path model_dir = fs::path(info["model_dir"].as<std::string>());
-  fs::path cfg_path = model_dir / (model_name + ".cfg");
-  fs::path weight_path = model_dir / (model_name + ".weights");
+  fs::path cfg_path = model_dir / info["cfg_file"].as<std::string>();
+  fs::path weight_path = model_dir / info["weight_file"].as<std::string>();
   CHECK(fs::exists(cfg_path)) << "Config file " << cfg_path <<
       " doesn't exist";
   CHECK(fs::exists(weight_path)) << "Weight file " << weight_path <<
       " doesn't exist";
-  if (type != kClassification && type != kDetection) {
-    LOG(FATAL) << "Model type " << ModelType_Name(type) <<
-        " is not supported for Darknet";
+  if (info["resizable"]) {
+    resizable_ = info["resizable"].as<bool>();
+  } else {
+    resizable_ = false;
+  }
+  image_height_ = 0;
+  image_width_ = 0;
+  if (info["image_height"]) {
+    image_height_ = info["image_height"].as<int>();
+    image_width_ = info["image_width"].as<int>();
   }
   fs::path curr_dir = fs::current_path();
   // switch the current directory to the model directory as required
   // for loading a model in the darknet
-  fs::current_path(model_dir);
-  int height = 0;
-  int width = 0;
-  if (info["image_height"]) {
-    height = info["image_height"].as<int>();
-    width = info["image_width"].as<int>();
-  }
+  fs::current_path(weight_path.parent_path());
   net_ = parse_network_cfg_spec(const_cast<char*>(cfg_path.string().c_str()),
-                                gpu_id, max_batch, width, height);
+                                gpu_id, max_batch, image_width_, image_height_);
   load_weights(net_, const_cast<char*>(weight_path.string().c_str()));
   fs::current_path(curr_dir);
   // set input and output size
@@ -90,12 +94,24 @@ DarknetModel::~DarknetModel() {
   free_network(net_);
 }
 
+std::string DarknetModel::profile_id() const {
+  std::stringstream ss;
+  ss << "darknet:" << model_name_ << ":" << version_;
+  if (resizable_) {
+    ss << ":" << image_height_ << "x" << image_width_;
+  }
+  return ss.str();
+}
+
 void DarknetModel::InitBatchInputArray() {
+  LOG(INFO) << "input size: " << input_size_ * max_batch_ * sizeof(float);
   auto buf = std::make_shared<Buffer>(
       net_->input_gpu, input_size_ * max_batch_ * sizeof(float),
       gpu_device_);
   batch_input_array_ = std::make_shared<Array>(
       DT_FLOAT, input_size_ * max_batch_, buf);
+  LOG(INFO) << "allocate batch input array: " <<
+      batch_input_array_->Data<float>();
 }
 /*
 void DarknetModel::UpdateMaxBatchImpl() {
@@ -155,6 +171,7 @@ void DarknetModel::PreprocessImpl(std::shared_ptr<Task> task,
 
 void DarknetModel::ForwardImpl(BatchInput* batch_input,
                                BatchOutput* batch_output) {
+  LOG(INFO) << "Darknet forward";
   size_t batch_size = batch_input->batch_size();
   set_batch_network_lightweight(net_, batch_size);
   network_predict_gpu_nocopy(net_);
@@ -172,7 +189,7 @@ void DarknetModel::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
   auto out_arr = output->GetOutputs()[0];
   float* out_data = out_arr->Data<float>();
   // TODO: check predicates in the query
-  if (type_ == kDetection) {
+  if (type_ == "detection") {
     result->set_status(CTRL_OK);
     layer l = net_->layers[net_->n - 1];
     size_t nboxes = l.w * l.h * l.n;
@@ -193,7 +210,7 @@ void DarknetModel::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
     MarshalDetectionResult(query, probs, nprobs, boxes, nboxes, result);
     delete[] boxes;
     delete[] probs;
-  } else if (type_ == kClassification) {
+  } else if (type_ == "classification") {
     result->set_status(CTRL_OK);
     float threshold = 0.;
     MarshalClassificationResult(query, out_data, output_size_, threshold,
@@ -201,8 +218,7 @@ void DarknetModel::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
   } else {
     result->set_status(MODEL_TYPE_NOT_SUPPORT);
     std::ostringstream oss;
-    oss << "Unsupported model type " << ModelType_Name(type_) << " for " <<
-        Framework_Name(framework());
+    oss << "Unsupported model type " << type() << " for " << framework();
     result->set_error_message(oss.str());
   }
 }

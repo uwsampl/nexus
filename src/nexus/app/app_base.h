@@ -17,8 +17,8 @@ class AppBase : public Frontend {
 
  protected:
   std::shared_ptr<ModelHandler> GetModelHandler(
-      std::string framework, std::string model_name, uint32_t version,
-      uint64_t latency_sla, float estimate_workload,
+      const std::string& framework, const std::string& model_name,
+      uint32_t version, uint64_t latency_sla, float estimate_workload,
       std::vector<uint32_t> image_size={});
 };
 

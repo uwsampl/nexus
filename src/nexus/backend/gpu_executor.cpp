@@ -82,7 +82,8 @@ void GpuExecutorNoMultiBatching::Run(std::shared_ptr<ModelInstance> model) {
   caffe::Caffe::set_mode(caffe::Caffe::GPU);
   caffe::Caffe::SetDevice(gpu_id_);
   NEXUS_CUDA_CHECK(cudaSetDevice(gpu_id_));
-  LOG(INFO) << "GpuExecutor started for model " << model->model_id();
+  LOG(INFO) << "GpuExecutor started for model " << model->framework() <<
+      ":" << model->model_name();
   while (running_) {
     auto cycle_start = std::chrono::high_resolution_clock::now();
     model->Forward();

@@ -2,6 +2,7 @@
 #include <fstream>
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
+#include <sstream>
 
 #include "nexus/backend/caffe_model.h"
 #include "nexus/backend/slice.h"
@@ -14,11 +15,12 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace backend {
 
-CaffeModel::CaffeModel(int gpu_id, std::string model_id, std::string model_name,
-                       ModelType type, uint32_t batch, uint32_t max_batch,
+CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
+                       uint32_t version, const std::string& type,
+                       uint32_t batch, uint32_t max_batch,
                        BlockPriorityQueue<Task>& task_queue,
                        const YAML::Node& info) :
-    ModelInstance(gpu_id, model_id, model_name, type, batch, max_batch,
+    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
                   task_queue) {
   CHECK(info["cfg_file"]) << "Missing cfg_file in the model info";
   CHECK(info["weight_file"]) << "Missing weight_file in the model info";
@@ -98,6 +100,12 @@ CaffeModel::CaffeModel(int gpu_id, std::string model_id, std::string model_name,
     fs::path cns_path = model_dir / info["class_names"].as<std::string>();
     LoadClassnames(cns_path.string());
   }
+}
+
+std::string CaffeModel::profile_id() const {
+  std::stringstream ss;
+  ss << "caffe:" << model_name_ << ":" << version_;
+  return ss.str();
 }
 
 void CaffeModel::InitBatchInputArray() {
@@ -223,7 +231,7 @@ void CaffeModel::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
   QueryResultProto* result = &task->result;
   auto out_arr = output->GetOutputs()[0];
   float* out_data = out_arr->Data<float>();
-  if (type_ == kClassification) {
+  if (type_ == "classification") {
     result->set_status(CTRL_OK);
     float threshold = 0.;
     MarshalClassificationResult(query, out_data, output_size_, threshold,
@@ -231,8 +239,7 @@ void CaffeModel::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
   } else {
     result->set_status(MODEL_TYPE_NOT_SUPPORT);
     std::ostringstream oss;
-    oss << "Unsupported model type " << ModelType_Name(type_) << " for " <<
-        Framework_Name(framework());
+    oss << "Unsupported model type " << type() << " for " << framework();
     result->set_error_message(oss.str());
   }
 }

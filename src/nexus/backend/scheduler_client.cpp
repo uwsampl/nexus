@@ -41,8 +41,8 @@ void SchedulerClient::Run() {
       if (rate < 1) {
         continue;
       }
-      LOG(INFO) << Framework_name(model->framework()) << ":" <<
-          model->model_name() << " " << count << " reqs, avg rate: " << rate;
+      LOG(INFO) << model->framework() << ":" << model->model_name() << " " <<
+          count << " reqs, avg rate: " << rate;
     }
     std::this_thread::sleep_until(next_tick_time);
     last_tick_time = next_tick_time;

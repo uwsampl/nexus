@@ -5,9 +5,9 @@
 
 using namespace nexus::scheduler;
 
-DEFINE_string(ip, "127.0.0.1", "server IP address");
 DEFINE_string(port, "10001", "RPC port");
-DEFINE_string(config, "", "config file");
+DEFINE_string(model_root, "", "model root directory");
+DEFINE_string(workload_file, "", "workload file");
 DEFINE_double(epoch, 5., "epoch time in seconds (default: 5s)");
 
 int main(int argc, char** argv) {
@@ -19,17 +19,13 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   // Setup backtrace on segfault
   google::InstallFailureSignalHandler();
-  // Decide server IP address
-  std::string ip = nexus::GetIpAddress(FLAGS_ip);
-  if (ip.length() == 0) {
-    LOG(FATAL) << "Cannot find any network interface for prefix " << FLAGS_ip;
+  if (FLAGS_model_root.length() == 0) {
+    LOG(FATAL) << "Missing model_root";
   }
-  //std::string address = ip + ":" + FLAGS_port;
-  //LOG(INFO) << "Scheduler address " << address;
   // Create scheduler
-  Scheduler scheduler(FLAGS_port, 4, FLAGS_epoch);
-  if (FLAGS_config.length() > 0) {
-    scheduler.LoadConfigFile(FLAGS_config);
+  Scheduler scheduler(FLAGS_port, 4, FLAGS_epoch, FLAGS_model_root);
+  if (FLAGS_workload_file.length() > 0) {
+    scheduler.LoadWorkloadFile(FLAGS_workload_file);
   }
   scheduler.Run();
   while (true) {

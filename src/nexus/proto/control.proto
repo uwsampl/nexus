@@ -138,6 +138,7 @@ message ModelInstanceDesc {
   ModelSession model_session = 1;
   uint32 batch = 2;
   uint32 max_batch = 3;
+  // Forward latency in us
   float forward_latency = 4;
   uint64 memory_usage = 5;
   float throughput = 6;

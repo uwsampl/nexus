@@ -15,11 +15,14 @@ namespace backend {
 
 namespace fs = boost::filesystem;
 
-CaffeDenseCapModel::CaffeDenseCapModel(
-    int gpu_id, std::string model_id, std::string model_name, ModelType type,
-    uint32_t batch, uint32_t max_batch, BlockPriorityQueue<Task>& task_queue,
-    const YAML::Node& info) :
-    ModelInstance(gpu_id, model_id, model_name, type, batch, max_batch,
+CaffeDenseCapModel::CaffeDenseCapModel(int gpu_id,
+                                       const std::string& model_name,
+                                       uint32_t version,
+                                       const std::string& type,
+                                       uint32_t batch, uint32_t max_batch,
+                                       BlockPriorityQueue<Task>& task_queue,
+                                       const YAML::Node& info) :
+    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
                   task_queue) {
   CHECK(info["feature_prototxt"]) << "Missing feature_prototxt in the config";
   CHECK(info["rnn_prototxt"]) << "Missing rnn_prototxt in the config";
@@ -97,6 +100,13 @@ CaffeDenseCapModel::CaffeDenseCapModel(
   multiplier_.reset(new caffe::Blob<float>({max_boxes_}));
   caffe::caffe_gpu_set(max_boxes_, (float) 1., multiplier_->mutable_gpu_data());
   best_words_.resize(max_batch * max_boxes_);
+}
+
+std::string CaffeDenseCapModel::profile_id() const {
+  std::stringstream ss;
+  ss << "caffe:" << model_name_ << ":" << version_ << ":" <<
+      image_height_ << "x" << image_width_;
+  return ss.str();
 }
 
 void CaffeDenseCapModel::InitBatchInputArray() {

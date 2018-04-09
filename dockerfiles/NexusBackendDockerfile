@@ -1,5 +1,5 @@
 FROM nexus/base
 
-RUN cd / && git clone https://github.com/uwsaml/nexus.git
-RUN cd /nexus && git submodule update --init --recursive && make -j$($(nproc)-1) backend
+RUN cd / && git clone --recursive https://github.com/uwsaml/nexus.git
+RUN cd /nexus && git submodule update --init --recursive && make -j$(nproc) backend
 ENV PATH /nexus/build/bin:$PATH

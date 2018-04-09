@@ -2,7 +2,7 @@
 #include <glog/logging.h>
 #include <thread>
 
-#include "nexus/common/model_profile.h"
+#include "nexus/common/model_db.h"
 #include "nexus/common/time_util.h"
 #include "nexus/backend/caffe_densecap_model.h"
 #include "nexus/backend/caffe_model.h"
@@ -13,12 +13,13 @@
 namespace nexus {
 namespace backend {
 
-ModelInstance::ModelInstance(
-    int gpu_id, std::string model_id, std::string model_name, ModelType type,
-    uint32_t batch, uint32_t max_batch, BlockPriorityQueue<Task>& task_queue):
+ModelInstance::ModelInstance(int gpu_id, const std::string& model_name,
+                             uint32_t version, const std::string& type,
+                             uint32_t batch, uint32_t max_batch,
+                             BlockPriorityQueue<Task>& task_queue):
     gpu_id_(gpu_id),
-    model_id_(model_id),
     model_name_(model_name),
+    version_(version),
     type_(type),
     batch_(batch),
     max_batch_(max_batch),
@@ -124,10 +125,10 @@ std::unique_ptr<BatchInput> ModelInstance::GetBatchInput(size_t min_batch) {
   if (input_queue_.size() < batch_size) {
     batch_size = input_queue_.size();
   }
-  uint64_t latency = static_cast<uint64_t>(
-      ModelProfileTable::Singleton().GetModelForwardLatency(
-          gpu_device_->device_name(), model_id_, batch_size));
-  TimePoint finish = Clock::now() + std::chrono::milliseconds(latency);
+  uint32_t latency = static_cast<uint32_t>(
+      ModelDatabase::Singleton().GetModelForwardLatency(
+          gpu_device_->device_name(), profile_id(), batch_size));
+  TimePoint finish = Clock::now() + std::chrono::microseconds(latency);
   uint64_t bid = batch_id_.fetch_add(1);
   std::unique_ptr<BatchInput> batch_input(
       new BatchInput(bid, batch_input_array_));
@@ -174,10 +175,10 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
     int gpu_id, const ModelInstanceDesc& model_inst_desc, YAML::Node info,
     BlockPriorityQueue<Task>& task_queue) {
   const auto& model_sess = model_inst_desc.model_session();
-  std::string model_id = ModelSessionToString(model_sess, false);
-  Framework framework = model_sess.framework();
-  const std::string& model_name = model_sess.model_name();
-  ModelType model_type = get_ModelType(info["type"].as<std::string>());
+  auto framework = model_sess.framework();
+  auto model_name = model_sess.model_name();
+  auto model_type = info["type"].as<std::string>();
+  uint32_t version = info["version"].as<uint32_t>();
   uint32_t batch = model_inst_desc.batch();
   uint32_t max_batch = model_inst_desc.max_batch();
   if (model_inst_desc.memory_usage() > 0) {
@@ -190,33 +191,26 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
     info["image_width"] = model_sess.image_width();
   }
   std::shared_ptr<ModelInstance> model;
-  switch (framework) {
-    case DARKNET: {
-      model = std::make_shared<DarknetModel>(
-          gpu_id, model_id, model_name, model_type, batch, max_batch,
-          task_queue, info);
-      break;
+  if (framework == "darknet") {
+    model = std::make_shared<DarknetModel>(
+        gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
+        info);
+  } else if (framework == "caffe") {
+    if (model_name == "densecap") {
+      model = std::make_shared<CaffeDenseCapModel>(
+          gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
+          info);
+    } else {
+      model = std::make_shared<CaffeModel>(
+          gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
+          info);
     }
-    case CAFFE: {
-      if (model_name == "densecap") {
-        model = std::make_shared<CaffeDenseCapModel>(
-            gpu_id, model_id, model_name, model_type, batch, max_batch,
-            task_queue, info);
-      } else {
-        model = std::make_shared<CaffeModel>(
-            gpu_id, model_id, model_name, model_type, batch, max_batch,
-            task_queue, info);
-      }
-      break;
-    }
-    case TENSORFLOW: {
-      model = std::make_shared<TensorflowModel>(
-          gpu_id, model_id, model_name, model_type, batch, max_batch,
-          task_queue, info);
-      break;
-    }
-    default:
-      LOG(FATAL) << "Unknown framework " << framework;
+  } else if (framework == "tensorflow") {
+    model = std::make_shared<TensorflowModel>(
+        gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
+        info);
+  } else {
+    LOG(FATAL) << "Unknown framework " << framework;
   }
   model->Init();
   return model;

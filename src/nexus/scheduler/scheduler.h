@@ -11,8 +11,7 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
-#include "nexus/common/model_def.h"
-#include "nexus/common/model_profile.h"
+//#include "nexus/common/model_def.h"
 #include "nexus/common/rpc_call.h"
 #include "nexus/common/rpc_service_base.h"
 #include "nexus/proto/control.grpc.pb.h"
@@ -35,12 +34,13 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \param nthreads Number of threads that handle the RPC calls.
    * \param epoch Epoch time for scheduling in seconds.
    */
-  Scheduler(std::string port, size_t nthreads, double epoch);
+  Scheduler(std::string port, size_t nthreads, double epoch,
+            std::string db_root_dir);
   /*!
    * \brief Loads the workload configuation for backends from config file.
    * \param config_file Config file path.
    */
-  void LoadConfigFile(const std::string& config_file);
+  void LoadWorkloadFile(const std::string& workload_file);
   /*!
    * \brief Returns timeout duration for backend server.
    * \return timeout duration in milliseconds
@@ -121,7 +121,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   /*! \brief Epoch duration in milliseconds */
   std::chrono::milliseconds epoch_;
   /*! \brief Static workload configuration */
-  std::vector<std::unordered_map<ModelId, YAML::Node> > workloads_;
+  std::vector<std::vector<YAML::Node> > workloads_;
   /*! \brief Mapping from frontend node id to frontend client */
   std::unordered_map<uint32_t, FrontendRpcClientPtr> frontends_;
   /*! \brief Mapping from backend node id to backend client */

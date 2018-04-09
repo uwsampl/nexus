@@ -1,7 +1,7 @@
 #include <glog/logging.h>
 #include <unordered_set>
 
-#include "nexus/common/model_profile.h"
+#include "nexus/common/model_db.h"
 #include "nexus/backend/backend_server.h"
 
 namespace nexus {
@@ -9,16 +9,18 @@ namespace backend {
 
 BackendServer::BackendServer(std::string port, std::string rpc_port,
                              std::string sch_addr, size_t num_workers,
-                             int gpu_id) :
+                             int gpu_id, std::string model_db_root) :
     ServerBase(port),
-    running_(false),
     rpc_service_(this, rpc_port),
     sch_client_(this, sch_addr),
     gpu_id_(gpu_id),
+    running_(false),
     rand_gen_(rd_()) {
+  // Init model information
+  ModelDatabase::Singleton().Init(model_db_root);
   // Start RPC service
   rpc_service_.Start();
-  // init node id
+  // Init node id
   std::uniform_int_distribution<uint32_t> dis(
       1, std::numeric_limits<uint32_t>::max());
   node_id_ = dis(rand_gen_);
@@ -34,7 +36,7 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     node_id_ = dis(rand_gen_);
   }
   sch_client_.Start();
-  // init workers
+  // Start workers
   for (size_t i = 0; i < num_workers; ++i) {
     std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_));
     worker->Start();
@@ -115,57 +117,6 @@ void BackendServer::HandleError(std::shared_ptr<Connection> conn,
   conn->Stop();
 }
 
-void BackendServer::LoadModelDb(const std::string& db_file) {
-  LOG(INFO) << "Load model DB from " << db_file;
-  YAML::Node db = YAML::LoadFile(db_file);
-  const YAML::Node& models = db["models"];
-  for (uint i = 0; i < models.size(); ++i) {
-    YAML::Node model_info = models[i];
-    if (!model_info["framework"]) {
-      LOG(FATAL) << "Missing framework in the model config";
-    }
-    if (!model_info["model_name"]) {
-      LOG(FATAL) << "Missing model_name in the model config";
-    }
-    if (!model_info["type"]) {
-      LOG(FATAL) << "Missing type in the model config";
-    }
-    Framework framework = get_Framework(
-        model_info["framework"].as<std::string>());
-    std::string model_name = model_info["model_name"].as<std::string>();
-    if (!model_info["model_dir"]) {
-      if (framework_rootdir_.find(framework) == framework_rootdir_.end()) {
-        LOG(FATAL) << "Cannot find model root directory for framework " <<
-            Framework_name(framework);
-      }
-      model_info["model_dir"] = framework_rootdir_.at(framework);
-    }
-    // TODO: need to validate wether model info contains all necessary
-    // information
-    ModelId model_id(framework, model_name);
-    model_database_[model_id] = model_info;
-  }
-}
-
-void BackendServer::LoadConfigFromFile(const std::string& config_file) {
-  LOG(INFO) << "Load backend config from " << config_file;
-  YAML::Node config = YAML::LoadFile(config_file);
-  CHECK(config["model_profile_dir"]) << " is missing";
-  CHECK(config["model_dir"]) << " is missing";
-  // load model profiles
-  ModelProfileTable::Singleton().Init(
-      config["model_profile_dir"].as<std::string>());
-  // load model root directory
-  const YAML::Node& model_dir = config["model_dir"];
-  for (auto it = model_dir.begin(); it != model_dir.end(); ++it) {
-    Framework framework = get_Framework(it->first.as<std::string>());
-    const std::string& path = it->second.as<std::string>();
-    framework_rootdir_.emplace(framework, path);
-  }
-  // load model db
-  LoadModelDb(config["model_db"].as<std::string>());
-}
-
 void BackendServer::UpdateModelTable(const ModelTable& request,
                                      RpcReply* reply) {
   SpinlockGuard lock(model_table_lock_);
@@ -179,8 +130,8 @@ void BackendServer::UpdateModelTable(const ModelTable& request,
       // Load new model instance
       LOG(INFO) << "Load model instance for " << session_id <<
           ", max batch: " << desc.batch();
-      ModelId model_id(model_sess.framework(), model_sess.model_name());
-      YAML::Node info = model_database_.at(model_id);
+      auto model_id = ModelSessionToModelID(model_sess);
+      auto info = ModelDatabase::Singleton().GetModelInfo(model_id);
       auto model = CreateModelInstance(gpu_id_, desc, info, task_queue_);
       model_instances_.push_back(model);
       model_session_map_.emplace(session_id, model);

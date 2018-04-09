@@ -28,7 +28,7 @@ namespace backend {
 class BackendServer : public ServerBase, public MessageHandler {
  public:
   BackendServer(std::string port, std::string rpc_port, std::string sch_addr,
-                size_t num_workers, int gpu_id);
+                size_t num_workers, int gpu_id, std::string model_db_root);
 
   ~BackendServer();
 
@@ -50,10 +50,6 @@ class BackendServer : public ServerBase, public MessageHandler {
   void HandleError(std::shared_ptr<Connection> conn,
                    boost::system::error_code ec) final;
 
-  void LoadModelDb(const std::string& db_file);
-
-  void LoadConfigFromFile(const std::string& config_file);
-
   void UpdateModelTable(const ModelTable& req, RpcReply* reply);
 
   ModelInstancePtr GetModelInstance(const std::string& model_session_id);
@@ -61,6 +57,8 @@ class BackendServer : public ServerBase, public MessageHandler {
   std::vector<ModelInstancePtr> GetAllModelInstances();
 
  private:
+  /*! \brief GPU device index */
+  int gpu_id_;
   /*! \brief indicator whether backend is running */
   std::atomic_bool running_;
   // Backend node id
@@ -72,8 +70,6 @@ class BackendServer : public ServerBase, public MessageHandler {
   // frontend connections
   std::set<std::shared_ptr<Connection> > frontend_connections_;
   std::mutex frontend_mutex_;
-  // GPU device index
-  int gpu_id_;
   // BlockQueue that connections append new tasks and workers pull tasks
   BlockPriorityQueue<Task> task_queue_;
   // Vector of workers
@@ -82,10 +78,6 @@ class BackendServer : public ServerBase, public MessageHandler {
   std::unique_ptr<GpuExecutor> gpu_executor_;
   // Lock for modifying this object
   Spinlock model_table_lock_;
-  // Map from framework to default root directory
-  std::unordered_map<Framework, std::string> framework_rootdir_;
-  // Map from (framework, model_name) to metadata of a model
-  std::unordered_map<ModelId, YAML::Node> model_database_;
   // Map from (framework, model_name) to a loaded model
   std::vector<ModelInstancePtr> model_instances_;
   std::unordered_map<std::string, ModelInstancePtr> model_session_map_;

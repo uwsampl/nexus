@@ -1,6 +1,6 @@
 #include <glog/logging.h>
 
-#include "nexus/common/model_profile.h"
+#include "nexus/common/model_db.h"
 #include "nexus/scheduler/backend_rpc_client.h"
 #include "nexus/scheduler/scheduler.h"
 
@@ -47,9 +47,9 @@ void BackendRpcClient::PrepareLoadModel(
     model_desc->set_batch(0);
     return;
   }
-  std::string model_id = ModelSessionToString(model_sess, false);
-  auto profile = ModelProfileTable::Singleton().GetModelProfile(
-      gpu_device_, model_id);
+  std::string profile_id = ModelSessionToProfileID(model_sess);
+  auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
+                                                            profile_id);
   if (profile == nullptr) {
     model_desc->set_batch(0);
     return;
@@ -60,10 +60,11 @@ void BackendRpcClient::PrepareLoadModel(
   std::lock_guard<std::mutex> lock(mutex_);
 
   // 1. Compute the max batch and throughput to saturate an empty GPU
-  float latency_sla = model_sess.latency_sla();
+  float latency_sla_us = model_sess.latency_sla() * 1000;
   uint32_t max_batch;
   uint32_t max_throughput;
-  std::tie(max_batch, max_throughput) = profile->GetMaxThroughput(latency_sla);
+  std::tie(max_batch, max_throughput) = profile->GetMaxThroughput(
+      model_sess.latency_sla());
 
   if (exec_cycle_ == 0) {
     // empty GPU 
@@ -88,7 +89,8 @@ void BackendRpcClient::PrepareLoadModel(
         // because batch = ceil(workload * duty_cycle),
         // duty_cycle >= (batch - 1) / workload
         float min_duty_cycle = (batch - 1) * 1000. / workload;
-        if (min_duty_cycle + fwd_lat + preprocess + postprocess > latency_sla) {
+        if (min_duty_cycle + fwd_lat + preprocess + postprocess >
+            latency_sla_us) {
           break;
         }
       }
@@ -99,8 +101,8 @@ void BackendRpcClient::PrepareLoadModel(
       } else {
         float fwd_lat = profile->GetForwardLatency(batch);
         uint32_t memory_usage = profile->GetMemoryUsage(batch);
-        float duty_cycle = latency_sla - fwd_lat - preprocess - postprocess;
-        float throughput = batch * 1000. / duty_cycle;
+        float duty_cycle = latency_sla_us - fwd_lat - preprocess - postprocess;
+        float throughput = batch * 1e6 / duty_cycle;
         model_desc->set_batch(batch);
         model_desc->set_max_batch(max_batch);
         model_desc->set_forward_latency(fwd_lat);
@@ -131,28 +133,29 @@ void BackendRpcClient::LoadModel(const ModelInstanceDesc& model_desc) {
         ", batch: " << model_desc.batch() << ", max batch: " <<
         model_desc.max_batch() << ", throughput: " <<
         model_desc.throughput() << ", workload: " << model_desc.workload() <<
-        ", exec cycle: " << exec_cycle_ << ", duty cycle: " << duty_cycle_;
+        ", exec cycle: " << exec_cycle_ << "us, duty cycle: " << duty_cycle_ <<
+        "us";
   }
 }
 
-void BackendRpcClient::LoadModel(const ModelId& model,
-                                 const YAML::Node& model_info) {
+void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
   ModelInstanceDesc model_desc;
   auto sess = model_desc.mutable_model_session();
-  sess->set_framework(model.first);
-  sess->set_model_name(model.second);
-  sess->set_latency_sla(model_info["latency_slo"].as<float>());
+  sess->set_framework(model_info["framework"].as<std::string>());
+  sess->set_model_name(model_info["model_name"].as<std::string>());
+  sess->set_version(model_info["version"].as<uint32_t>());
+  sess->set_latency_sla(model_info["latency_sla"].as<uint32_t>());
   if (model_info["image_height"]) {
     sess->set_image_height(model_info["image_height"].as<uint32_t>());
     sess->set_image_width(model_info["image_width"].as<uint32_t>());
   }
-
-  std::string model_id = ModelSessionToString(*sess, false);
+  std::string profile_id = ModelSessionToProfileID(*sess);
   std::string sess_id = ModelSessionToString(*sess);
-  auto profile = ModelProfileTable::Singleton().GetModelProfile(
-      gpu_device_, model_id);
-  uint32_t batch = model_info["max_batch"].as<uint32_t>();
-  uint32_t max_batch = profile->GetMaxBatch(sess->latency_sla());
+  auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
+                                                            profile_id);
+  uint32_t batch = model_info["batch"].as<uint32_t>();
+  uint32_t max_batch = batch;
+  //uint32_t max_batch = profile->GetMaxBatch(sess->latency_sla());
   uint32_t memory_usage = profile->GetMemoryUsage(max_batch);
   float fwd_latency = profile->GetForwardLatency(batch);
   model_desc.set_batch(batch);
@@ -174,7 +177,7 @@ void BackendRpcClient::LoadModel(const ModelId& model,
 
   LOG(INFO) << "Backend " << node_id_ << " loads " << sess_id << ", batch: " <<
       batch << ", fwd lat: " << fwd_latency << ", exec cycle: " <<
-      exec_cycle_ << ", duty cycle: " << duty_cycle_;
+      exec_cycle_ << "us, duty cycle: " << duty_cycle_ << "us";
 }
 
 CtrlStatus BackendRpcClient::UpdateModelTable() {

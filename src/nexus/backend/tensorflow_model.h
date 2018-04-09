@@ -13,13 +13,15 @@ namespace backend {
 
 class TensorflowModel : public ModelInstance {
  public:
-  TensorflowModel(int gpu_id, std::string model_id, std::string model_name,
-                  ModelType type, uint32_t batch, uint32_t max_batch,
+  TensorflowModel(int gpu_id, const std::string& model_name, uint32_t version, 
+                  const std::string& type, uint32_t batch, uint32_t max_batch,
                   BlockPriorityQueue<Task>& task_queue, const YAML::Node& info);
 
   ~TensorflowModel();
 
-  Framework framework() const final { return TENSORFLOW; }
+  std::string framework() const final { return "tensorflow"; }
+
+  std::string profile_id() const final;
 
  private:
   void InitBatchInputArray() final;

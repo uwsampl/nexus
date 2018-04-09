@@ -43,9 +43,7 @@ void Memcpy(void* dst, const Device* dst_device, const void* src,
 }
 
 namespace {
-/*!
- * \brief the list of all IPv4 addresses
- */
+/*! \brief the list of all IPv4 addresses */
 std::vector<in_addr> Ipv4Interfaces;
 } // namespace
 

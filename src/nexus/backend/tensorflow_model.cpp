@@ -16,12 +16,12 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace backend {
 
-TensorflowModel::TensorflowModel(int gpu_id, std::string model_id,
-                                 std::string model_name, ModelType type,
+TensorflowModel::TensorflowModel(int gpu_id, const std::string& model_name,
+                                 uint32_t version, const std::string& type,
                                  uint32_t batch, uint32_t max_batch,
                                  BlockPriorityQueue<Task>& task_queue,
                                  const YAML::Node& info) :
-    ModelInstance(gpu_id, model_id, model_name, type, batch, max_batch,
+    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
                   task_queue) {
   CHECK(info["model_file"]) << "Missing model_file in the model info";
   CHECK(info["input_mean"]) << "Missing input_mean in the model info";
@@ -85,6 +85,12 @@ TensorflowModel::TensorflowModel(int gpu_id, std::string model_id,
 
 TensorflowModel::~TensorflowModel() {
   session_->Close();
+}
+
+std::string TensorflowModel::profile_id() const {
+  std::stringstream ss;
+  ss << "tensorflow:" << model_name_ << ":" << version_;
+  return ss.str();
 }
 
 void TensorflowModel::InitBatchInputArray() {
@@ -176,7 +182,7 @@ void TensorflowModel::PostprocessImpl(std::shared_ptr<Task> task,
   auto out_arr = output->GetOutput(0);
   float* out_data = out_arr->Data<float>();
   size_t count = out_arr->num_elements();
-  if (type_ == kClassification) {
+  if (type_ == "classification") {
     result->set_status(CTRL_OK);
     float threshold = 0.;
     MarshalClassificationResult(query, out_data, count, threshold, 
@@ -184,8 +190,7 @@ void TensorflowModel::PostprocessImpl(std::shared_ptr<Task> task,
   } else {
     result->set_status(MODEL_TYPE_NOT_SUPPORT);
     std::ostringstream oss;
-    oss << "Unsupported model type " << ModelType_Name(type_) << " for " <<
-        Framework_Name(framework());
+    oss << "Unsupported model type " << type() << " for " << framework();
     result->set_error_message(oss.str());
   }
 }

@@ -9,13 +9,13 @@ AppBase::AppBase(std::string port, std::string rpc_port, std::string sch_addr,
 }
 
 std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
-    std::string framework, std::string model_name, uint32_t version,
-    uint64_t latency_sla, float estimate_workload,
+    const std::string& framework, const std::string& model_name,
+    uint32_t version, uint64_t latency_sla, float estimate_workload,
     std::vector<uint32_t> image_size) {
   LoadModelRequest req;
   req.set_node_id(node_id());
   auto model_sess = req.mutable_model_session();
-  model_sess->set_framework(get_Framework(framework));
+  model_sess->set_framework(framework);
   model_sess->set_model_name(model_name);
   model_sess->set_version(version);
   model_sess->set_latency_sla(latency_sla);

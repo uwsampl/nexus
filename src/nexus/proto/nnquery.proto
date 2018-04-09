@@ -1,12 +1,6 @@
 syntax = "proto3";
-package nexus;
 
-enum Framework {
-  UNKNOWN = 0;
-  DARKNET = 1;
-  CAFFE = 2;
-  TENSORFLOW = 3;
-}
+package nexus;
 
 message RectProto {
   uint32 left = 1;
@@ -96,13 +90,13 @@ message ReplyProto {
 
 message ModelSession {
   // Framework
-  Framework framework = 1;
+  string framework = 1;
   // Model name
   string model_name = 2;
   // Model version
   uint32 version = 3;
   // Latency SLA in millisecond
-  uint64 latency_sla = 4;
+  uint32 latency_sla = 4;
   // Specify image height and width for models whose input are resizable,
   // otherwise ignored
   uint32 image_height = 10;
