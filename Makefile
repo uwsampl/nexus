@@ -48,7 +48,7 @@ DEPS := ${OBJS:.o=.d}
 # c++ configs
 CXX = g++
 WARNING = -Wall -Wfatal-errors -Wno-unused -Wno-unused-result
-CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc -Ibuild/gen
+CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc -Ibuild/gen `pkg-config --cflags protobuf`
 # Automatic dependency generation
 CXXFLAGS += -MMD -MP
 LD_FLAGS = -lm -pthread -lglog -lgflags -lboost_system -lboost_thread \
@@ -123,19 +123,19 @@ tool: build/bin/profiler
 
 build/lib/libnexus.so: $(CXX_COMMON_OBJS) $(CXX_APP_OBJS)
 	@mkdir -p $(@D)
-	$(CXX) $(DLL_LINK_FLAGS) $^ -o $@ $(LD_FLAGS)
+	$(CXX) $(DLL_LINK_FLAGS) -o $@ $^ $(LD_FLAGS)
 
 build/bin/backend: $(CXX_COMMON_OBJS) $(CXX_BACKEND_OBJS)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS) -o $@
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
 
 build/bin/scheduler: $(CXX_COMMON_OBJS) $(CXX_SCHEDULER_OBJS)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) -o $@
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS)
 
 build/bin/profiler: $(CXX_COMMON_OBJS) $(CXX_BACKEND_LIB_OBJS) build/obj/tools/profiler/profiler.o
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS) -o $@
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
 
 build/gen/%.pb.cc build/gen/%.pb.h: src/%.proto
 	@mkdir -p $(@D)
@@ -181,7 +181,7 @@ clean-caffe:
 	cd $(CAFFE_ROOT_DIR) && $(MAKE) clean && cd -
 
 clean-tensorflow:
-	rm -rf $(TENSORFLOW_BUILD_DIR) $(TENSORFLOW_ROOT_DIR)/.tf_configure.bazelrc
+	rm -rf $(TENSORFLOW_BUILD_DIR) $(TENSORFLOW_ROOT_DIR)/.tf_configure.bazelrc $(TENSORFLOW_ROOT_DIR)/bazel-*
 
 cleanall: clean clean-darknet clean-caffe clean-tensorflow
 

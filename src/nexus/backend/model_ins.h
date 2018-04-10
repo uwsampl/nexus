@@ -20,6 +20,8 @@
 namespace nexus {
 namespace backend {
 
+class ModelProfiler;
+
 class ModelInstance {
  public:
   ModelInstance(int gpu_id, const std::string& model_name,
@@ -75,6 +77,8 @@ class ModelInstance {
   std::unique_ptr<BatchInput> GetBatchInput(size_t min_batch);
 
   void RemoveOutput(uint64_t batch_id);
+
+  friend class ModelProfiler;
 
  protected:
   int gpu_id_;
