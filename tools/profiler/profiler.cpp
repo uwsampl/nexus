@@ -100,7 +100,7 @@ class ModelProfiler {
         std::string im;
         ReadImage(test_images_[idx], &im);
         auto task = std::make_shared<Task>();
-        task->SetDeadline(std::chrono::milliseconds(100000));
+        task->SetDeadline(std::chrono::milliseconds(1000000000));
         auto input = task->query.mutable_input();
         input->set_data_type(DT_IMAGE);
         auto image = input->mutable_image();
@@ -131,7 +131,6 @@ class ModelProfiler {
         int idx = i % batch_inputs.size();
         auto task = std::make_shared<Task>();
         task->query.set_query_id(i);
-        task->SetDeadline(std::chrono::milliseconds(100000));
         task->attrs = tasks[idx]->attrs;
         model->AppendInputs(task, batch_inputs[idx]);
       }
@@ -150,6 +149,8 @@ class ModelProfiler {
       LOG(INFO) << "memory usage: " << memory_usage;
       for (int i = 0; i < batch * (repeat + 1); ++i) {
         auto task = task_queue.pop();
+        CHECK_EQ(task->result.status(), CTRL_OK) << "Error detected: " <<
+            task->result.status();
         auto beg = std::chrono::high_resolution_clock::now();
         model->Postprocess(task);
         auto end = std::chrono::high_resolution_clock::now();

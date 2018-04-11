@@ -125,10 +125,16 @@ std::unique_ptr<BatchInput> ModelInstance::GetBatchInput(size_t min_batch) {
   if (input_queue_.size() < batch_size) {
     batch_size = input_queue_.size();
   }
-  uint32_t latency = static_cast<uint32_t>(
+  float latency = static_cast<uint32_t>(
       ModelDatabase::Singleton().GetModelForwardLatency(
           gpu_device_->device_name(), profile_id(), batch_size));
-  TimePoint finish = Clock::now() + std::chrono::microseconds(latency);
+  bool has_estimate;
+  TimePoint finish;
+  if (latency <= 0) {
+    bool has_estimate = false;
+  } else {
+    finish = Clock::now() + std::chrono::microseconds(int(latency));
+  }
   uint64_t bid = batch_id_.fetch_add(1);
   std::unique_ptr<BatchInput> batch_input(
       new BatchInput(bid, batch_input_array_));
@@ -139,7 +145,7 @@ std::unique_ptr<BatchInput> ModelInstance::GetBatchInput(size_t min_batch) {
     }
     auto input = std::move(input_queue_.top());
     input_queue_.pop();
-    if (input->task->deadline() < finish) {
+    if (has_estimate && input->task->deadline() < finish) {
       if (input->task->AddVirtualOutput(input->index)) {
         input->task->stage = kPostprocess;
         task_queue_.push(input->task);

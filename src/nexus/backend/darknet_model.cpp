@@ -104,14 +104,11 @@ std::string DarknetModel::profile_id() const {
 }
 
 void DarknetModel::InitBatchInputArray() {
-  LOG(INFO) << "input size: " << input_size_ * max_batch_ * sizeof(float);
   auto buf = std::make_shared<Buffer>(
       net_->input_gpu, input_size_ * max_batch_ * sizeof(float),
       gpu_device_);
   batch_input_array_ = std::make_shared<Array>(
       DT_FLOAT, input_size_ * max_batch_, buf);
-  LOG(INFO) << "allocate batch input array: " <<
-      batch_input_array_->Data<float>();
 }
 /*
 void DarknetModel::UpdateMaxBatchImpl() {

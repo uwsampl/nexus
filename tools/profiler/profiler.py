@@ -35,7 +35,7 @@ def find_max_batch(framework, model_name):
         proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
         out, err = proc.communicate()
-        if 'out of memory' in err:
+        if 'out of memory' in err or 'out of memory' in out:
             print('batch %s: out of memory' % right)
             out_of_memory = True
             break
@@ -46,7 +46,7 @@ def find_max_batch(framework, model_name):
                 lat = float(items[1]) + float(items[2]) # mean + std
                 curr_tp = right * 1e6 / lat
                 break
-            if line.startswith('batch'):
+            if line.startswith('batch,latency'):
                 flag = True
         if curr_tp is None:
             # Unknown error happens, need to fix first
@@ -69,7 +69,7 @@ def find_max_batch(framework, model_name):
         proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
         out, err = proc.communicate()
-        if 'out of memory' in err:
+        if 'out of memory' in err or 'out of memory' in out:
             right = mid
         else:
             left = mid

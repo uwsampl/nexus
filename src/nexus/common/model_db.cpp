@@ -50,7 +50,7 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
 
 float ModelProfile::GetForwardLatency(uint32_t batch) const {
   if (forward_lats_.find(batch) == forward_lats_.end()) {
-    return -1;
+    return 0;
   }
   auto entry = forward_lats_.at(batch);
   return entry.latency_mean + entry.latency_std;
