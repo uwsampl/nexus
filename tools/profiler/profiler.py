@@ -29,6 +29,7 @@ def find_max_batch(framework, model_name):
     out_of_memory = False
     while True:
         prev_tp = curr_tp
+        curr_tp = None
         cmd = cmd_base + ' -min_batch %s -max_batch %s' % (right, right)
         print(cmd)
         proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
@@ -47,6 +48,10 @@ def find_max_batch(framework, model_name):
                 break
             if line.startswith('batch'):
                 flag = True
+        if curr_tp is None:
+            # Unknown error happens, need to fix first
+            print(err)
+            exit(1)
         print('batch %s: throughput %s' % (right, curr_tp))
         if prev_tp is not None and curr_tp / prev_tp < 1.01:
             break

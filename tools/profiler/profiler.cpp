@@ -83,6 +83,7 @@ class ModelProfiler {
     BlockPriorityQueue<Task> task_queue;
 
     // preprocess
+    std::vector<std::shared_ptr<Task> > tasks;
     std::vector<std::vector<ArrayPtr> > batch_inputs;
     {
       desc.set_batch(1);
@@ -100,7 +101,6 @@ class ModelProfiler {
         ReadImage(test_images_[idx], &im);
         auto task = std::make_shared<Task>();
         task->SetDeadline(std::chrono::milliseconds(100000));
-        task->query.set_query_id(i);
         auto input = task->query.mutable_input();
         input->set_data_type(DT_IMAGE);
         auto image = input->mutable_image();
@@ -112,6 +112,7 @@ class ModelProfiler {
         model->PreprocessImpl(task, &input_arrays);
         auto end = std::chrono::high_resolution_clock::now();
         batch_inputs.push_back(input_arrays);
+        tasks.push_back(task);
         if (i > 0) {
           preprocess_lats.push_back(
               std::chrono::duration_cast<duration>(end - beg).count());
@@ -127,10 +128,12 @@ class ModelProfiler {
       // latencies
       std::vector<uint64_t> forward_lats;
       for (int i = 0; i < batch * (repeat + 1); ++i) {
+        int idx = i % batch_inputs.size();
         auto task = std::make_shared<Task>();
-        task->SetDeadline(std::chrono::milliseconds(100000));
         task->query.set_query_id(i);
-        model->AppendInputs(task, batch_inputs[i % batch_inputs.size()]);
+        task->SetDeadline(std::chrono::milliseconds(100000));
+        task->attrs = tasks[idx]->attrs;
+        model->AppendInputs(task, batch_inputs[idx]);
       }
       // dry run
       model->Forward();

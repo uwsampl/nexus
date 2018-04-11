@@ -63,11 +63,8 @@ class Task : public DeadlineItem {
   uint32_t filled_outputs;
   /*! \brief Attributes that needs to be kept during the task */
   YAML::Node attrs;
-  /*! */
+  /*! \brief Timer that counts the time spent in each stage */
   Timer timer;
-
- protected:
-  //static std::atomic<int64_t> global_task_id_;
 };
 
 } // namespace backend
