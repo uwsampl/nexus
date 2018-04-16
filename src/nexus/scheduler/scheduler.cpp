@@ -2,6 +2,7 @@
 #include <glog/logging.h>
 #include <unordered_set>
 
+#include "nexus/common/config.h"
 #include "nexus/common/model_db.h"
 #include "nexus/scheduler/scheduler.h"
 
@@ -14,12 +15,14 @@ INSTANTIATE_RPC_CALL(AsyncService, Register, RegisterRequest, RegisterReply);
 INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, LoadModel, LoadModelRequest, LoadModelReply);
 INSTANTIATE_RPC_CALL(AsyncService, UnloadModel, ModelSession, RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, UpdateBackendStats, BackendStatsProto,
+                     RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
 
-Scheduler::Scheduler(std::string port, size_t nthreads, double epoch,
-                     std::string model_db_root) :
+Scheduler::Scheduler(std::string port, size_t nthreads,
+                     std::string model_db_root, int beacon_interval) :
     AsyncRpcServiceBase(port, nthreads),
-    epoch_(static_cast<unsigned long>(epoch * 1000)),
-    backend_pool_version_(0) {
+    beacon_interval_(beacon_interval) {
   ModelDatabase::Singleton().Init(model_db_root);
 }
 
@@ -152,18 +155,19 @@ void Scheduler::Register(RpcCallBase* call, const RegisterRequest& request,
   SplitString(call->PeerAddress(), ':', &tokens);
   std::string server_addr = tokens[1] + ':' + request.server_port();
   std::string rpc_addr = tokens[1] + ':' + request.rpc_port();
-  LOG(INFO) << "Register " << NodeType_Name(request.node_type()) << " " <<
-      request.node_id() << " : " << server_addr << ", " << rpc_addr;
+  LOG(INFO) << request.DebugString();
+  // LOG(INFO) << "Register " << NodeType_Name(request.node_type()) << " " <<
+  //     request.node_id() << " : " << server_addr << ", " << rpc_addr;
   if (request.node_type() == BACKEND_NODE) {
     auto backend = std::make_shared<BackendRpcClient>(
         this, request.node_id(), server_addr, rpc_addr,
         request.gpu_device_name(), request.gpu_available_memory(),
-        BackendTimeout());
+        Timeout());
     RegisterBackend(std::move(backend), reply);
   } else {
     // frontend node
     auto frontend = std::make_shared<FrontendRpcClient>(
-        this, request.node_id(), server_addr, rpc_addr, FrontendTimeout());
+        this, request.node_id(), server_addr, rpc_addr, Timeout());
     RegisterFrontend(std::move(frontend), reply);
   }
 }
@@ -184,10 +188,10 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
                           LoadModelReply* reply) {
   // TODO: relax the backend that has free cycle for this model session
   float workload = request.estimate_workload();
-  if (workload == 0) {
-    reply->set_status(CTRL_INVALID_LOAD_MODEL_REQUEST);
-    return;
-  }
+  // if (workload == 0) {
+  //   reply->set_status(CTRL_INVALID_LOAD_MODEL_REQUEST);
+  //   return;
+  // }
   ModelSession model_sess(request.model_session());
   auto info = ModelDatabase::Singleton().GetModelInfo(
       ModelSessionToModelID(model_sess));
@@ -198,8 +202,10 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
       model_sess.set_image_width(info["image_width"].as<uint32_t>());
     }
   }
+  LOG(INFO) << request.DebugString();
   std::string model_sess_id = ModelSessionToString(model_sess);
-  std::vector<std::pair<BackendRpcClientPtr, ModelInstanceDesc>> assign_backends;
+  std::vector<std::pair<BackendRpcClientPtr, ModelInstanceConfig>>
+      assign_backends;
   {
     // TODO: check if model_sess_id already exists
     // lock protection region
@@ -212,26 +218,29 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
       return;
     }
     frontend = iter->second;
-
+    // Find backends to serve the workload
     for (auto it : backends_) {
       auto backend = it.second;
       if (!backend->IsAlive() || !backend->IsIdle()) {
         continue;
       }
-      ModelInstanceDesc model_desc;
+      ModelInstanceConfig config;
       float occupancy;
-      backend->PrepareLoadModel(model_sess, workload, &model_desc,
+      backend->PrepareLoadModel(model_sess, workload, &config,
                                 &occupancy);
-      if (model_desc.batch() == 0) {
+      if (config.batch() == 0) {
         continue;
       }
-      assign_backends.emplace_back(backend, model_desc);
-      workload -= model_desc.workload();
+      assign_backends.emplace_back(backend, config);
+      if (workload == 0) {
+        break;
+      }
+      workload -= config.workload();
       if (workload == 0) {
         break;
       }
     }
-    if (workload > 0) {
+    if (workload > 0 || assign_backends.size() == 0) {
       reply->set_status(CTRL_NOT_ENOUGH_BACKENDS);
       return;
     }
@@ -239,11 +248,13 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
     route.mutable_model_session()->CopyFrom(model_sess);
     for (auto item : assign_backends) {
       auto backend = item.first;
-      const auto& model_desc = item.second;
-      backend->LoadModel(model_desc);
+      const auto& config = item.second;
+      backend->LoadModel(config);
       auto backend_rate = route.add_backend_rate();
-      backend_rate->set_node_id(backend->node_id());
-      backend_rate->set_rate(model_desc.throughput());
+      auto info = backend_rate->mutable_info();
+      info->set_node_id(backend->node_id());
+      info->set_server_address(backend->server_address());
+      backend_rate->set_throughput(config.throughput());
     }
     model_routes_.emplace(model_sess_id, route);
     model_subscribers_.emplace(
@@ -261,7 +272,26 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
     }
   }
   reply->set_status(CTRL_OK);
-  //LOG(INFO) << "load model finished";
+}
+
+void Scheduler::UpdateBackendStats(RpcCallBase*,
+                                   const BackendStatsProto& request,
+                                   RpcReply* reply) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto iter = backends_.find(request.node_id());
+  if (iter == backends_.end()) {
+    reply->set_status(CTRL_NOT_REGISTERED);
+    return;
+  }
+  auto backend = iter->second;
+  backend->UpdateStats(request);
+  reply->set_status(CTRL_OK);
+}
+
+void Scheduler::KeepAlive(RpcCallBase*, const KeepAliveRequest& request,
+                          RpcReply* reply) {
+  LOG(INFO) << "KeepAlive: " << request.DebugString();
+  reply->set_status(CTRL_OK);
 }
 
 void Scheduler::HandleRpcs() {
@@ -273,7 +303,12 @@ void Scheduler::HandleRpcs() {
   new LoadModel_Call(&service_, cq_.get(),
                      std::bind(&Scheduler::LoadModel, this, _1, _2, _3));
   // new UnloadModel_Call(&service_, cq_.get(),
-  //                      std::bind(&Scheduler::UnloadModel, this, _1, _2));
+  //                      std::bind(&Scheduler::UnloadModel, this, _1, _2, _3));
+  new UpdateBackendStats_Call(
+      &service_, cq_.get(),
+      std::bind(&Scheduler::UpdateBackendStats, this, _1, _2, _3));
+  new KeepAlive_Call(&service_, cq_.get(),
+                     std::bind(&Scheduler::KeepAlive, this, _1, _2, _3));
   void* tag;
   bool ok;
   while (running_) {
@@ -297,8 +332,7 @@ void Scheduler::RegisterFrontend(FrontendRpcClientPtr frontend,
     frontends_[frontend->node_id()] = frontend;
   }
   reply->set_status(CTRL_OK);
-  reply->set_epoch_time(epoch_.count());
-  GetBackendPool(reply->mutable_init_backend_pool());
+  reply->set_beacon_interval_sec(BEACON_INTERVAL_SEC);
 }
 
 void Scheduler::RegisterBackend(BackendRpcClientPtr backend,
@@ -322,7 +356,7 @@ void Scheduler::RegisterBackend(BackendRpcClientPtr backend,
       }
     }
     reply->set_status(CTRL_OK);
-    reply->set_epoch_time(epoch_.count());
+    reply->set_beacon_interval_sec(BEACON_INTERVAL_SEC);
     if (assign_load_id >= 0) {
       LOG(INFO) << "Assign workload " << assign_load_id << " to backend " <<
           backend->node_id();
@@ -376,6 +410,7 @@ void Scheduler::UnregisterBackend(uint32_t node_id) {
 void Scheduler::onBackendsUpdate(
     const std::vector<BackendRpcClientPtr>& adds,
     const std::vector<BackendRpcClientPtr>& removes) {
+  /*
   if (adds.size() == 0 && removes.size() == 0) {
     return;
   }
@@ -405,19 +440,7 @@ void Scheduler::onBackendsUpdate(
       LOG(INFO) << "Failed to update backend pool to frontend " <<
           frontend->node_id() << ": " << CtrlStatus_Name(ret);
     }
-  }
-}
-
-void Scheduler::GetBackendPool(BackendsUpdate* update) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  update->set_base_version(0);
-  update->set_curr_version(backend_pool_version_);
-  for (auto iter : backends_) {
-    auto backend = iter.second;
-    auto backend_info = update->add_add_backend();
-    backend_info->set_node_id(backend->node_id());
-    backend_info->set_server_address(backend->server_address());
-  }
+    }*/
 }
 
 } // namespace scheduler

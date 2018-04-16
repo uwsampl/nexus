@@ -61,6 +61,8 @@ class ModelHandler {
 
   void UpdateRoute(const ModelRoute& route);
 
+  std::vector<uint32_t> BackendList();
+
  private:
   std::shared_ptr<BackendSession> GetBackend();
 

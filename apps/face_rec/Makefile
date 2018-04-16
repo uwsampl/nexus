@@ -1,7 +1,7 @@
 # c++ configs
 CXX = g++
 WARNING = -Wall -Wfatal-errors -Wno-unused -Wno-unused-result
-CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -I../../src/nexus -I../../build/gen \
+CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -I../../src -I../../build/gen \
 	-I/usr/local/cuda/include
 LD_FLAGS = -lm -pthread -lglog -lgflags -lboost_system -lboost_thread \
 	-lboost_filesystem -lyaml-cpp  `pkg-config --libs protobuf` \

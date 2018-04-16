@@ -1,4 +1,5 @@
 #include <chrono>
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <thread>
 
@@ -9,6 +10,8 @@
 #include "nexus/backend/darknet_model.h"
 #include "nexus/backend/model_ins.h"
 #include "nexus/backend/tensorflow_model.h"
+
+DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
 
 namespace nexus {
 namespace backend {
@@ -23,12 +26,13 @@ ModelInstance::ModelInstance(int gpu_id, const std::string& model_name,
     type_(type),
     batch_(batch),
     max_batch_(max_batch),
-    need_update_max_batch_(false),
     task_queue_(task_queue),
+    need_update_max_batch_(false),
     batch_id_(0) {
   cpu_device_ = DeviceManager::Singleton().GetCPUDevice();
   gpu_device_ = DeviceManager::Singleton().GetGPUDevice(gpu_id);
-  meter_ = MetricRegistry::Singleton().CreateMovingAverage(model_name, 1, 5);
+  counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
+      FLAGS_count_interval);
 }
 
 void ModelInstance::Init() {
@@ -104,14 +108,6 @@ void ModelInstance::Postprocess(std::shared_ptr<Task> task) {
   }
 }
 
-uint64_t ModelInstance::Tick() {
-  return meter_->Tick();
-}
-
-double ModelInstance::GetRate() {
-  return meter_->rate();
-}
-
 std::unique_ptr<BatchInput> ModelInstance::GetBatchInput(size_t min_batch) {
   std::lock_guard<std::mutex> lock(input_mutex_);
   /*if (need_update_max_batch_) {
@@ -169,7 +165,7 @@ void ModelInstance::AppendInputs(std::shared_ptr<Task> task,
     auto input = std::make_shared<Input>(task, input_arrays[i], i);
     input_queue_.push(input);
   }
-  meter_->Increase(input_arrays.size());
+  counter_->Increase(input_arrays.size());
 }
 
 void ModelInstance::RemoveOutput(uint64_t batch_id) {
@@ -178,17 +174,17 @@ void ModelInstance::RemoveOutput(uint64_t batch_id) {
 }
 
 std::shared_ptr<ModelInstance> CreateModelInstance(
-    int gpu_id, const ModelInstanceDesc& model_inst_desc, YAML::Node info,
+    int gpu_id, const ModelInstanceConfig& config, YAML::Node info,
     BlockPriorityQueue<Task>& task_queue) {
-  const auto& model_sess = model_inst_desc.model_session();
+  const auto& model_sess = config.model_session();
   auto framework = model_sess.framework();
   auto model_name = model_sess.model_name();
   auto model_type = info["type"].as<std::string>();
   uint32_t version = info["version"].as<uint32_t>();
-  uint32_t batch = model_inst_desc.batch();
-  uint32_t max_batch = model_inst_desc.max_batch();
-  if (model_inst_desc.memory_usage() > 0) {
-    info["memory_usage"] = model_inst_desc.memory_usage();
+  uint32_t batch = config.batch();
+  uint32_t max_batch = config.max_batch();
+  if (config.memory_usage() > 0) {
+    info["memory_usage"] = config.memory_usage();
   }
   if (model_sess.image_height() > 0) {
     CHECK_GT(model_sess.image_width(), 0) << "image_height and image_width " <<

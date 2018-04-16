@@ -92,7 +92,7 @@ std::shared_ptr<Output> ModelHandler::Execute(
     output->SetResult(SERVICE_UNAVAILABLE, "Service unavailable");
     return output;
   }
-  uint32_t qid = query_id_.fetch_add(1);
+  uint32_t qid = query_id_.fetch_add(1, std::memory_order_relaxed);
   QueryProto query;
   query.set_query_id(qid);
   query.set_model_session_id(model_session_id_);
@@ -137,8 +137,17 @@ void ModelHandler::UpdateRoute(const ModelRoute& route) {
   std::lock_guard<std::mutex> lock(route_mu_);
   backend_rates_.clear();
   for (auto itr : route.backend_rate()) {
-    backend_rates_.emplace_back(itr.node_id(), itr.rate());
+    backend_rates_.emplace_back(itr.info().node_id(), itr.throughput());
   }
+}
+
+std::vector<uint32_t> ModelHandler::BackendList() {
+  std::vector<uint32_t> ret;
+  std::lock_guard<std::mutex> lock(route_mu_);
+  for (auto iter : backend_rates_) {
+    ret.push_back(iter.first);
+  }
+  return ret;
 }
 
 std::shared_ptr<BackendSession> ModelHandler::GetBackend() {

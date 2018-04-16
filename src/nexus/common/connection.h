@@ -15,15 +15,15 @@ class Connection; // forward declare
 class MessageHandler {
  public:
   /*!
-   * \brief handles new message
-   * \param conn Shared pointer of Connection
+   * \brief Handles a new message
+   * \param conn Connection that receives the message
    * \param message Received message
    */
   virtual void HandleMessage(std::shared_ptr<Connection> conn,
                              std::shared_ptr<Message> message) = 0;
   /*!
-   * \brief handles error
-   * \param conn Shared pointer of Connection
+   * \brief Handles error in connection
+   * \param conn Connection that encounters an error
    * \param ec Boost error code
    */
   virtual void HandleError(std::shared_ptr<Connection> conn,

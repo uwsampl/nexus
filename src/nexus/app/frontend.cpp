@@ -1,6 +1,7 @@
 #include <limits>
 
 #include "nexus/app/frontend.h"
+#include "nexus/common/config.h"
 
 namespace nexus {
 namespace app {
@@ -9,26 +10,20 @@ Frontend::Frontend(std::string port, std::string rpc_port, std::string sch_addr,
                    size_t nthreads):
     ServerBase(port),
     rpc_service_(this, rpc_port),
-    sch_client_(this, sch_addr),
     backend_pool_(io_service_, this),
     rand_gen_(rd_()) {
   // Start RPC service
   rpc_service_.Start();
-  // Generate a random Node ID and register itself to scheduler
-  std::uniform_int_distribution<uint32_t> dis(
-      1, std::numeric_limits<uint32_t>::max());
-  node_id_ = dis(rand_gen_);
-  while (true) {
-    CtrlStatus ret = sch_client_.Register();
-    if (ret == CTRL_OK) {
-      break;
-    }
-    if (ret != CTRL_FRONTEND_NODE_ID_CONFLICT) {
-      LOG(FATAL) << "Failed to register frontend server to scheduler: " <<
-          CtrlStatus_Name(ret);
-    }
-    node_id_ = dis(rand_gen_);
+  // Init scheduler client
+  if (sch_addr.find(':') == std::string::npos) {
+    // Add default scheduler port if no port specified
+    sch_addr += ":" + std::to_string(SCHEDULER_DEFAULT_PORT);
   }
+  auto channel = grpc::CreateChannel(sch_addr,
+                                     grpc::InsecureChannelCredentials());
+  sch_stub_ = SchedulerCtrl::NewStub(channel);
+  // Init Node ID and register frontend to scheduler
+  Register();
   // Init message processors
   for (size_t i = 0; i < nthreads; ++i) {
     std::unique_ptr<Worker> worker(new Worker(this, request_queue_));
@@ -53,7 +48,7 @@ void Frontend::Run() {
 void Frontend::Stop() {
   running_ = false;
   // Unregister frontend
-  sch_client_.Unregister();;
+  Unregister();
   // Stop all accept new connections
   ServerBase::Stop();
   // Stop all frontend connections
@@ -64,9 +59,12 @@ void Frontend::Stop() {
   user_sessions_.clear();
   // Stop all backend connections
   backend_pool_.StopAll();
-  // Stop message processors
+  // Stop workers
   for (auto& worker : workers_) {
     worker->Stop();
+  }
+  for (auto& worker : workers_) {
+    worker->Join();
   }
   // Stop RPC service
   rpc_service_.Stop();
@@ -154,26 +152,19 @@ void Frontend::HandleError(std::shared_ptr<Connection> conn,
   }
 }
 
-void Frontend::UpdateBackends(const BackendsUpdate& request,
-                                    BackendsUpdateReply* reply) {
-  backend_pool_.UpdateBackends(request, reply);
-}
-
-void Frontend::UpdateModelRoutes(const ModelRouteList& routes,
-                                       RpcReply* reply) {
-  std::lock_guard<std::mutex> lock(model_pool_mu_);
-  for (auto model_route : routes.model_route()) {
-    std::string model_sess_id = ModelSessionToString(
-        model_route.model_session());
-    auto itr = model_pool_.find(model_sess_id);
-    if (itr == model_pool_.end()) {
-      LOG(ERROR) << "Cannot find model handler for " << model_sess_id;
-      continue;
+void Frontend::UpdateModelRoutes(const ModelRouteUpdates& request,
+                                 RpcReply* reply) {
+  int success = true;
+  for (auto model_route : request.model_route()) {
+    if (!UpdateRoute(model_route)) {
+      success = false;
     }
-    auto model_handler = itr->second;
-    model_handler->UpdateRoute(model_route);
   }
-  reply->set_status(CTRL_OK);
+  if (success) {
+    reply->set_status(CTRL_OK);
+  } else {
+    reply->set_status(MODEL_SESSION_NOT_LOADED);
+  }
 }
 
 std::shared_ptr<UserSession> Frontend::GetUserSession(uint32_t uid) {
@@ -187,9 +178,11 @@ std::shared_ptr<UserSession> Frontend::GetUserSession(uint32_t uid) {
 
 std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
   LoadModelReply reply;
-  CtrlStatus ret = sch_client_.LoadModelRpc(req, &reply);
-  if (ret != CTRL_OK) {
-    LOG(ERROR) << "Scheduler unreachable";
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->LoadModel(&context, req, &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
     return nullptr;
   }
   if (reply.status() != CTRL_OK) {
@@ -198,12 +191,112 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
   }
   auto model_handler = std::make_shared<ModelHandler>(req.model_session(),
                                                       backend_pool_);
-  model_handler->UpdateRoute(reply.model_route());
   {
     std::lock_guard<std::mutex> lock(model_pool_mu_);
     model_pool_.emplace(model_handler->model_session_id(), model_handler);
   }
+  UpdateRoute(reply.model_route());
+
   return model_handler;
+}
+
+void Frontend::Register() {
+  // Init node id
+  std::uniform_int_distribution<uint32_t> dis(
+      1, std::numeric_limits<uint32_t>::max());
+  node_id_ = dis(rand_gen_);
+
+  // Prepare request
+  RegisterRequest request;
+  request.set_node_type(FRONTEND_NODE);
+  request.set_node_id(node_id_);
+  request.set_server_port(port());
+  request.set_rpc_port(rpc_service_.port());
+  
+  while (true) {
+    grpc::ClientContext context;
+    RegisterReply reply;
+    grpc::Status status = sch_stub_->Register(&context, request, &reply);
+    if (!status.ok()) {
+      LOG(FATAL) << "Failed to connect to scheduler: " <<
+          status.error_message() << "(" << status.error_code() << ")";
+    }
+    CtrlStatus ret = reply.status();
+    if (ret == CTRL_OK) {
+      beacon_interval_sec_ = reply.beacon_interval_sec();
+      return;
+    }
+    if (ret != CTRL_FRONTEND_NODE_ID_CONFLICT) {
+      LOG(FATAL) << "Failed to register frontend to scheduler: " <<
+          CtrlStatus_Name(ret);
+    }
+    // Frontend ID conflict, need to generate a new one
+    node_id_ = dis(rand_gen_);
+    request.set_node_id(node_id_);
+  }
+}
+
+void Frontend::Unregister() {
+  UnregisterRequest request;
+  request.set_node_type(FRONTEND_NODE);
+  request.set_node_id(node_id_);
+
+  grpc::ClientContext context;
+  RpcReply reply;
+  grpc::Status status = sch_stub_->Unregister(&context, request, &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  CtrlStatus ret = reply.status();
+  if (ret != CTRL_OK) {
+    LOG(ERROR) << "Failed to unregister frontend: " << CtrlStatus_Name(ret);
+  }
+}
+
+void Frontend::KeepAlive() {
+  grpc::ClientContext context;
+  KeepAliveRequest request;
+  request.set_node_type(FRONTEND_NODE);
+  request.set_node_id(node_id_);
+  RpcReply reply;
+  grpc::Status status = sch_stub_->KeepAlive(&context, request, &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  CtrlStatus ret = reply.status();
+  if (ret != CTRL_OK) {
+    LOG(ERROR) << "KeepAlive error: " << CtrlStatus_Name(ret);
+  }
+}
+
+bool Frontend::UpdateRoute(const ModelRoute& route) {
+  std::lock_guard<std::mutex> lock(model_pool_mu_);
+  auto model_session_id = ModelSessionToString(route.model_session());
+  auto iter = model_pool_.find(model_session_id);
+  if (iter == model_pool_.end()) {
+    LOG(ERROR) << "Cannot find model handler for " << model_session_id;
+    return false;
+  }
+  auto model_handler = iter->second;
+  // Update backend pool first
+  auto old_backends = model_handler->BackendList();
+  std::unordered_set<uint32_t> new_backends;
+  for (auto backend : route.backend_rate()) {
+    uint32_t backend_id = backend.info().node_id();
+    backend_pool_.AddBackend(backend.info(), model_session_id);
+  }
+  for (auto backend : old_backends) {
+    if (new_backends.find(backend) == new_backends.end()) {
+      backend_pool_.RemoveModelSessionFromBackend(backend, model_session_id);
+    }
+  }
+  // Update route in mdoel handler
+  model_handler->UpdateRoute(route);
+  return false;
 }
 
 void Frontend::RegisterUser(

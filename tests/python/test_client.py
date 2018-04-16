@@ -6,7 +6,7 @@ service_addr = "127.0.0.1:9001"
 
 def load_images(root):
     images = {}
-    for fn in filter(lambda x: x.endswith('.jpg'), os.listdir(root)):
+    for fn in os.listdir(root):
         with open(os.path.join(root, fn), 'rb') as f:
             im = f.read()
             images[fn] = im

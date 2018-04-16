@@ -39,6 +39,8 @@ class ModelInstance {
 
   uint32_t max_batch() const { return max_batch_; }
 
+  std::shared_ptr<IntervalCounter> counter() const { return counter_; }
+      
   virtual std::string framework() const = 0;
 
   virtual std::string profile_id() const = 0;
@@ -52,10 +54,6 @@ class ModelInstance {
   void Forward(size_t min_batch = 1);
 
   void Postprocess(std::shared_ptr<Task> task);
-
-  uint64_t Tick();
-
-  double GetRate();
 
  protected:
   virtual void InitBatchInputArray() = 0;
@@ -87,25 +85,25 @@ class ModelInstance {
   std::string type_;
   uint32_t batch_;
   uint32_t max_batch_;
-  bool need_update_max_batch_;
   BlockPriorityQueue<Task>& task_queue_;
+  std::shared_ptr<IntervalCounter> counter_;
+  bool need_update_max_batch_;
+  std::atomic<uint64_t> batch_id_;
   CPUDevice* cpu_device_;
   GPUDevice* gpu_device_;
   ArrayPtr batch_input_array_;
-  std::atomic<uint64_t> batch_id_;
   std::priority_queue<std::shared_ptr<Input>,
                       std::vector<std::shared_ptr<Input> >,
                       CompareDeadlineItem> input_queue_;
   std::unordered_map<uint64_t, std::shared_ptr<BatchOutput> > output_pool_;
   std::mutex input_mutex_;
   std::mutex output_mutex_;
-  std::shared_ptr<MovingAverage> meter_;
 };
 
 using ModelInstancePtr = std::shared_ptr<ModelInstance>;
 
 ModelInstancePtr CreateModelInstance(
-    int gpu_id, const ModelInstanceDesc& model_inst_desc, YAML::Node info,
+    int gpu_id, const ModelInstanceConfig& config, YAML::Node info,
     BlockPriorityQueue<Task>& task_queue);
 
 } // namespace backend

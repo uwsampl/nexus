@@ -7,37 +7,30 @@
 #include <thread>
 #include <vector>
 
+#include "nexus/common/time_util.h"
+
 namespace nexus {
 
 class Metric {
  public:
-  virtual std::string name() const = 0;
-
   virtual void Reset() = 0;
 };
 
 class Counter : public Metric {
  public:
-  Counter(std::string name);
-
-  std::string name() const override { return name_; }
+  Counter();
 
   void Increase(uint64_t value);
 
   void Reset() final;
   
  private:
-  std::string name_;
   std::atomic<uint64_t> count_;
 };
 
-class Meter : public Metric {
+class IntervalCounter : public Metric, public Tickable {
  public:
-  Meter(std::string name, uint32_t tick_interval_sec);
-
-  ~Meter();
-
-  std::string name() const override { return name_; }
+  IntervalCounter(uint32_t interval_sec);
 
   void Increase(uint64_t value);
 
@@ -45,68 +38,67 @@ class Meter : public Metric {
 
   std::vector<uint64_t> GetHistory();
 
- private:
-  void Tick();
+ protected:
+  void TickImpl() final;
 
  private:
-  std::string name_;
   uint32_t tick_interval_sec_;
+  TimePoint last_tick_time_;
   std::atomic<uint64_t> count_;
   std::vector<uint64_t> history_;
   std::mutex history_mutex_;
   std::atomic_bool running_;
-  std::thread tick_thread_;
 };
 
-class MovingAverage : public Metric {
+class MovingAverage : public Metric, public Tickable {
  public:
-  MovingAverage(std::string name, uint32_t tick_interval_sec,
-                uint32_t avg_interval_sec);
-
-  std::string name() const { return name_; }
+  MovingAverage(uint32_t tick_interval_sec, uint32_t avg_interval_sec);
 
   void Increase(uint64_t value);
 
-  double rate();
-
-  uint64_t Tick();
-
   void Reset() final;
 
+  double rate();
+
+ protected:
+  void TickImpl() final;
+
  private:
-  std::string name_;
-  uint32_t tick_interval_sec_;
   uint32_t avg_interval_sec_;
+  std::atomic<uint64_t> count_;
   double alpha_;
   double rate_;
   std::mutex rate_mutex_;
-  // counter for current epoch
-  std::atomic<uint64_t> count_;
 };
 
 class MetricRegistry {
  public:
-  static MetricRegistry& Singleton() {
-    static MetricRegistry metric_registry;
-    return metric_registry;
+  static MetricRegistry& Singleton();
+
+  std::shared_ptr<IntervalCounter> CreateIntervalCounter(
+      uint32_t interval_sec) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto metric = std::make_shared<IntervalCounter>(interval_sec);
+    metrics_.insert(metric);
+    return metric;
   }
 
   std::shared_ptr<MovingAverage> CreateMovingAverage(
-      std::string name, uint32_t tick_interval_sec, uint32_t avg_interval_sec) {
+      uint32_t tick_interval_sec, uint32_t avg_interval_sec) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto metric = std::make_shared<MovingAverage>(name, tick_interval_sec,
+    auto metric = std::make_shared<MovingAverage>(tick_interval_sec,
                                                   avg_interval_sec);
-    metrics_.push_back(metric);
+    metrics_.insert(metric);
     return metric;
   }
-      
+
+  void RemoveMetric(std::shared_ptr<Metric> metric);
+
  private:
   MetricRegistry() {}
-
-  //~MetricRegistry();
   
   std::mutex mutex_;
-  std::vector<std::shared_ptr<Metric> > metrics_;
+  std::unordered_set<std::shared_ptr<Metric> > metrics_;
 };
 
 } // namespace nexus

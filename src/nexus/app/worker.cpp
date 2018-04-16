@@ -17,13 +17,15 @@ void Worker::Start() {
 
 void Worker::Stop() {
   running_ = false;
+}
+
+void Worker::Join() {
   if (thread_.joinable()) {
     thread_.join();
   }
 }
 
 void Worker::Run() {
-  LOG(INFO) << "Worker started";
   auto timeout = std::chrono::milliseconds(50);
   while (running_) {
     std::shared_ptr<Message> msg = request_queue_.pop(timeout);
@@ -46,7 +48,6 @@ void Worker::Run() {
     reply_msg->EncodeBody(reply);
     user_sess->Write(std::move(reply_msg));
   }
-  LOG(INFO) << "Worker stopped";
 }
 
 } // namespace app

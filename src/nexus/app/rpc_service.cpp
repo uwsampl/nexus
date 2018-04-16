@@ -4,9 +4,10 @@
 namespace nexus {
 namespace app {
 
-INSTANTIATE_RPC_CALL(AsyncService, UpdateBackends, BackendsUpdate,
-                     BackendsUpdateReply);
-INSTANTIATE_RPC_CALL(AsyncService, UpdateModelRoutes, ModelRouteList, RpcReply);
+// INSTANTIATE_RPC_CALL(AsyncService, UpdateBackends, BackendsUpdate,
+//                      BackendsUpdateReply);
+INSTANTIATE_RPC_CALL(AsyncService, UpdateModelRoutes, ModelRouteUpdates,
+                     RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, CheckAlive, CheckAliveRequest, RpcReply);
 
 RpcService::RpcService(Frontend* frontend, std::string port, size_t nthreads):
@@ -15,15 +16,15 @@ RpcService::RpcService(Frontend* frontend, std::string port, size_t nthreads):
 }
 
 void RpcService::HandleRpcs() {
-  new UpdateBackends_Call(
-      &service_, cq_.get(),
-      [this](RpcCallBase*, const BackendsUpdate& req,
-             BackendsUpdateReply* reply) {
-        frontend_->UpdateBackends(req, reply);
-      });
+  // new UpdateBackends_Call(
+  //     &service_, cq_.get(),
+  //     [this](RpcCallBase*, const BackendsUpdate& req,
+  //            BackendsUpdateReply* reply) {
+  //       frontend_->UpdateBackends(req, reply);
+  //     });
   new UpdateModelRoutes_Call(
       &service_, cq_.get(),
-      [this](RpcCallBase*, const ModelRouteList& req, RpcReply* reply) {
+      [this](RpcCallBase*, const ModelRouteUpdates& req, RpcReply* reply) {
         frontend_->UpdateModelRoutes(req, reply);
       });
   new CheckAlive_Call(

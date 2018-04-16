@@ -10,16 +10,17 @@ service SchedulerCtrl {
   rpc Unregister(UnregisterRequest) returns (RpcReply) {}
   rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
   rpc UnloadModel(ModelSession) returns (RpcReply) {}
+  rpc UpdateBackendStats(BackendStatsProto) returns (RpcReply) {}
+  rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
 }
 
 service FrontendCtrl {
-  rpc UpdateBackends(BackendsUpdate) returns (BackendsUpdateReply) {}
-  rpc UpdateModelRoutes(ModelRouteList) returns (RpcReply) {}
+  rpc UpdateModelRoutes(ModelRouteUpdates) returns (RpcReply) {}
   rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
 }
 
 service BackendCtrl {
-  rpc UpdateModelTable(ModelTable) returns (RpcReply) {}
+  rpc UpdateModelTable(ModelTableConfig) returns (RpcReply) {}
   rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
 }
 
@@ -74,12 +75,12 @@ message RegisterRequest {
 message RegisterReply {
   // reply whether the rpc succeeds
   CtrlStatus status = 1;
-  // epoch time in millisecond
-  double epoch_time = 2;
+  // beacon interval in sec
+  int32 beacon_interval_sec = 2;
   // piggy back route table for frontend node
-  BackendsUpdate init_backend_pool = 10;
+  //BackendsUpdate init_backend_pool = 10;
   // piggy back model table for backend node
-  ModelTable init_model_table = 11;
+  ModelTableConfig init_model_table = 10;
 }
 
 message UnregisterRequest {
@@ -96,29 +97,29 @@ message BackendInfo {
   uint32 node_id = 1;
   string server_address = 2;
 }
-
-message BackendsUpdate {
+/*
+message BackendPoolUpdate {
   uint32 curr_version = 1;
   uint32 base_version = 2;
   repeated BackendInfo add_backend = 3;
   repeated BackendInfo remove_backend = 4;
 }
 
-message BackendsUpdateReply {
+message BackendPoolUpdateReply {
   CtrlStatus status = 1;
   uint32 version = 2;
 }
-
+*/
 message ModelRoute {
   message BackendRate {
-    uint32 node_id = 1;
-    float rate = 2;
+    BackendInfo info = 1;
+    float throughput = 2;
   }
   ModelSession model_session = 1;
   repeated BackendRate backend_rate = 2;
 }
 
-message ModelRouteList {
+message ModelRouteUpdates {
   repeated ModelRoute model_route = 1;
 }
 
@@ -134,7 +135,7 @@ message LoadModelReply {
   ModelRoute model_route = 2;
 }
 
-message ModelInstanceDesc {
+message ModelInstanceConfig {
   ModelSession model_session = 1;
   uint32 batch = 2;
   uint32 max_batch = 3;
@@ -145,19 +146,23 @@ message ModelInstanceDesc {
   float workload = 7;
 }
 
-message ModelTable {
-  repeated ModelInstanceDesc model_instance_desc = 1;
+message ModelTableConfig {
+  repeated ModelInstanceConfig model_instance_config = 1;
 }
 
-message ModelStats {
+message ModelStatsProto {
+  // Model session ID
   string model_session_id = 1;
+  // Requests per second during last period
   repeated uint64 rps = 2;
 }
 
-message GetStatsRequest {
-  
+message BackendStatsProto {
+  uint32 node_id = 1;
+  repeated ModelStatsProto model_stats = 2;
 }
 
-message GetStatsReply {
-  repeated ModelStats model_stats = 1;
+message KeepAliveRequest {
+  NodeType node_type = 1;
+  uint32 node_id = 2;
 }

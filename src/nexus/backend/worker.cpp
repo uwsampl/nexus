@@ -36,9 +36,9 @@ void Worker::Run() {
     if (task == nullptr) {
       continue;
     }
-    // LOG(DEBUG) << "Worker " << index_ << " process request (" <<
-    //     task->request.user_id() << ", " << task->request.reqid() << ") " <<
-    //     task->status;
+    // LOG(INFO) << "Worker " << index_ << " process query " <<
+    //     task->query.query_id() << ", model session " <<
+    //     task->query.model_session_id() << ", stage " << task->stage;
     Process(task);
   }
   LOG(INFO) << "Worker " << index_ << " stopped";

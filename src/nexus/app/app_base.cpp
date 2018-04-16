@@ -29,15 +29,13 @@ std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
   }
   if (estimate_workload > 0) {
     req.set_estimate_workload(estimate_workload);
-  } else {
-    // TODO: set some initial workload number
-    req.set_estimate_workload(50);
   }
 
   auto model_handler = LoadModel(req);
   if (model_handler == nullptr) {
     // TODO: load model failed, should retry after some time,
     // or wait for callback from scheduler
+    LOG(FATAL) << "Load model failed";
   }
   return model_handler;
 }

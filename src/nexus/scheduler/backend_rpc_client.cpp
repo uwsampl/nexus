@@ -12,7 +12,7 @@ BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
                                    const std::string& rpc_addr,
                                    const std::string& gpu_device,
                                    size_t gpu_available_memory,
-                                   std::chrono::milliseconds timeout):
+                                   std::chrono::seconds timeout):
     scheduler_(sch),
     node_id_(node_id),
     server_address_(server_addr),
@@ -21,8 +21,8 @@ BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
     gpu_available_memory_(gpu_available_memory),
     timeout_(timeout),
     workload_id_(-1),
-    exec_cycle_(0.),
-    duty_cycle_(0.),
+    exec_cycle_us_(0.),
+    duty_cycle_us_(0.),
     dirty_model_table_(false) {
   auto channel = grpc::CreateChannel(rpc_addr,
                                      grpc::InsecureChannelCredentials());
@@ -30,31 +30,22 @@ BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
   last_time_ = std::chrono::system_clock::now();
 }
 
-void BackendRpcClient::Tick() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  last_time_ = std::chrono::system_clock::now();
-}
-
-std::time_t BackendRpcClient::LastTime() {
+std::time_t BackendRpcClient::LastAliveTime() {
   std::lock_guard<std::mutex> lock(mutex_);
   return std::chrono::system_clock::to_time_t(last_time_);
 }
 
 void BackendRpcClient::PrepareLoadModel(
     const ModelSession& model_sess, float workload,
-    ModelInstanceDesc* model_desc, float* occupancy) {
-  if (workload == 0) {
-    model_desc->set_batch(0);
-    return;
-  }
+    ModelInstanceConfig* config, float* occupancy) {
   std::string profile_id = ModelSessionToProfileID(model_sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
   if (profile == nullptr) {
-    model_desc->set_batch(0);
+    config->set_batch(0);
     return;
   }
-  model_desc->mutable_model_session()->CopyFrom(model_sess);
+  config->mutable_model_session()->CopyFrom(model_sess);
   
   // lock protected below
   std::lock_guard<std::mutex> lock(mutex_);
@@ -66,18 +57,18 @@ void BackendRpcClient::PrepareLoadModel(
   std::tie(max_batch, max_throughput) = profile->GetMaxThroughput(
       model_sess.latency_sla());
 
-  if (exec_cycle_ == 0) {
+  if (exec_cycle_us_ == 0) {
     // empty GPU 
-    if (max_throughput <= workload) {
+    if (workload == 0 || max_throughput <= workload) {
       // workload can saturate the gpu
       float fwd_latency = profile->GetForwardLatency(max_batch);
       uint32_t memory_usage = profile->GetMemoryUsage(max_batch);
-      model_desc->set_batch(max_batch);
-      model_desc->set_max_batch(max_batch);
-      model_desc->set_forward_latency(fwd_latency);
-      model_desc->set_memory_usage(fwd_latency);
-      model_desc->set_throughput(max_throughput);
-      model_desc->set_workload(max_throughput);
+      config->set_batch(max_batch);
+      config->set_max_batch(max_batch);
+      config->set_forward_latency(fwd_latency);
+      config->set_memory_usage(fwd_latency);
+      config->set_throughput(max_throughput);
+      config->set_workload(max_throughput);
       *occupancy = 1.0;
     } else {
       // 2. Compute the max batch for residue load
@@ -88,7 +79,7 @@ void BackendRpcClient::PrepareLoadModel(
         float fwd_lat = profile->GetForwardLatency(batch);
         // because batch = ceil(workload * duty_cycle),
         // duty_cycle >= (batch - 1) / workload
-        float min_duty_cycle = (batch - 1) * 1000. / workload;
+        float min_duty_cycle = (batch - 1) * 1e6 / workload;
         if (min_duty_cycle + fwd_lat + preprocess + postprocess >
             latency_sla_us) {
           break;
@@ -97,50 +88,51 @@ void BackendRpcClient::PrepareLoadModel(
       --batch;
       if (batch == 0) {
         // execution latency of batch size 1 is even too large for latency_sla
-        model_desc->set_batch(0);
+        config->set_batch(0);
       } else {
         float fwd_lat = profile->GetForwardLatency(batch);
         uint32_t memory_usage = profile->GetMemoryUsage(batch);
         float duty_cycle = latency_sla_us - fwd_lat - preprocess - postprocess;
         float throughput = batch * 1e6 / duty_cycle;
-        model_desc->set_batch(batch);
-        model_desc->set_max_batch(max_batch);
-        model_desc->set_forward_latency(fwd_lat);
-        model_desc->set_memory_usage(memory_usage);
-        model_desc->set_throughput(throughput);
-        model_desc->set_workload(workload);
+        config->set_batch(batch);
+        config->set_max_batch(max_batch);
+        config->set_forward_latency(fwd_lat);
+        config->set_memory_usage(memory_usage);
+        config->set_throughput(throughput);
+        config->set_workload(workload);
         *occupancy = fwd_lat / duty_cycle;
       }
     }
   } else {
+    if (workload == 0) {
+      config->set_batch(0);
+      return;
+    }
     // TODO
-    model_desc->set_batch(0);
+    config->set_batch(0);
   }
 }
 
-void BackendRpcClient::LoadModel(const ModelInstanceDesc& model_desc) {
+void BackendRpcClient::LoadModel(const ModelInstanceConfig& config) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (exec_cycle_ > 0) {
+  if (exec_cycle_us_ > 0) {
     LOG(ERROR) << "Backend is not idle. Don't support multi-batching now.";
   } else {
-    exec_cycle_ = model_desc.forward_latency();
-    duty_cycle_ = model_desc.model_session().latency_sla() - exec_cycle_;
-    model_table_.push_back(model_desc);
+    exec_cycle_us_ = config.forward_latency();
+    duty_cycle_us_ = config.model_session().latency_sla() * 1e3 -
+                     exec_cycle_us_;
+    model_table_config_.push_back(config);
     dirty_model_table_ = true;
 
-    LOG(INFO) << "Backend " << node_id_ << " loads " <<
-        ModelSessionToString(model_desc.model_session()) <<
-        ", batch: " << model_desc.batch() << ", max batch: " <<
-        model_desc.max_batch() << ", throughput: " <<
-        model_desc.throughput() << ", workload: " << model_desc.workload() <<
-        ", exec cycle: " << exec_cycle_ << "us, duty cycle: " << duty_cycle_ <<
-        "us";
+    LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
+    LOG(INFO) << "Backend " << node_id_ << ": exec cycle " << exec_cycle_us_ <<
+        " us, duty cycle: " << duty_cycle_us_ << " us";
   }
 }
 
 void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
-  ModelInstanceDesc model_desc;
-  auto sess = model_desc.mutable_model_session();
+  ModelInstanceConfig config;
+  auto sess = config.mutable_model_session();
   sess->set_framework(model_info["framework"].as<std::string>());
   sess->set_model_name(model_info["model_name"].as<std::string>());
   sess->set_version(model_info["version"].as<uint32_t>());
@@ -150,7 +142,6 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
     sess->set_image_width(model_info["image_width"].as<uint32_t>());
   }
   std::string profile_id = ModelSessionToProfileID(*sess);
-  std::string sess_id = ModelSessionToString(*sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
   uint32_t batch = model_info["batch"].as<uint32_t>();
@@ -158,26 +149,26 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
   //uint32_t max_batch = profile->GetMaxBatch(sess->latency_sla());
   uint32_t memory_usage = profile->GetMemoryUsage(max_batch);
   float fwd_latency = profile->GetForwardLatency(batch);
-  model_desc.set_batch(batch);
-  model_desc.set_max_batch(max_batch);
-  model_desc.set_memory_usage(memory_usage);
-  model_desc.set_forward_latency(fwd_latency);
+  config.set_batch(batch);
+  config.set_max_batch(max_batch);
+  config.set_memory_usage(memory_usage);
+  config.set_forward_latency(fwd_latency);
 
   // update execution and batch cycles and throughput
   std::lock_guard<std::mutex> lock(mutex_);
-  model_table_.push_back(model_desc);
-  exec_cycle_ += fwd_latency;
-  duty_cycle_ += duty_cycle_;
-  for (auto& md : model_table_) {
-    float throughput = md.batch() * 1000. / duty_cycle_;
-    md.set_throughput(throughput);
-    md.set_workload(throughput);
+  model_table_config_.push_back(config);
+  exec_cycle_us_ += fwd_latency;
+  duty_cycle_us_ += fwd_latency;
+  for (auto& cfg : model_table_config_) {
+    float throughput = cfg.batch() * 1e6 / duty_cycle_us_;
+    cfg.set_throughput(throughput);
+    cfg.set_workload(throughput);
   }
   dirty_model_table_ = true;
 
-  LOG(INFO) << "Backend " << node_id_ << " loads " << sess_id << ", batch: " <<
-      batch << ", fwd lat: " << fwd_latency << ", exec cycle: " <<
-      exec_cycle_ << "us, duty cycle: " << duty_cycle_ << "us";
+  LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
+  LOG(INFO) << "Backend " << node_id_ << ": exec cycle " << exec_cycle_us_ <<
+        " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
 CtrlStatus BackendRpcClient::UpdateModelTable() {
@@ -185,28 +176,38 @@ CtrlStatus BackendRpcClient::UpdateModelTable() {
   if (!dirty_model_table_) {
     return CTRL_OK;
   }
-  ModelTable model_table;
+  ModelTableConfig request;
   RpcReply reply;
-  GetModelTableNoLock(&model_table);
-  grpc::Status ret = UpdateModelTableRpc(model_table, &reply);
-  if (!ret.ok()) {
+  GetModelTableNoLock(&request);
+  
+  // Invoke UpdateModelTable RPC
+  grpc::ClientContext context;
+  grpc::Status status = stub_->UpdateModelTable(&context, request, &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << status.error_code() << ": " << status.error_message();
     return CTRL_SERVER_UNREACHABLE;
   }
+  last_time_ = std::chrono::system_clock::now();
   if (reply.status() == CTRL_OK) {
     dirty_model_table_ = false;
   }
   return reply.status();
 }
 
-void BackendRpcClient::GetModelTable(ModelTable* model_table) {
+void BackendRpcClient::GetModelTable(ModelTableConfig* model_table_config) {
   std::lock_guard<std::mutex> lock(mutex_);
-  GetModelTableNoLock(model_table);
+  GetModelTableNoLock(model_table_config);
+}
+
+void BackendRpcClient::UpdateStats(const BackendStatsProto& stats) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  last_time_ = std::chrono::system_clock::now();
+  
 }
 
 bool BackendRpcClient::IsAlive() {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto now = std::chrono::system_clock::now();
-  std::chrono::duration<double> elapse = now - last_time_;
+  auto elapse = std::chrono::system_clock::now() - last_time_;
   if (elapse < timeout_) {
     return true;
   }
@@ -214,45 +215,27 @@ bool BackendRpcClient::IsAlive() {
   RpcReply reply;
   request.set_node_type(BACKEND_NODE);
   request.set_node_id(node_id_);
-  grpc::Status ret = CheckAliveRpc(request, &reply);
-  if (!ret.ok()) {
+
+  // Invoke CheckAlive RPC
+  grpc::ClientContext context;
+  grpc::Status status = stub_->CheckAlive(&context, request, &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << status.error_code() << ": " << status.error_message();
     return false;
   }
+  last_time_ = std::chrono::system_clock::now();
   return true;
 }
 
 bool BackendRpcClient::IsIdle() {
   std::lock_guard<std::mutex> lock(mutex_);
-  return exec_cycle_ == 0;
+  return exec_cycle_us_ == 0;
 }
 
-grpc::Status BackendRpcClient::UpdateModelTableRpc(
-    const ModelTable& request, RpcReply* reply) {
-  grpc::ClientContext context;
-  grpc::Status ret = stub_->UpdateModelTable(&context, request, reply);
-  if (ret.ok()) {
-    last_time_ = std::chrono::system_clock::now();
-  } else {
-    LOG(ERROR) << ret.error_code() << ": " << ret.error_message();
-  }
-  return ret;
-}
-
-grpc::Status BackendRpcClient::CheckAliveRpc(
-    const CheckAliveRequest& request, RpcReply* reply) {
-  grpc::ClientContext context;
-  grpc::Status ret = stub_->CheckAlive(&context, request, reply);
-  if (ret.ok()) {
-    last_time_ = std::chrono::system_clock::now();
-  } else {
-    LOG(ERROR) << ret.error_code() << ": " << ret.error_message();
-  }
-  return ret;
-}
-
-void BackendRpcClient::GetModelTableNoLock(ModelTable* model_table) {
-  for (auto model_desc : model_table_) {
-    model_table->add_model_instance_desc()->CopyFrom(model_desc);
+void BackendRpcClient::GetModelTableNoLock(
+    ModelTableConfig* model_table_config) {
+  for (auto model_config : model_table_config_) {
+    model_table_config->add_model_instance_config()->CopyFrom(model_config);
   }
 }
 

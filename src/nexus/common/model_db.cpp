@@ -105,7 +105,7 @@ std::pair<uint32_t, float> ModelProfile::GetMaxThroughput(float latency_sla_ms)
     if (forward_lat < 0 || forward_lat > exec_budget) {
       break;
     }
-    float tp = batch * 1000 / forward_lat;
+    float tp = batch * 1e6 / forward_lat;
     if (tp > max_throughput) {
       max_throughput = tp;
       best_batch = batch;

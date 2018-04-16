@@ -13,75 +13,124 @@
 #include "nexus/backend/gpu_executor.h"
 #include "nexus/backend/model_ins.h"
 #include "nexus/backend/rpc_service.h"
-#include "nexus/backend/scheduler_client.h"
 #include "nexus/backend/task.h"
 #include "nexus/backend/worker.h"
 #include "nexus/common/block_queue.h"
 #include "nexus/common/model_def.h"
 #include "nexus/common/server_base.h"
 #include "nexus/common/spinlock.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 namespace backend {
 
-// Backend server
+/*!
+ * \brief Backend server runs on top of a GPU, handles queries from frontends,
+ *   and executes model instances on GPU.
+ */
 class BackendServer : public ServerBase, public MessageHandler {
  public:
+  using ModelTable = std::unordered_map<std::string, ModelInstancePtr>;
+  
+  /*!
+   * \brief Constructs a backend server
+   * \param port Port number for receiving requests
+   * \param rpc_port Port number for RPC server and control messages
+   * \param sch_addr Scheduler IP address, if no port specified, use default port 10001
+   * \param num_workers Number of worker threads
+   * \param gpu_id GPU device ID
+   * \param model_db_root Model database root directory path
+   */
   BackendServer(std::string port, std::string rpc_port, std::string sch_addr,
                 size_t num_workers, int gpu_id, std::string model_db_root);
-
+  /*! \brief Deconstructs backend server */
   ~BackendServer();
-
+  /*! \brief Get backend node ID */
   uint32_t node_id() const { return node_id_; }
-
+  /*! \brief Get GPU device ID */
   int gpu_id() const { return gpu_id_; }
-
-  std::string rpc_port() const { return rpc_service_.port(); }
-
+  /*! \brief Starts the backend server */
   void Run() final;
-
+  /*! \brief Stops the backend server */
   void Stop() final;
-
+  /*! \brief Accepts a new connection */
   void HandleAccept() final;
-
+  /*!
+   * \brief Handles a new message
+   * \param conn Connection that receives the message
+   * \param message Received message
+   */
   void HandleMessage(std::shared_ptr<Connection> conn,
                      std::shared_ptr<Message> message) final;
-
+  /*!
+   * \brief Handles error in connection
+   * \param conn Connection that encounters an error
+   * \param ec Boost error code
+   */
   void HandleError(std::shared_ptr<Connection> conn,
                    boost::system::error_code ec) final;
-
-  void UpdateModelTable(const ModelTable& req, RpcReply* reply);
-
+  /*!
+   * \brief Updates model table
+   * \param req Update model table requests
+   * \param reply Replies to update model tabel requests
+   */
+  void UpdateModelTable(const ModelTableConfig& req, RpcReply* reply);
+  /*!
+   * \brief Gets the model instance given model session ID
+   * \param model_session_id Model session ID
+   * \return Model instance pointer
+   */
   ModelInstancePtr GetModelInstance(const std::string& model_session_id);
+  /*!
+   * \brief Gets all model instances loaded in the backend server
+   * \return All model instances
+   */
+  ModelTable GetModelTable();
 
-  std::vector<ModelInstancePtr> GetAllModelInstances();
+ private:
+  /*! \brief Daemon thread that sends stats to scheduler periodically */
+  void Daemon();
+
+  void Register();
+
+  void Unregister();
+
+  void UpdateBackendStats(const BackendStatsProto& request);
 
  private:
   /*! \brief GPU device index */
   int gpu_id_;
-  /*! \brief indicator whether backend is running */
+  /*! \brief Interval to update stats to scheduler in seconds */
+  uint32_t beacon_interval_sec_;
+  /*! \brief Flag for whether backend and daemon thread is running */
   std::atomic_bool running_;
-  // Backend node id
+  /*! \brief Backend node id */
   uint32_t node_id_;
-  // Backend RPC service
+  /*! \brief Backend RPC service */
   BackendRpcService rpc_service_;
-  // Backend controller
-  SchedulerClient sch_client_;
-  // frontend connections
+  /*! \brief RPC client for sending requests to scheduler */
+  std::unique_ptr<SchedulerCtrl::Stub> sch_stub_;
+  /*! \brief Daemon thread */
+  std::thread daemon_thread_;
+  /*! \brief Frontend connections, guraded by frontend_mutex_ */
   std::set<std::shared_ptr<Connection> > frontend_connections_;
+  /*! \brief Mutex for frontend_connections_ */
   std::mutex frontend_mutex_;
-  // BlockQueue that connections append new tasks and workers pull tasks
+  /*! \brief Task queue for workers to work on */
   BlockPriorityQueue<Task> task_queue_;
-  // Vector of workers
+  /*! \brief Worker thread pool */
   std::vector<std::unique_ptr<Worker> > workers_;
-  // Vector of GPU executors
+  /*! \brief GPU executor */
   std::unique_ptr<GpuExecutor> gpu_executor_;
-  // Lock for modifying this object
+  /*!
+   * \brief Mapping from model session ID to model instance.
+   *
+   * Guarded by model_table_lock_
+   */
+  ModelTable model_table_;
+  /*! \brief Spinlock for accessing model_instances_ and model_session_map_ */
   Spinlock model_table_lock_;
-  // Map from (framework, model_name) to a loaded model
-  std::vector<ModelInstancePtr> model_instances_;
-  std::unordered_map<std::string, ModelInstancePtr> model_session_map_;
-  // random number genertor
+  /*! \brief Random number genertor */
   std::random_device rd_;
   std::mt19937 rand_gen_;
 };

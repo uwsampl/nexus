@@ -78,17 +78,17 @@ class ModelProfiler {
     std::vector<uint64_t> preprocess_lats;
     std::vector<uint64_t> postprocess_lats;
     std::unordered_map<int, std::tuple<float, float, size_t> > forward_stats;
-    ModelInstanceDesc desc;
-    desc.mutable_model_session()->CopyFrom(model_sess_);
+    ModelInstanceConfig config;
+    config.mutable_model_session()->CopyFrom(model_sess_);
     BlockPriorityQueue<Task> task_queue;
 
     // preprocess
     std::vector<std::shared_ptr<Task> > tasks;
     std::vector<std::vector<ArrayPtr> > batch_inputs;
     {
-      desc.set_batch(1);
-      desc.set_max_batch(1);
-      auto model = CreateModelInstance(gpu_, desc, model_info_, task_queue);
+      config.set_batch(1);
+      config.set_max_batch(1);
+      auto model = CreateModelInstance(gpu_, config, model_info_, task_queue);
       // prepare the input
       int num_inputs = max_batch * (repeat + 1);
       if (num_inputs > 1000) {
@@ -122,9 +122,9 @@ class ModelProfiler {
 
     // forward and postprocess
     for (int batch = min_batch; batch <= max_batch; ++batch) {
-      desc.set_batch(batch);
-      desc.set_max_batch(batch);
-      auto model = CreateModelInstance(gpu_, desc, model_info_, task_queue);
+      config.set_batch(batch);
+      config.set_max_batch(batch);
+      auto model = CreateModelInstance(gpu_, config, model_info_, task_queue);
       // latencies
       std::vector<uint64_t> forward_lats;
       for (int i = 0; i < batch * (repeat + 1); ++i) {

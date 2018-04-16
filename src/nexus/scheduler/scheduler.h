@@ -11,7 +11,6 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
-//#include "nexus/common/model_def.h"
 #include "nexus/common/rpc_call.h"
 #include "nexus/common/rpc_service_base.h"
 #include "nexus/proto/control.grpc.pb.h"
@@ -34,23 +33,18 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \param nthreads Number of threads that handle the RPC calls.
    * \param epoch Epoch time for scheduling in seconds.
    */
-  Scheduler(std::string port, size_t nthreads, double epoch,
-            std::string db_root_dir);
+  Scheduler(std::string port, size_t nthreads, std::string db_root_dir,
+            int epoch);
   /*!
    * \brief Loads the workload configuation for backends from config file.
    * \param config_file Config file path.
    */
   void LoadWorkloadFile(const std::string& workload_file);
   /*!
-   * \brief Returns timeout duration for backend server.
-   * \return timeout duration in milliseconds
+   * \brief Get timeout length for backend and frontend server.
+   * \return Timeout duration in seconds
    */
-  std::chrono::milliseconds BackendTimeout() { return epoch_ * 2; }
-  /*!
-   * \brief Returns timeout duration for frontend server.
-   * \return timeout duration in milliseconds
-   */
-  std::chrono::milliseconds FrontendTimeout() { return epoch_ * 2; }
+  std::chrono::seconds Timeout() { return beacon_interval_ * 2; }
   /*! \brief starts the scheduler server */
   void Run();
 
@@ -64,6 +58,12 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
                  LoadModelReply* reply);
 
   //void UnloadModel(
+
+  void UpdateBackendStats(RpcCallBase* call, const BackendStatsProto& request,
+                          RpcReply* reply);
+
+  void KeepAlive(RpcCallBase* call, const KeepAliveRequest& request,
+                 RpcReply* reply);
 
  private:
   /*! \brief Initializes RPC handlers. */
@@ -109,17 +109,12 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   void onBackendsUpdate(const std::vector<BackendRpcClientPtr>& adds,
                         const std::vector<BackendRpcClientPtr>& removes);
-  /*!
-   * \brief Gets the snapshot of current backend pool.
-   *
-   * This function acquires mutex_.
-   * \param update Protobuf message to fill in the backend pool.
-   */
-  void GetBackendPool(BackendsUpdate* update);
 
  private:
+  /*! \brief Beacon interval in seconds */
+  std::chrono::seconds beacon_interval_;
   /*! \brief Epoch duration in milliseconds */
-  std::chrono::milliseconds epoch_;
+  //std::chrono::milliseconds epoch_;
   /*! \brief Static workload configuration */
   std::vector<std::vector<YAML::Node> > workloads_;
   /*! \brief Mapping from frontend node id to frontend client */
@@ -128,14 +123,11 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<uint32_t, BackendRpcClientPtr> backends_;
   /*! \brief Mapping from workload id to backend node id */
   std::unordered_map<int, uint32_t> assigned_workloads_;
-
+  /*! \brief Mapping from model session ID to model route table */
   std::unordered_map<std::string, ModelRoute> model_routes_;
+  /*! \brief Mapping from model session ID to subscribed frontends */
   std::unordered_map<std::string, std::vector<uint32_t> > model_subscribers_;
-  /*! \brief Route table version number */
-  std::uint32_t backend_pool_version_;
-  /*! \brief Route table change list */
-  std::unordered_map<uint32_t, BackendsUpdate> backends_updates_;
-  /*! \brief Mutex for changing internal data */
+  /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
 };
 

@@ -28,6 +28,15 @@ void BackendSession::Stop() {
   }
 }
 
+void BackendSession::AddModelSession(const std::string& model_session) {
+  model_sessions_.insert(model_session);
+}
+
+bool BackendSession::RemoveModelSession(const std::string& model_session) {
+  model_sessions_.erase(model_session);
+  return model_sessions_.empty();
+}
+
 void BackendSession::DoConnect(boost::asio::io_service& io_service) {
   boost::asio::ip::tcp::resolver::iterator endpoint;
   std::vector<std::string> tokens;
@@ -44,6 +53,7 @@ void BackendSession::DoConnect(boost::asio::io_service& io_service) {
           pool_->RemoveBackend(node_id_);
         } else {
           running_ = true;
+          LOG(INFO) << "Connected to backend " << node_id_;
           Start();
         }
       });
@@ -52,67 +62,9 @@ void BackendSession::DoConnect(boost::asio::io_service& io_service) {
 BackendPool::BackendPool(boost::asio::io_service& io_service,
                          MessageHandler* handler) :
     io_service_(io_service),
-    handler_(handler),
-    version_(0) {
+    handler_(handler) {
 }
 
-void BackendPool::UpdateBackends(const BackendsUpdate& request,
-                                 BackendsUpdateReply* reply) {
-  std::lock_guard<std::mutex> lock(pool_mu_);
-  uint32_t base_version = request.base_version();
-  if (base_version > 0 && base_version != version_) {
-    reply->set_status(CTRL_ROUTE_TABLE_VERSION_MISMATCH);
-    reply->set_version(version_);
-    return;
-  }
-  if (base_version == 0) {
-    std::unordered_map<uint32_t, BackendInfo&> infos;
-    for (auto info : request.add_backend()) {
-      uint32_t node_id = info.node_id();
-      infos.emplace(node_id, info);
-      if (backends_.find(node_id) == backends_.end()) {
-        auto backend = std::make_shared<BackendSession>(this, info, io_service_,
-                                                        handler_);
-        backends_.emplace(node_id, backend);
-      }
-    }
-    std::vector<uint32_t> remove_list;
-    for (auto iter : backends_) {
-      uint32_t node_id = iter.first;
-      if (infos.find(node_id) == infos.end()) {
-        remove_list.push_back(node_id);
-      }
-    }
-    for (uint32_t node_id : remove_list) {
-      backends_.erase(node_id);
-    }
-  } else {
-    for (auto info : request.add_backend()) {
-      auto backend = std::make_shared<BackendSession>(this, info, io_service_,
-                                                      handler_);
-      backends_.emplace(backend->node_id(), backend);
-    }
-    for (auto info : request.remove_backend()) {
-      auto iter = backends_.find(info.node_id());
-      if (iter == backends_.end()) {
-        return;
-      }
-      backends_.erase(iter);
-    }
-  }
-  version_ = request.curr_version();
-  reply->set_status(CTRL_OK);
-  reply->set_version(version_);
-  LOG(INFO) << "Backend pool version: " << version_;
-}
-/*
-void BackendPool::AddBackend(const BackendInfo& info) {
-  std::lock_guard<std::mutex> lock(pool_mu_);
-  auto backend = std::make_shared<BackendSession>(this, info, io_service_,
-                                                  handler_);
-  backends_.emplace(backend->node_id(), backend);
-}
-*/
 std::shared_ptr<BackendSession> BackendPool::GetBackend(uint32_t backend_id) {
   std::lock_guard<std::mutex> lock(pool_mu_);
   auto iter = backends_.find(backend_id);
@@ -120,6 +72,18 @@ std::shared_ptr<BackendSession> BackendPool::GetBackend(uint32_t backend_id) {
     return nullptr;
   }
   return iter->second;
+}
+
+void BackendPool::AddBackend(const BackendInfo& backend_info,
+                             const std::string& model_session) {
+  std::lock_guard<std::mutex> lock(pool_mu_);
+  uint32_t node_id = backend_info.node_id();
+  if (backends_.find(node_id) == backends_.end()) {
+    auto backend = std::make_shared<BackendSession>(this, backend_info,
+                                                    io_service_, handler_);
+    backends_.emplace(node_id, backend);
+  }
+  backends_.at(node_id)->AddModelSession(model_session);
 }
 
 void BackendPool::RemoveBackend(uint32_t backend_id) {
@@ -130,6 +94,21 @@ void BackendPool::RemoveBackend(uint32_t backend_id) {
   }
   iter->second->Stop();
   backends_.erase(iter);
+}
+
+void BackendPool::RemoveModelSessionFromBackend(
+    uint32_t backend_id, const std::string& model_session) {
+  std::lock_guard<std::mutex> lock(pool_mu_);
+  auto iter = backends_.find(backend_id);
+  if (iter == backends_.end()) {
+    return;
+  }
+  auto backend = iter->second;
+  if (backend->RemoveModelSession(model_session)) {
+    // No model session loaded by this backend
+    backend->Stop();
+    backends_.erase(iter);
+  }
 }
 
 void BackendPool::StopAll() {

@@ -26,15 +26,7 @@ class FrontendRpcClient {
 
   std::string rpc_address() const { return rpc_address_; }
 
-  uint32_t backend_pool_version() const { return backend_pool_version_; }
-
-  void Tick();
-
-  std::time_t LastTime();
-
-  CtrlStatus UpdateBackends(
-      uint32_t curr_version,
-      const std::unordered_map<uint32_t, BackendsUpdate>& history);
+  std::time_t LastAliveTime();
 
   bool IsAlive();
 
@@ -43,24 +35,12 @@ class FrontendRpcClient {
   const std::unordered_set<std::string>& subscribe_models();
 
  private:
-  grpc::Status UpdateBackendsRpc(const BackendsUpdate& request,
-                                 BackendsUpdateReply* reply);
-
-  grpc::Status CheckAliveRpc(const CheckAliveRequest& reqeust,
-                             RpcReply* reply);
-  
-  void MergeBackendsUpdate(
-    uint32_t base_version, uint32_t curr_version,
-    const std::unordered_map<uint32_t, BackendsUpdate>& history,
-    BackendsUpdate* req) const;
-
- private:
   Scheduler* scheduler_;
   uint32_t node_id_;
   std::string server_address_;
   std::string rpc_address_;
   std::chrono::milliseconds timeout_;
-  uint32_t backend_pool_version_;
+  //uint32_t backend_pool_version_;
   std::mutex mutex_;
   std::unique_ptr<FrontendCtrl::Stub> stub_;
   std::chrono::time_point<std::chrono::system_clock> last_time_;

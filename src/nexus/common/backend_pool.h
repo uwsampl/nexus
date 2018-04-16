@@ -24,6 +24,10 @@ class BackendSession : public Connection {
 
   void Stop() final;
 
+  void AddModelSession(const std::string& model_session);
+
+  bool RemoveModelSession(const std::string& model_session);
+
  private:
   void DoConnect(boost::asio::io_service& io_service);
 
@@ -32,18 +36,22 @@ class BackendSession : public Connection {
   uint32_t node_id_;
   std::string address_;
   std::atomic_bool running_;
+  std::unordered_set<std::string> model_sessions_;
 };
 
 class BackendPool {
  public:
   BackendPool(boost::asio::io_service& io_service, MessageHandler* handler);
 
-  void UpdateBackends(const BackendsUpdate& request,
-                      BackendsUpdateReply* reply);
-
   std::shared_ptr<BackendSession> GetBackend(uint32_t backend_id);
 
+  void AddBackend(const BackendInfo& backend_info,
+                  const std::string& model_session);
+
   void RemoveBackend(uint32_t backend_id);
+
+  void RemoveModelSessionFromBackend(uint32_t backend_id,
+                                     const std::string& model_session);
 
   void StopAll();
 
@@ -52,7 +60,6 @@ class BackendPool {
   MessageHandler* handler_;
   std::unordered_map<uint32_t, std::shared_ptr<BackendSession> > backends_;
   std::mutex pool_mu_;
-  std::uint32_t version_;
 };
 
 } // namespace nexus

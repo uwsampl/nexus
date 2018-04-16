@@ -57,9 +57,8 @@ void Connection::DoReadHeader() {
         } else {
           wrong_header_ = false;
           auto msg = std::make_shared<Message>(msg_header);
-          // LOG(INFO) << "user id: " << msg->user_id() << ", query id: " <<
-          //     msg->query_id() << ", msg type: " << msg->type() <<
-          //     ", body length: " << msg->body_length();
+          // LOG(INFO) << "msg type: " << msg->type() << ", body length: " <<
+          //     msg->body_length();
           DoReadBody(std::move(msg));
         }
       });

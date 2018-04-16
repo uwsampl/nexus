@@ -1,118 +1,93 @@
 #ifndef NEXUS_COMMON_TIME_UTIL_H_
 #define NEXUS_COMMON_TIME_UTIL_H_
 
+#include <atomic>
 #include <chrono>
-#include <condition_variable>
-#include <glog/logging.h>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace nexus {
 
 using Clock = std::chrono::high_resolution_clock;
 using TimePoint = std::chrono::time_point<Clock>;
 
+/*! \brief Timer helps to record time and count duration between two time
+  points */
 class Timer {
  public:
-  void Record(const std::string& tag) {
-    time_points_.emplace(tag, Clock::now());
-  }
-
+  /*!
+   * \brief Records the time point with tag
+   * \param tag Tag of time point
+   */
+  void Record(const std::string& tag);
+  /*!
+   * \brief Get the interval between two tags in millisecond
+   * \param beg_tag Tag of begining time point
+   * \param end_tag Tag of end time point
+   * \return Duration in millisecond
+   */
   uint64_t GetLatencyMillis(const std::string& beg_tag,
-                            const std::string& end_tag) {
-    auto beg = GetTimepoint(beg_tag);
-    auto end = GetTimepoint(end_tag);
-    if (beg == nullptr || end == nullptr) {
-      return 0;
-    }
-    auto d = std::chrono::duration_cast<std::chrono::milliseconds>(*end - *beg);
-    return d.count();
-  }
-
+                            const std::string& end_tag);
+  /*!
+   * \brief Get the interval between two tags in microsecond
+   * \param beg_tag Tag of begining time point
+   * \param end_tag Tag of end time point
+   * \return Duration in microsecond
+   */
   uint64_t GetLatencyMicros(const std::string& beg_tag,
-                            const std::string& end_tag) {
-    auto beg = GetTimepoint(beg_tag);
-    auto end = GetTimepoint(end_tag);
-    if (beg == nullptr || end == nullptr) {
-      return 0;
-    }
-    auto d = std::chrono::duration_cast<std::chrono::microseconds>(*end - *beg);
-    return d.count();
-  }
+                            const std::string& end_tag);
 
  private:
-  TimePoint* GetTimepoint(const std::string& tag) {
-    auto itr = time_points_.find(tag);
-    if (itr == time_points_.end()) {
-      return nullptr;
-    }
-    return &itr->second;
-  }
-  
+  /*!
+   * \brief Get the time point given the tag
+   * \param tag Tag of time point
+   * \return TimePoint pointer
+   */
+  TimePoint* GetTimepoint(const std::string& tag);
+  /*! \brief Map from tag to time points */
   std::unordered_map<std::string, TimePoint> time_points_;
 };
 
-/*
-class ClockSystem {
+class Tickable {
  public:
-  static ClockSystem& Singleton();
+  Tickable(uint32_t tick_interval_sec);
 
-  void RegisterTicker(std::string name, uint32_t tick_interval_sec,
-                      std::function<void(void)> tick_func);
+  virtual ~Tickable();
 
-  class Ticker {
-    Ticker(std::string name, uint32_t tick_interval_sec,
-           std::function<void(void)> tick_func) :
-        name_(name),
-        tick_interval_(tick_interval_sec),
-        tick_func_(tick_func),
-        valid_(true) {
-      next_tick_time_ = Clock::now() + tick_interval_;
-    }
+  void Tick();
 
-    bool valid() const { return valid_; }
+ protected:
+  virtual void TickImpl() = 0;
 
-    TimePoint NextEvent() const { return next_tick_time_; }
+ protected:
+  uint32_t tick_interval_sec_;
+  uint32_t sec_since_last_tick_;
+};
 
-    void Tick() {
-      tick_func_();
-      next_tick_time_ += tick_interval_;
-    }
+class TimeSystem {
+ public:
+  static TimeSystem& Singleton();
 
-   private:
-    std::string name_;
-    std::chrono::seconds tick_interval_;
-    std::fucntion<void(void)> tick_func_;
-    TimePoint next_tick_time_;
-    std::atomic_bool valid_;
-  };
+  void Stop();
 
-  class CompareTicker {
-   public:
-    bool operator()(std::shared_ptr<Ticker> lhs,
-                    std::shared_ptr<Ticker> rhs) {
-      return lhs->NextEvent() > rhs->NextEvent();
-    }
-  };
+  bool AddTickable(Tickable* tickable);
 
+  bool RemoveTickable(Tickable* tickable);
 
  private:
-  ClockSystem();
+  TimeSystem();
 
   void Run();
 
-  std::unordered_map<std::string, std::shared_ptr<Ticker> > tickers_;
-  std::priority_queue<std::shared_ptr<Ticker>,
-                      std::vector<std::shared_ptr<Ticker> >,
-                      CompareTicker> tick_events_;
-  std::mutex tick_mutex_;
-  std::condition_variable not_empty_;
+  std::unordered_set<Tickable*> tickables_;
+  std::mutex mutex_;
   std::atomic_bool running_;
   std::thread thread_;
-  
-}
-*/
+};
+
 } // namespace nexus
 
 #endif // NEXUS_COMMON_TIME_UTIL_H_

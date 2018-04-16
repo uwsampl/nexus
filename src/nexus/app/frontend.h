@@ -9,7 +9,6 @@
 #include <unordered_set>
 
 #include "nexus/app/rpc_service.h"
-#include "nexus/app/scheduler_client.h"
 #include "nexus/app/user_session.h"
 #include "nexus/app/worker.h"
 #include "nexus/common/backend_pool.h"
@@ -19,7 +18,7 @@
 #include "nexus/common/model_handler.h"
 #include "nexus/common/server_base.h"
 #include "nexus/common/spinlock.h"
-#include "nexus/proto/control.pb.h"
+#include "nexus/proto/control.grpc.pb.h"
 #include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
@@ -58,41 +57,61 @@ class Frontend : public ServerBase, public MessageHandler {
   void HandleError(std::shared_ptr<Connection> conn,
                    boost::system::error_code ec) final;
 
-  void UpdateBackends(const BackendsUpdate& request,
-                      BackendsUpdateReply* reply);
-
-  void UpdateModelRoutes(const ModelRouteList& routes, RpcReply* reply);
+  void UpdateModelRoutes(const ModelRouteUpdates& request, RpcReply* reply);
 
   std::shared_ptr<UserSession> GetUserSession(uint32_t uid);
 
   std::shared_ptr<ModelHandler> LoadModel(const LoadModelRequest& req);
 
  private:
+  void Register();
+
+  void Unregister();
+
+  void KeepAlive();
+
+  bool UpdateRoute(const ModelRoute& route);
+
   void RegisterUser(std::shared_ptr<UserSession> user_sess,
                     const RequestProto& request, ReplyProto* reply);
+
 
  private:
   /*! \brief Indicator whether backend is running */
   std::atomic_bool running_;
+  /*! \brief Interval to update stats to scheduler in seconds */
+  uint32_t beacon_interval_sec_;
   /*! \brief Node id */
   uint32_t node_id_;
   /*! \brief RPC service */
   RpcService rpc_service_;
   /*! \brief RPC client connected to scheduler */
-  SchedulerClient sch_client_;
+  std::unique_ptr<SchedulerCtrl::Stub> sch_stub_;
   /*! \brief Backend pool */
   BackendPool backend_pool_;
   /*! \brief Blocking queue for requests */
   BlockQueue<Message> request_queue_;
   /*! \brief Worker pool for processing requests */
   std::vector<std::unique_ptr<Worker> > workers_;
-  /*! \brief User connection pool, protected by user_mutex_ */
+  /*!
+   * \brief User connection pool
+   *
+   *   Guarded by user_mutex_
+   */
   std::unordered_set<std::shared_ptr<Connection> > connection_pool_;
-  /*! \brief Map from user id to user session, protected by user_mutex_ */
+  /*!
+   * \brief Map from user id to user session.
+   * 
+   *   Guarded by user_mutex_
+   */
   std::unordered_map<uint32_t, std::shared_ptr<UserSession> > user_sessions_;
   /*! \brief Mutex for connection_pool_ and user_sessions_ */
   std::mutex user_mutex_;
-  /*! \brief Model handlers that loaded by the app */
+  /*!
+   * \brief Map from model session ID to model handler.
+   *
+   *   Guarded by model_pool_mu_
+   */
   std::unordered_map<std::string, std::shared_ptr<ModelHandler> > model_pool_;
   /*! \brief Mutex for model_pool_ */
   std::mutex model_pool_mu_;

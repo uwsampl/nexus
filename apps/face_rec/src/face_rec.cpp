@@ -1,10 +1,11 @@
 #include <gflags/gflags.h>
 
-#include "app/app_base.h"
+#include "nexus/app/app_base.h"
 
 using namespace nexus;
+using namespace nexus::app;
 
-class FaceRecApp : public nexus::app::AppBase {
+class FaceRecApp : public AppBase {
  public:
   FaceRecApp(std::string port, std::string rpc_port, std::string sch_addr,
              size_t nthreads) :
@@ -12,7 +13,7 @@ class FaceRecApp : public nexus::app::AppBase {
   }
 
   void Setup() final {
-    model_ = GetModelHandler("caffe", "vgg_face", 1, 1000, 40.);
+    model_ = GetModelHandler("caffe", "vgg_face", 1, 1000);
   }
 
   void Process(const RequestProto& request, ReplyProto* reply) final {
@@ -27,7 +28,7 @@ class FaceRecApp : public nexus::app::AppBase {
 
 DEFINE_string(port, "9001", "Server port");
 DEFINE_string(rpc_port, "9002", "RPC port");
-DEFINE_string(sch_addr, "127.0.0.1:10001", "Scheduler address (ip:port)");
+DEFINE_string(sch_addr, "127.0.0.1", "Scheduler address");
 DEFINE_int32(nthread, 1000, "Number of threads processing requests "
              "(default: 1000)");
 
@@ -43,5 +44,7 @@ int main(int argc, char** argv) {
   LOG(INFO) << "App port " << FLAGS_port << ", rpc port " << FLAGS_rpc_port;
   // Create the frontend server
   FaceRecApp app(FLAGS_port, FLAGS_rpc_port, FLAGS_sch_addr, FLAGS_nthread);
-  nexus::app::LaunchApp(&app);
+  LaunchApp(&app);
+
+  return 0;
 }

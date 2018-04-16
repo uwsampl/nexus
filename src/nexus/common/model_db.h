@@ -51,7 +51,7 @@ class ModelProfile {
   std::unordered_map<uint32_t, ProfileEntry> forward_lats_;
   ProfileEntry preprocess_;
   ProfileEntry postprocess_;
-  const float network_latency_ = 2000; // 2 ms
+  const float network_latency_ = 2000; // 2000 us
 };
 
 class ModelDatabase {

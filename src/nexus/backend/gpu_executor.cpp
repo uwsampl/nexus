@@ -37,9 +37,9 @@ void GpuExecutorMultiBatching::Run() {
   LOG(INFO) << "GpuExecutor started";
   while (running_) {
     auto cycle_start = std::chrono::high_resolution_clock::now();
-    auto models = server_->GetAllModelInstances();
-    for (auto model : models) {
-      model->Forward();
+    auto models = server_->GetModelTable();
+    for (auto iter : models) {
+      iter.second->Forward();
     }
     auto cycle_end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -63,10 +63,10 @@ GpuExecutorNoMultiBatching::GpuExecutorNoMultiBatching(int gpu_id,
 
 void GpuExecutorNoMultiBatching::Start() {
   running_ = true;
-  auto models = server_->GetAllModelInstances();
-  for (auto model : models) {
+  auto models = server_->GetModelTable();
+  for (auto iter : models) {
     threads_.push_back(std::thread(&GpuExecutorNoMultiBatching::Run, this,
-                                   model));
+                                   iter.second));
   }
 }
 

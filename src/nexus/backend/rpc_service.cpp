@@ -5,7 +5,8 @@
 namespace nexus {
 namespace backend {
 
-INSTANTIATE_RPC_CALL(AsyncService, UpdateModelTable, ModelTable, RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, UpdateModelTable, ModelTableConfig,
+                     RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, CheckAlive, CheckAliveRequest, RpcReply);
 
 BackendRpcService::BackendRpcService(BackendServer* backend, std::string port,
@@ -17,7 +18,7 @@ BackendRpcService::BackendRpcService(BackendServer* backend, std::string port,
 void BackendRpcService::HandleRpcs() {
   new UpdateModelTable_Call(
       &service_, cq_.get(),
-      [this](RpcCallBase*, const ModelTable& req, RpcReply* reply) {
+      [this](RpcCallBase*, const ModelTableConfig& req, RpcReply* reply) {
         backend_->UpdateModelTable(req, reply);
       });
   new CheckAlive_Call(

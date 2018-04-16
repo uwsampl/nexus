@@ -51,6 +51,9 @@ TensorflowModel::TensorflowModel(int gpu_id, const std::string& model_name,
   tf::GraphDef graph_def;
   tf::Status status;
   status = tf::ReadBinaryProto(gpu_option_.env, model_file.string(), &graph_def);
+  // for (auto node : graph_def.node()) {
+  //   LOG(INFO) << node.name() << ": " << node.device();
+  // }
   if (!status.ok()) {
     LOG(FATAL) << "Failed to load model " << model_file << " : " <<
         status.ToString();

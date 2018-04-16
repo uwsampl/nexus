@@ -19,6 +19,8 @@ class Worker {
 
   void Stop();
 
+  void Join();
+
   void Run();
 
  private:
