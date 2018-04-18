@@ -7,12 +7,13 @@ namespace scheduler {
 FrontendRpcClient::FrontendRpcClient(Scheduler* sch, uint32_t node_id,
                                      const std::string& server_addr,
                                      const std::string& rpc_addr,
-                                     std::chrono::milliseconds timeout):
+                                     int beacon_sec):
     scheduler_(sch),
     node_id_(node_id),
     server_address_(server_addr),
     rpc_address_(rpc_addr),
-    timeout_(timeout) {
+    beacon_sec_(beacon_sec),
+    timeout_ms_(beacon_sec * 2 * 1000) {
   auto channel = grpc::CreateChannel(rpc_addr,
                                      grpc::InsecureChannelCredentials());
   stub_ = FrontendCtrl::NewStub(channel);
@@ -20,15 +21,17 @@ FrontendRpcClient::FrontendRpcClient(Scheduler* sch, uint32_t node_id,
 }
 
 std::time_t FrontendRpcClient::LastAliveTime() {
-  std::lock_guard<std::mutex> lock(mutex_);
   return std::chrono::system_clock::to_time_t(last_time_);
 }
 
+void FrontendRpcClient::Tick() {
+  last_time_ = std::chrono::system_clock::now();
+}
+
 bool FrontendRpcClient::IsAlive() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto now = std::chrono::system_clock::now();
-  std::chrono::duration<double> elapse = now - last_time_;
-  if (elapse < timeout_) {
+  long elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now() - last_time_).count();
+  if (elapse < timeout_ms_) {
     return true;
   }
   CheckAliveRequest request;
@@ -48,12 +51,10 @@ bool FrontendRpcClient::IsAlive() {
 }
 
 void FrontendRpcClient::SubscribeModel(const std::string& model_session_id) {
-  std::lock_guard<std::mutex> lock(mutex_);
   subscribe_models_.insert(model_session_id);
 }
 
 const std::unordered_set<std::string>& FrontendRpcClient::subscribe_models() {
-  std::lock_guard<std::mutex> lock(mutex_);
   return subscribe_models_;
 }
 

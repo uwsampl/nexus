@@ -20,9 +20,11 @@ INSTANTIATE_RPC_CALL(AsyncService, UpdateBackendStats, BackendStatsProto,
 INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
 
 Scheduler::Scheduler(std::string port, size_t nthreads,
-                     std::string model_db_root, int beacon_interval) :
+                     std::string model_db_root, int beacon_interval,
+                     int epoch_interval) :
     AsyncRpcServiceBase(port, nthreads),
-    beacon_interval_(beacon_interval) {
+    beacon_interval_sec_(beacon_interval),
+    epoch_interval_sec_(epoch_interval) {
   ModelDatabase::Singleton().Init(model_db_root);
 }
 
@@ -67,85 +69,24 @@ void Scheduler::Run() {
   // Start RPC service first
   Start();
   // main scheduler login
+  uint64_t elapse_sec = 0;
+  uint64_t last_beacon = 0;
+  uint64_t last_epoch = 0;
   while (running_) {
-    /*
     auto now = std::chrono::system_clock::now();
-    auto next_epoch = now + epoch_;
-    std::vector<BackendRpcClientPtr> dead_backends;
-    std::vector<BackendRpcClientPtr> update_backends;
-    std::vector<FrontendRpcClientPtr> dead_frontends;
-    {
-      // lock protected region begins
-      std::lock_guard<std::mutex> lock(mutex_);
-      std::vector<BackendRpcClientPtr> idle_backends;
-      // check if backends are alive
-      for (auto it : backends_) {
-        auto backend = it.second;
-        if (backend->IsAlive()) {
-          if (backend->IsIdle()) {
-            idle_backends.push_back(backend);
-          }
-          continue;
-        }
-        std::time_t last_time = backend->LastTime();
-        LOG(INFO) << "Remove backend " << backend->node_id() <<
-            ", last time: " << std::ctime(&last_time);
-        // remove the assigned workload
-        int workload_id = backend->workload_id();
-        if (workload_id >= 0) {
-          assigned_workloads_.erase(workload_id);
-          LOG(INFO) << "Remove workload " << workload_id;
-        }
-        // add backend to remove list
-        dead_backends.push_back(backend);
-      }
-      // remove the dead backends
-      for (auto backend : dead_backends) {
-        backends_.erase(backend->node_id());
-      }
-      // reassign workload to idle backends
-      if (idle_backends.size() > 0) {
-        for (uint id = 0; id < workloads_.size(); ++id) {
-          if (assigned_workloads_.find(id) == assigned_workloads_.end()) {
-            auto backend = idle_backends.back();
-            idle_backends.pop_back();
-            LOG(INFO) << "Assign workload " << id << " to backend " <<
-                backend->node_id();
-            auto toload_models = workloads_[id];
-            backend->InitModelTable(toload_models);
-            backend->UpdateModelTable();
-            backend->set_workload_id(id);
-            update_backends.push_back(backend);
-            if (idle_backends.empty()) {
-              break;
-            }
-          }
-        }
-      }
-      // check if frontends are alive
-      for (auto it : frontends_) {
-        auto frontend = it.second;
-        if (frontend->IsAlive()) {
-          continue;
-        }
-        std::time_t last_time = frontend->LastTime();
-        LOG(INFO) << "Remove frontend " << frontend->node_id() <<
-            ", last time: " << std::ctime(&last_time);
-        // add backend to remove list
-        dead_frontends.push_back(frontend);
-      }
-      // remove the dead backends
-      for (auto frontend : dead_frontends) {
-        frontends_.erase(frontend->node_id());
-      }
-      // lock protection region ends
+    if (elapse_sec > 0 && elapse_sec % beacon_interval_sec_ == 0) {
+      last_beacon = elapse_sec;
+      BeaconCheck();
     }
-    if (update_backends.size() > 0 || dead_backends.size() > 0) {
-      // update route table to all frontend
-      UpdateRouteTable(update_backends, dead_backends);
-      BroadcastRouteTableChange();
+    if (elapse_sec > 0 && elapse_sec % epoch_interval_sec_ == 0) {
+      last_epoch = elapse_sec;
+      EpochSchedule();
     }
-    std::this_thread::sleep_until(next_epoch);*/
+    int next_sec = std::min(last_beacon + beacon_interval_sec_,
+                            last_epoch + epoch_interval_sec_);
+    std::this_thread::sleep_until(
+        now + std::chrono::seconds(next_sec - elapse_sec));
+    elapse_sec = next_sec;
   }
 }
 
@@ -162,12 +103,11 @@ void Scheduler::Register(RpcCallBase* call, const RegisterRequest& request,
     auto backend = std::make_shared<BackendRpcClient>(
         this, request.node_id(), server_addr, rpc_addr,
         request.gpu_device_name(), request.gpu_available_memory(),
-        Timeout());
+        beacon_interval_sec_, epoch_interval_sec_);
     RegisterBackend(std::move(backend), reply);
-  } else {
-    // frontend node
+  } else { // FRONTEND_NODE
     auto frontend = std::make_shared<FrontendRpcClient>(
-        this, request.node_id(), server_addr, rpc_addr, Timeout());
+        this, request.node_id(), server_addr, rpc_addr, beacon_interval_sec_);
     RegisterFrontend(std::move(frontend), reply);
   }
 }
@@ -186,12 +126,7 @@ void Scheduler::Unregister(RpcCallBase* call, const UnregisterRequest& request,
 
 void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
                           LoadModelReply* reply) {
-  // TODO: relax the backend that has free cycle for this model session
-  float workload = request.estimate_workload();
-  // if (workload == 0) {
-  //   reply->set_status(CTRL_INVALID_LOAD_MODEL_REQUEST);
-  //   return;
-  // }
+  // TODO: support multi batching
   ModelSession model_sess(request.model_session());
   auto info = ModelDatabase::Singleton().GetModelInfo(
       ModelSessionToModelID(model_sess));
@@ -202,67 +137,67 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
       model_sess.set_image_width(info["image_width"].as<uint32_t>());
     }
   }
-  LOG(INFO) << request.DebugString();
   std::string model_sess_id = ModelSessionToString(model_sess);
-  std::vector<std::pair<BackendRpcClientPtr, ModelInstanceConfig>>
+  float workload = request.estimate_workload();
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<std::pair<BackendRpcClientPtr, ModelInstanceConfig> >
       assign_backends;
-  {
-    // TODO: check if model_sess_id already exists
-    // lock protection region
-    std::lock_guard<std::mutex> lock(mutex_);
-    uint32_t frontend_id = request.node_id();
-    std::shared_ptr<FrontendRpcClient> frontend = nullptr;
-    auto iter = frontends_.find(frontend_id);
-    if (iter == frontends_.end()) {
-      reply->set_status(CTRL_NOT_REGISTERED);
-      return;
-    }
-    frontend = iter->second;
-    // Find backends to serve the workload
-    for (auto it : backends_) {
-      auto backend = it.second;
-      if (!backend->IsAlive() || !backend->IsIdle()) {
-        continue;
-      }
-      ModelInstanceConfig config;
-      float occupancy;
-      backend->PrepareLoadModel(model_sess, workload, &config,
-                                &occupancy);
-      if (config.batch() == 0) {
-        continue;
-      }
-      assign_backends.emplace_back(backend, config);
-      if (workload == 0) {
-        break;
-      }
-      workload -= config.workload();
-      if (workload == 0) {
-        break;
-      }
-    }
-    if (workload > 0 || assign_backends.size() == 0) {
-      reply->set_status(CTRL_NOT_ENOUGH_BACKENDS);
-      return;
-    }
-    ModelRoute route;
-    route.mutable_model_session()->CopyFrom(model_sess);
-    for (auto item : assign_backends) {
-      auto backend = item.first;
-      const auto& config = item.second;
-      backend->LoadModel(config);
-      auto backend_rate = route.add_backend_rate();
-      auto info = backend_rate->mutable_info();
-      info->set_node_id(backend->node_id());
-      info->set_server_address(backend->server_address());
-      backend_rate->set_throughput(config.throughput());
-    }
-    model_routes_.emplace(model_sess_id, route);
-    model_subscribers_.emplace(
-        model_sess_id, std::vector<uint32_t>({request.node_id()}));
-    frontend->SubscribeModel(model_sess_id);
-    reply->set_status(CTRL_OK);
-    reply->mutable_model_route()->CopyFrom(model_routes_.at(model_sess_id));
+  
+  // TODO: check if model_sess_id already exists
+  // lock protection region
+  uint32_t frontend_id = request.node_id();
+  auto frontend = GetFrontend(frontend_id);
+  if (frontend == nullptr) {
+    reply->set_status(CTRL_SERVER_NOT_REGISTERED);
+    return;
   }
+  // Find backends to serve the workload
+  for (auto iter : backends_) {
+    auto backend = iter.second;
+    if (!backend->IsAlive() || !backend->IsIdle()) {
+      continue;
+    }
+    ModelInstanceConfig config;
+    float occupancy;
+    backend->PrepareLoadModel(model_sess, workload, &config,
+                              &occupancy);
+    if (config.batch() == 0) {
+      continue;
+    }
+    assign_backends.emplace_back(backend, config);
+    if (workload == 0) {
+      break;
+    }
+    workload -= config.workload();
+    if (workload == 0) {
+      break;
+    }
+  }
+  // Couldn't find enough backends to satisfy the workload
+  if (workload > 0 || assign_backends.size() == 0) {
+    reply->set_status(CTRL_NOT_ENOUGH_BACKENDS);
+    return;
+  }
+  // Load the model and
+  auto model_route = reply->mutable_model_route();
+  ModelInfo model_info;
+  model_route->mutable_model_session()->CopyFrom(model_sess);
+  for (auto item : assign_backends) {
+    auto backend = item.first;
+    const auto& config = item.second;
+    backend->LoadModel(item.second);
+    auto backend_rate = model_route->add_backend_rate();
+    backend->GetInfo(backend_rate->mutable_info());
+    backend_rate->set_throughput(config.throughput());
+    model_info.backend_throughputs.emplace(backend->node_id(),
+                                           config.throughput());
+  }
+  model_table_.emplace(model_sess_id, model_info);
+  model_subscribers_.emplace(
+      model_sess_id, ServerList{request.node_id()});
+  frontend->SubscribeModel(model_sess_id);
+  reply->set_status(CTRL_OK);
 
   for (auto item : assign_backends) {
     auto backend = item.first;
@@ -278,12 +213,11 @@ void Scheduler::UpdateBackendStats(RpcCallBase*,
                                    const BackendStatsProto& request,
                                    RpcReply* reply) {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto iter = backends_.find(request.node_id());
-  if (iter == backends_.end()) {
-    reply->set_status(CTRL_NOT_REGISTERED);
+  auto backend = GetBackend(request.node_id());
+  if (backend == nullptr) {
+    reply->set_status(CTRL_SERVER_NOT_REGISTERED);
     return;
   }
-  auto backend = iter->second;
   backend->UpdateStats(request);
   reply->set_status(CTRL_OK);
 }
@@ -291,6 +225,12 @@ void Scheduler::UpdateBackendStats(RpcCallBase*,
 void Scheduler::KeepAlive(RpcCallBase*, const KeepAliveRequest& request,
                           RpcReply* reply) {
   LOG(INFO) << "KeepAlive: " << request.DebugString();
+  auto frontend = GetFrontend(request.node_id());
+  if (frontend == nullptr) {
+    reply->set_status(CTRL_SERVER_NOT_REGISTERED);
+    return;
+  }
+  frontend->Tick();
   reply->set_status(CTRL_OK);
 }
 
@@ -321,126 +261,234 @@ void Scheduler::HandleRpcs() {
 
 void Scheduler::RegisterFrontend(FrontendRpcClientPtr frontend,
                                  RegisterReply* reply) {
-  {
-    // lock protection region
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (frontends_.find(frontend->node_id()) != frontends_.end()) {
-      reply->set_status(CTRL_FRONTEND_NODE_ID_CONFLICT);
-      return;
-    }
-    // add the frontend client in the frontend map
-    frontends_[frontend->node_id()] = frontend;
+  // lock protected
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (frontends_.find(frontend->node_id()) != frontends_.end()) {
+    reply->set_status(CTRL_FRONTEND_NODE_ID_CONFLICT);
+    return;
   }
+  // add the frontend client in the frontend map
+  frontends_[frontend->node_id()] = frontend;
   reply->set_status(CTRL_OK);
   reply->set_beacon_interval_sec(BEACON_INTERVAL_SEC);
 }
 
 void Scheduler::RegisterBackend(BackendRpcClientPtr backend,
                                 RegisterReply* reply) {
-  int assign_load_id = -1;
-  {
-    // lock protection region
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (backends_.find(backend->node_id()) != backends_.end()) {
-      reply->set_status(CTRL_BACKEND_NODE_ID_CONFLICT);
-      return;
-    }
-    // add the backend client in the backend map
-    backends_[backend->node_id()] = backend;
-    // assign workload to the new backend node
-    for (uint id = 0; id < workloads_.size(); ++id) {
-      if (assigned_workloads_.find(id) == assigned_workloads_.end()) {
-        assign_load_id = id;
-        assigned_workloads_[id] = backend->node_id();
-        break;
-      }
-    }
-    reply->set_status(CTRL_OK);
-    reply->set_beacon_interval_sec(BEACON_INTERVAL_SEC);
-    if (assign_load_id >= 0) {
-      LOG(INFO) << "Assign workload " << assign_load_id << " to backend " <<
-          backend->node_id();
-      auto workload = workloads_[assign_load_id];
-      for (auto model_info : workload) {
-        backend->LoadModel(model_info);
-      }
-      backend->set_workload_id(assign_load_id);
-      backend->GetModelTable(reply->mutable_init_model_table());
-    }
+  // lock protected
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (backends_.find(backend->node_id()) != backends_.end()) {
+    reply->set_status(CTRL_BACKEND_NODE_ID_CONFLICT);
+    return;
   }
-  onBackendsUpdate({backend}, {});
+  // Add the backend client in the backend map
+  backends_[backend->node_id()] = backend;
+  reply->set_status(CTRL_OK);
+  reply->set_beacon_interval_sec(BEACON_INTERVAL_SEC);
+  // Update workload to new backend
+  AddBackend(backend);
 }
 
 void Scheduler::UnregisterFrontend(uint32_t node_id) {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto it = frontends_.find(node_id);
-  if (it == frontends_.end()) {
+  auto frontend = GetFrontend(node_id);
+  if (frontend == nullptr) {
     LOG(ERROR) << "Cannot find frontend " << node_id;
     return;
   }
-  // TODO: need to remove frontend from its subscribed model sessions
-  /*auto frontend = it->second;
-  for (auto model_sess_id : frontend->subscribe_models()) {
-  }*/
-  frontends_.erase(it);
+  frontends_.erase(frontend->node_id());
+  LOG(INFO) << "Remove frontend " << node_id;
+  RemoveFrontend(frontend);
 }
 
 void Scheduler::UnregisterBackend(uint32_t node_id) {
-  BackendRpcClientPtr backend;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = backends_.find(node_id);
-    if (it == backends_.end()) {
-      LOG(ERROR) << "Cannot find backend " << node_id;
-      return;
-    }
-    backend = it->second;
-    int workload_id = backend->workload_id();
-    if (workload_id >= 0) {
-      assigned_workloads_.erase(workload_id);
-      LOG(INFO) << "Remove workload " << workload_id;
-    }
-    backends_.erase(it);
-    LOG(INFO) << "Remove backend " << node_id;
-  }
-  // TODO: need to update model routes
-  onBackendsUpdate({}, {backend});
-}
-
-void Scheduler::onBackendsUpdate(
-    const std::vector<BackendRpcClientPtr>& adds,
-    const std::vector<BackendRpcClientPtr>& removes) {
-  /*
-  if (adds.size() == 0 && removes.size() == 0) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto backend = GetBackend(node_id);
+  if (backend == nullptr) {
+    LOG(ERROR) << "Cannot find backend " << node_id;
     return;
   }
-  std::lock_guard<std::mutex> lock(mutex_);
-  BackendsUpdate update;
-  update.set_base_version(backend_pool_version_);
-  ++backend_pool_version_;
-  update.set_curr_version(backend_pool_version_);
-  for (auto backend : adds) {
-    auto backend_info = update.add_add_backend();
-    backend_info->set_node_id(backend->node_id());
-    backend_info->set_server_address(backend->server_address());
-  }
-  for (auto backend : removes) {
-    auto backend_info = update.add_remove_backend();
-    backend_info->set_node_id(backend->node_id());
-  }
-  backends_updates_.emplace(backend_pool_version_, update);
-  LOG(INFO) << "Backend pool version: " << backend_pool_version_;
+  backends_.erase(backend->node_id());
+  LOG(INFO) << "Remove backend " << node_id;
+  RemoveBackend(backend);
+}
 
-  // broadcast to all frontends
-  for (auto it : frontends_) {
-    auto frontend = it.second;
-    CtrlStatus ret = frontend->UpdateBackends(backend_pool_version_,
-                                              backends_updates_);
-    if (ret != CTRL_OK) {
-      LOG(INFO) << "Failed to update backend pool to frontend " <<
-          frontend->node_id() << ": " << CtrlStatus_Name(ret);
+void Scheduler::AddBackend(BackendRpcClientPtr backend) {
+  // 1. Check if there is any static configured workload to assign
+  int assign_load_id = -1;
+  for (uint id = 0; id < workloads_.size(); ++id) {
+    if (assigned_workloads_.find(id) == assigned_workloads_.end()) {
+      assign_load_id = id;
+      assigned_workloads_[id] = backend->node_id();
+      break;
     }
-    }*/
+  }
+  if (assign_load_id >= 0) {
+    LOG(INFO) << "Assign workload " << assign_load_id << " to backend " <<
+        backend->node_id();
+    auto workload = workloads_[assign_load_id];
+    for (auto model_info : workload) {
+      backend->LoadModel(model_info);
+    }
+    backend->set_workload_id(assign_load_id);
+    backend->UpdateModelTable();
+  } else {
+    // 2. Check if there is any model session that needs extra backend
+    // TODO
+  }
+
+  // 3. Update model table
+  std::vector<std::string> model_sessions;
+  backend->GetModelSessions(&model_sessions);
+  for (auto& model_sess_id : model_sessions) {
+    model_table_.at(model_sess_id).backend_throughputs.emplace(
+        backend->node_id(), backend->GetModelThroughput(model_sess_id));
+  }
+}
+
+void Scheduler::RemoveBackend(BackendRpcClientPtr backend) {
+  if (backend->IsIdle()) {
+    return;
+  }
+  // 1. Remove backend from ModelInfo
+  std::vector<std::string> old_model_sessions;
+  backend->GetModelSessions(&old_model_sessions);
+  for (auto& model_sess_id : old_model_sessions) {
+    model_table_.at(model_sess_id).backend_throughputs.erase(
+        backend->node_id());
+  }
+  
+  // 2. Try to re-assign backend's workload to another idle one
+  BackendRpcClientPtr assigned;
+  for (auto iter : backends_) {
+    if (iter.second->IsIdle()) {
+      if (iter.second->Assign(*backend)) {
+        assigned = iter.second;
+        break;
+      }
+    }
+  }
+  
+  if (assigned != nullptr) {
+    std::vector<std::string> new_model_sessions;
+    assigned->GetModelSessions(&new_model_sessions);
+    for (auto& model_sess_id : new_model_sessions) {
+      model_table_.at(model_sess_id).backend_throughputs.emplace(
+          assigned->node_id(), assigned->GetModelThroughput(model_sess_id));
+    }
+    return;
+  }
+  
+  // Failed to find an idle backend to assign the workload
+  if (backend->workload_id() >= 0) {
+    assigned_workloads_.erase(backend->workload_id());
+    LOG(INFO) << "Remove workload " << backend->workload_id();
+    return;
+  }
+  
+  // TODO: 3. If it's not static configured workload, allocate model instances
+  // to other backends
+}
+
+void Scheduler::RemoveFrontend(FrontendRpcClientPtr frontend) {
+  // Update subscribed model sessions
+  std::vector<std::string> remove_sessions;
+  std::unordered_set<BackendRpcClientPtr> update_backends;
+  for (auto model_sess_id : frontend->subscribe_models()) {
+    model_subscribers_.at(model_sess_id).erase(frontend->node_id());
+    if (model_subscribers_.at(model_sess_id).empty()) {
+      remove_sessions.push_back(model_sess_id);
+      auto& model_info = model_table_.at(model_sess_id);
+      for (auto iter : model_info.backend_throughputs) {
+        auto backend = GetBackend(iter.first);
+        backend->UnloadModel(model_sess_id);
+        update_backends.insert(backend);
+      }
+    }
+  }
+  // Remove model sessions
+  for (auto& model_sess_id : remove_sessions) {
+    LOG(INFO) << "Remove model session: " << model_sess_id;
+    model_subscribers_.erase(model_sess_id);
+    model_table_.erase(model_sess_id);
+  }
+  for (auto backend : update_backends) {
+    backend->UpdateModelTable();
+  }
+}
+
+BackendRpcClientPtr Scheduler::GetBackend(uint32_t node_id) {
+  auto iter = backends_.find(node_id);
+  if (iter == backends_.end()) {
+    LOG(ERROR) << "Cannot find backend " << node_id;
+    return nullptr;
+  }
+  return iter->second;
+}
+
+FrontendRpcClientPtr Scheduler::GetFrontend(uint32_t node_id) {
+  auto iter = frontends_.find(node_id);
+  if (iter == frontends_.end()) {
+    LOG(ERROR) << "Cannot find frontend " << node_id;
+    return nullptr;
+  }
+  return iter->second;
+}
+
+void Scheduler::BeaconCheck() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  // 1. Remove dead frontends
+  std::vector<FrontendRpcClientPtr> dead_frontends;
+  for (auto iter : frontends_) {
+    auto frontend = iter.second;
+    if (frontend->IsAlive()) {
+      continue;
+    }
+    dead_frontends.push_back(frontend);
+  }
+  for (auto frontend : dead_frontends) {
+    frontends_.erase(frontend->node_id());
+    std::time_t last_time = frontend->LastAliveTime();
+    LOG(INFO) << "Remove frontend " << frontend->node_id() <<
+        ", last alive time: " << std::ctime(&last_time);
+    RemoveFrontend(frontend);
+  }
+  
+  // 2. Aggregate model session rps
+  for (auto& model_iter : model_table_) {
+    const auto& model_sess_id = model_iter.first;
+    auto& model_info = model_iter.second;
+    double rps = 0.;
+    for (auto backend_iter : model_info.backend_throughputs) {
+      rps += backends_.at(backend_iter.first)->GetModelRps(model_sess_id);
+    }
+    model_info.rps_history.push_back(rps);
+    LOG(INFO) << "Model " << model_sess_id << " rps: " << rps <<
+        " req/s (avg over " << epoch_interval_sec_ << " seconds)";
+  }
+  
+  // 3. Remove dead backend
+  std::vector<BackendRpcClientPtr> dead_backends;
+  for (auto iter : backends_) {
+    auto backend = iter.second;
+    if (backend->IsAlive()) {
+      continue;
+    }
+    dead_backends.push_back(backend);
+  }
+  for (auto backend : dead_backends) {
+    std::time_t last_time = backend->LastAliveTime();
+    LOG(INFO) << "Remove backend " << backend->node_id() <<
+        ", last alive time: " << std::ctime(&last_time);
+    backends_.erase(backend->node_id());
+  }
+  // Reassign workload of dead backends
+  for (auto backend : dead_backends) {
+    RemoveBackend(backend);
+  }
+}
+
+void Scheduler::EpochSchedule() {
 }
 
 } // namespace scheduler

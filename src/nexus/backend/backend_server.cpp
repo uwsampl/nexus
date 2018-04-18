@@ -118,11 +118,11 @@ void BackendServer::HandleError(std::shared_ptr<Connection> conn,
 void BackendServer::UpdateModelTable(const ModelTableConfig& request,
                                      RpcReply* reply) {
   SpinlockGuard lock(model_table_lock_);
-  std::unordered_set<std::string> load_models;
+  std::unordered_set<std::string> new_model_list;
   for (auto config : request.model_instance_config()) {
     auto model_sess = config.model_session();
     std::string session_id = ModelSessionToString(model_sess);
-    load_models.insert(session_id);
+    new_model_list.insert(session_id);
     auto model_iter = model_table_.find(session_id);
     if (model_iter == model_table_.end()) {
       // Load new model instance
@@ -130,7 +130,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
       auto info = ModelDatabase::Singleton().GetModelInfo(model_id);
       auto model = CreateModelInstance(gpu_id_, config, info, task_queue_);
       model_table_.emplace(session_id, model);
-      LOG(INFO) << "Load model instance for " << session_id <<
+      LOG(INFO) << "Load model instance " << session_id <<
           ", batch: " << config.batch();
     } else {
       auto model = model_iter->second;
@@ -139,10 +139,15 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
       }
     }
   }
+  std::vector<std::string> to_remove;
   for (auto iter : model_table_) {
-    if (load_models.find(iter.first) == load_models.end()) {
-      // TODO: unload model
+    if (new_model_list.find(iter.first) == new_model_list.end()) {
+      to_remove.push_back(iter.first);
     }
+  }
+  for (auto session_id : to_remove) {
+    LOG(INFO) << "Unload model instance " << session_id;
+    model_table_.erase(session_id);
   }
   reply->set_status(CTRL_OK);
 }
@@ -175,8 +180,8 @@ void BackendServer::Daemon() {
       auto history = model->counter()->GetHistory();
       auto model_stats = backend_stats.add_model_stats();
       model_stats->set_model_session_id(model_session_id);
-      for (auto rps : history) {
-        model_stats->add_rps(rps);
+      for (auto nreq : history) {
+        model_stats->add_num_requests(nreq);
       }
     }
     UpdateBackendStats(backend_stats);
@@ -212,8 +217,6 @@ void BackendServer::Register() {
     CtrlStatus ret = reply.status();
     if (ret == CTRL_OK) {
       beacon_interval_sec_ = reply.beacon_interval_sec();
-      RpcReply dummy;
-      UpdateModelTable(reply.init_model_table(), &dummy);
       return;
     }
     if (ret != CTRL_BACKEND_NODE_ID_CONFLICT) {

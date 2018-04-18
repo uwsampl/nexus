@@ -50,47 +50,30 @@ class IntervalCounter : public Metric, public Tickable {
   std::atomic_bool running_;
 };
 
-class MovingAverage : public Metric, public Tickable {
+class EWMA {
  public:
-  MovingAverage(uint32_t tick_interval_sec, uint32_t avg_interval_sec);
+  EWMA(uint32_t sample_interval_sec, uint32_t avg_interval_sec);
 
-  void Increase(uint64_t value);
+  EWMA(const EWMA& other);
 
-  void Reset() final;
+  double rate() const { return rate_; }
 
-  double rate();
-
- protected:
-  void TickImpl() final;
+  void AddSample(uint64_t count);
 
  private:
+  uint32_t sample_interval_sec_;
   uint32_t avg_interval_sec_;
-  std::atomic<uint64_t> count_;
-  double alpha_;
   double rate_;
-  std::mutex rate_mutex_;
+  double alpha_;
 };
 
 class MetricRegistry {
  public:
   static MetricRegistry& Singleton();
 
-  std::shared_ptr<IntervalCounter> CreateIntervalCounter(
-      uint32_t interval_sec) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto metric = std::make_shared<IntervalCounter>(interval_sec);
-    metrics_.insert(metric);
-    return metric;
-  }
+  std::shared_ptr<Counter> CreateCounter();
 
-  std::shared_ptr<MovingAverage> CreateMovingAverage(
-      uint32_t tick_interval_sec, uint32_t avg_interval_sec) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto metric = std::make_shared<MovingAverage>(tick_interval_sec,
-                                                  avg_interval_sec);
-    metrics_.insert(metric);
-    return metric;
-  }
+  std::shared_ptr<IntervalCounter> CreateIntervalCounter(uint32_t interval_sec);
 
   void RemoveMetric(std::shared_ptr<Metric> metric);
 

@@ -78,7 +78,7 @@ void Frontend::HandleAccept() {
 }
 
 void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
-                                   std::shared_ptr<Message> message) {
+                             std::shared_ptr<Message> message) {
   switch (message->type()) {
     case kUserRegister: {
       auto user_sess = std::dynamic_pointer_cast<UserSession>(conn);
@@ -126,7 +126,7 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
 }
 
 void Frontend::HandleError(std::shared_ptr<Connection> conn,
-                                 boost::system::error_code ec) {
+                           boost::system::error_code ec) {
   if (auto backend_conn = std::dynamic_pointer_cast<BackendSession>(conn)) {
     if (ec == boost::asio::error::eof ||
         ec == boost::asio::error::connection_reset) {
@@ -273,7 +273,7 @@ void Frontend::KeepAlive() {
   }
 }
 
-bool Frontend::UpdateRoute(const ModelRoute& route) {
+bool Frontend::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(model_pool_mu_);
   auto model_session_id = ModelSessionToString(route.model_session());
   auto iter = model_pool_.find(model_session_id);

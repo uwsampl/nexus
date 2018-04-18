@@ -35,6 +35,10 @@ ModelInstance::ModelInstance(int gpu_id, const std::string& model_name,
       FLAGS_count_interval);
 }
 
+ModelInstance::~ModelInstance() {
+  MetricRegistry::Singleton().RemoveMetric(counter_);
+}
+
 void ModelInstance::Init() {
   InitBatchInputArray();
 }

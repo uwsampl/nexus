@@ -23,6 +23,20 @@ namespace scheduler {
 using AsyncService = nexus::SchedulerCtrl::AsyncService;
 using BackendRpcClientPtr = std::shared_ptr<BackendRpcClient>;
 using FrontendRpcClientPtr = std::shared_ptr<FrontendRpcClient>;
+using ServerList = std::unordered_set<uint32_t>;
+
+struct ModelInfo {
+  std::unordered_map<uint32_t, double> backend_throughputs;
+  std::vector<double> rps_history;
+
+  double total_throughput() const {
+    double total = 0.;
+    for (auto iter : backend_throughputs) {
+      total += iter.second;
+    }
+    return total;
+  }
+};
 
 /*! \brief Scheduler acts as a global centralized scheduler server. */
 class Scheduler : public AsyncRpcServiceBase<AsyncService> {
@@ -31,21 +45,18 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \brief Constructor for Scheduler object.
    * \param address IP address and port, e.g., 127.0.0.1:1234.
    * \param nthreads Number of threads that handle the RPC calls.
-   * \param epoch Epoch time for scheduling in seconds.
+   * \param beacon_interval Beacon interval in seconds.
+   * \param epoch_interval Epoch interval in seconds.
    */
   Scheduler(std::string port, size_t nthreads, std::string db_root_dir,
-            int epoch);
+            int beacon_interval, int epoch_interval);
   /*!
    * \brief Loads the workload configuation for backends from config file.
    * \param config_file Config file path.
    */
   void LoadWorkloadFile(const std::string& workload_file);
-  /*!
-   * \brief Get timeout length for backend and frontend server.
-   * \return Timeout duration in seconds
-   */
-  std::chrono::seconds Timeout() { return beacon_interval_ * 2; }
-  /*! \brief starts the scheduler server */
+  /*! \brief Starts the scheduler main thread that monitors the server
+   *     aliveness and changes in workload. */
   void Run();
 
   void Register(RpcCallBase* call, const RegisterRequest& request,
@@ -100,21 +111,53 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   void UnregisterBackend(uint32_t node_id);
   /*!
-   * \brief Updates backends change history and broadcasts changes to all
-   *   frontends.
+   * \brief Update workload to the new added backend
    *
-   * This function acquires mutex_.
-   * \param adds Added backends.
-   * \param removes Removed backends.
+   *   This function doesn't acquire mutex_.
+   * \param backend Backend client pointer
    */
-  void onBackendsUpdate(const std::vector<BackendRpcClientPtr>& adds,
-                        const std::vector<BackendRpcClientPtr>& removes);
+  void AddBackend(BackendRpcClientPtr backend);
+  /*!
+   * \brief Assign the workload of the removed backend to other idle ones.
+   *
+   *   This function doesn't acquire mutex_.
+   * \param backend Backend client pointer
+   */
+  void RemoveBackend(BackendRpcClientPtr backend);
+  /*!
+   * \brief Update the model subscribers, and potentially remove the model
+   *   sessions if no one subscribes it.
+   *
+   *   This function doesn't acquire mutex_.
+   * \param backend Backend client pointer
+   */
+  void RemoveFrontend(FrontendRpcClientPtr frontend);
+  /*!
+   * \brief Get backend rpc client given the node id.
+   *
+   *   This function doesn't acquire mutex_.
+   * \param node_id Backend node id.
+   * \return BackendRpcClient pointer if found, otherwise nullptr
+   */
+  BackendRpcClientPtr GetBackend(uint32_t node_id);
+  /*!
+   * \brief Get frontend rpc client given the node id.
+   *
+   *   This function doesn't acquire mutex_.
+   * \param node_id Frontend node id.
+   * \return FrontendRpcClient pointer if found, otherwise nullptr
+   */
+  FrontendRpcClientPtr GetFrontend(uint32_t node_id);
+
+  void BeaconCheck();
+
+  void EpochSchedule();
 
  private:
   /*! \brief Beacon interval in seconds */
-  std::chrono::seconds beacon_interval_;
-  /*! \brief Epoch duration in milliseconds */
-  //std::chrono::milliseconds epoch_;
+  int beacon_interval_sec_;
+  /*! \brief Epoch duration in seconds */
+  int epoch_interval_sec_;
   /*! \brief Static workload configuration */
   std::vector<std::vector<YAML::Node> > workloads_;
   /*! \brief Mapping from frontend node id to frontend client */
@@ -123,10 +166,10 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<uint32_t, BackendRpcClientPtr> backends_;
   /*! \brief Mapping from workload id to backend node id */
   std::unordered_map<int, uint32_t> assigned_workloads_;
-  /*! \brief Mapping from model session ID to model route table */
-  std::unordered_map<std::string, ModelRoute> model_routes_;
+  /*! \brief Mapping from model session ID to model information */
+  std::unordered_map<std::string, ModelInfo> model_table_;
   /*! \brief Mapping from model session ID to subscribed frontends */
-  std::unordered_map<std::string, std::vector<uint32_t> > model_subscribers_;
+  std::unordered_map<std::string, ServerList> model_subscribers_;
   /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
 };

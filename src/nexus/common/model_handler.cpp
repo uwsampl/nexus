@@ -6,22 +6,22 @@
 
 namespace nexus {
 
-Output::Output(uint32_t timeout_ms) :
+OutputFuture::OutputFuture(uint32_t timeout_ms) :
     ready_(false),
     timeout_(timeout_ms) {
 }
 
-uint32_t Output::status() {
+uint32_t OutputFuture::status() {
   WaitForReadyOrTimeout();
   return status_;
 }
 
-std::string Output::error_message() {
+std::string OutputFuture::error_message() {
   WaitForReadyOrTimeout();
   return error_message_;
 }
 
-void Output::FillReply(ReplyProto* reply) {
+void OutputFuture::FillReply(ReplyProto* reply) {
   WaitForReadyOrTimeout();
   reply->set_status(status_);
   if (status_ != CTRL_OK) {
@@ -34,12 +34,17 @@ void Output::FillReply(ReplyProto* reply) {
   }
 }
 
-const Record& Output::operator[](uint32_t idx) {
+const Record& OutputFuture::operator[](uint32_t idx) {
   WaitForReadyOrTimeout();
   return records_.at(idx);
 }
 
-void Output::SetResult(const QueryResultProto& result) {
+uint32_t OutputFuture::num_records() {
+  WaitForReadyOrTimeout();
+  return records_.size();
+}
+
+void OutputFuture::SetResult(const QueryResultProto& result) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     status_ = result.status();
@@ -55,7 +60,7 @@ void Output::SetResult(const QueryResultProto& result) {
   cv_.notify_all();
 }
 
-void Output::SetResult(uint32_t status, const std::string& error_msg) {
+void OutputFuture::SetResult(uint32_t status, const std::string& error_msg) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     status_ = status;
@@ -65,7 +70,7 @@ void Output::SetResult(uint32_t status, const std::string& error_msg) {
   cv_.notify_all();
 }
 
-void Output::WaitForReadyOrTimeout() {
+void OutputFuture::WaitForReadyOrTimeout() {
   std::unique_lock<std::mutex> lock(mutex_);
   cv_.wait_for(lock, timeout_, [this](){ return ready_; });
   if (!ready_) {
@@ -83,10 +88,10 @@ ModelHandler::ModelHandler(const ModelSession& model_session,
   model_session_id_ = ModelSessionToString(model_session);
 }
 
-std::shared_ptr<Output> ModelHandler::Execute(
+std::shared_ptr<OutputFuture> ModelHandler::Execute(
     const ValueProto& input, std::vector<std::string> output_fields,
     uint32_t topk, std::vector<RectProto> windows) {
-  auto output = std::make_shared<Output>(model_session_.latency_sla());
+  auto output = std::make_shared<OutputFuture>(model_session_.latency_sla());
   auto backend = GetBackend();
   if (backend == nullptr) {
     output->SetResult(SERVICE_UNAVAILABLE, "Service unavailable");
@@ -119,7 +124,7 @@ std::shared_ptr<Output> ModelHandler::Execute(
 
 void ModelHandler::HandleResult(const QueryResultProto& result) {
   uint32_t qid = result.query_id();
-  std::shared_ptr<Output> output;
+  std::shared_ptr<OutputFuture> output;
   {
     std::lock_guard<std::mutex> lock(outputs_mu_);
     auto iter = outputs_.find(qid);
@@ -133,7 +138,7 @@ void ModelHandler::HandleResult(const QueryResultProto& result) {
   output->SetResult(result);
 }
 
-void ModelHandler::UpdateRoute(const ModelRoute& route) {
+void ModelHandler::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(route_mu_);
   backend_rates_.clear();
   for (auto itr : route.backend_rate()) {

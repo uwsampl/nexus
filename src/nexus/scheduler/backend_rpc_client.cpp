@@ -12,14 +12,16 @@ BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
                                    const std::string& rpc_addr,
                                    const std::string& gpu_device,
                                    size_t gpu_available_memory,
-                                   std::chrono::seconds timeout):
+                                   int beacon_sec, int epoch_sec):
     scheduler_(sch),
     node_id_(node_id),
     server_address_(server_addr),
     rpc_address_(rpc_addr),
     gpu_device_(gpu_device),
     gpu_available_memory_(gpu_available_memory),
-    timeout_(timeout),
+    beacon_sec_(beacon_sec),
+    epoch_sec_(epoch_sec),
+    timeout_ms_(beacon_sec * 2 * 1000),
     workload_id_(-1),
     exec_cycle_us_(0.),
     duty_cycle_us_(0.),
@@ -30,9 +32,27 @@ BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
   last_time_ = std::chrono::system_clock::now();
 }
 
+void BackendRpcClient::GetInfo(BackendInfo* info) {
+  info->set_node_id(node_id_);
+  info->set_server_address(server_address_);
+}
+
 std::time_t BackendRpcClient::LastAliveTime() {
-  std::lock_guard<std::mutex> lock(mutex_);
   return std::chrono::system_clock::to_time_t(last_time_);
+}
+
+bool BackendRpcClient::Assign(const BackendRpcClient& other) {
+  CHECK(IsIdle()) << "Backend is not idle";
+  if (gpu_device_ == other.gpu_device_) {
+    workload_id_ = other.workload_id_;
+    model_rps_ = other.model_rps_;
+    model_table_config_ = other.model_table_config_;
+    exec_cycle_us_ = other.exec_cycle_us_;
+    duty_cycle_us_ = other.exec_cycle_us_;
+    return true;
+  }
+  // TODO: support assign for two backend that have different GPU devices
+  return false;
 }
 
 void BackendRpcClient::PrepareLoadModel(
@@ -46,9 +66,6 @@ void BackendRpcClient::PrepareLoadModel(
     return;
   }
   config->mutable_model_session()->CopyFrom(model_sess);
-  
-  // lock protected below
-  std::lock_guard<std::mutex> lock(mutex_);
 
   // 1. Compute the max batch and throughput to saturate an empty GPU
   float latency_sla_us = model_sess.latency_sla() * 1000;
@@ -114,14 +131,15 @@ void BackendRpcClient::PrepareLoadModel(
 }
 
 void BackendRpcClient::LoadModel(const ModelInstanceConfig& config) {
-  std::lock_guard<std::mutex> lock(mutex_);
   if (exec_cycle_us_ > 0) {
     LOG(ERROR) << "Backend is not idle. Don't support multi-batching now.";
   } else {
     exec_cycle_us_ = config.forward_latency();
     duty_cycle_us_ = config.model_session().latency_sla() * 1e3 -
                      exec_cycle_us_;
-    model_table_config_.push_back(config);
+    auto model_sess_id = ModelSessionToString(config.model_session());
+    model_table_config_.emplace(model_sess_id, config);
+    model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
     dirty_model_table_ = true;
 
     LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
@@ -141,6 +159,7 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
     sess->set_image_height(model_info["image_height"].as<uint32_t>());
     sess->set_image_width(model_info["image_width"].as<uint32_t>());
   }
+  std::string model_sess_id = ModelSessionToString(*sess);
   std::string profile_id = ModelSessionToProfileID(*sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
@@ -155,11 +174,12 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
   config.set_forward_latency(fwd_latency);
 
   // update execution and batch cycles and throughput
-  std::lock_guard<std::mutex> lock(mutex_);
-  model_table_config_.push_back(config);
+  model_table_config_.emplace(model_sess_id, config);
+  model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
   exec_cycle_us_ += fwd_latency;
   duty_cycle_us_ += fwd_latency;
-  for (auto& cfg : model_table_config_) {
+  for (auto& iter : model_table_config_) {
+    auto& cfg = iter.second;
     float throughput = cfg.batch() * 1e6 / duty_cycle_us_;
     cfg.set_throughput(throughput);
     cfg.set_workload(throughput);
@@ -171,14 +191,29 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
         " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
+void BackendRpcClient::UnloadModel(const std::string& model_sess_id) {
+  LOG(INFO) << "Backend " << node_id_ << " unload model: " << model_sess_id;
+  auto config = model_table_config_.at(model_sess_id);
+  model_table_config_.erase(model_sess_id);
+  model_rps_.erase(model_sess_id);
+  if (model_table_config_.empty()) {
+    exec_cycle_us_ = 0;
+    duty_cycle_us_ = 0;
+  } else {
+    // TODO: support unload model for multi batching
+  }
+  dirty_model_table_ = true;
+}
+
 CtrlStatus BackendRpcClient::UpdateModelTable() {
-  std::lock_guard<std::mutex> lock(mutex_);
   if (!dirty_model_table_) {
     return CTRL_OK;
   }
   ModelTableConfig request;
   RpcReply reply;
-  GetModelTableNoLock(&request);
+  for (auto iter : model_table_config_) {
+    request.add_model_instance_config()->CopyFrom(iter.second);
+  }
   
   // Invoke UpdateModelTable RPC
   grpc::ClientContext context;
@@ -194,21 +229,35 @@ CtrlStatus BackendRpcClient::UpdateModelTable() {
   return reply.status();
 }
 
-void BackendRpcClient::GetModelTable(ModelTableConfig* model_table_config) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  GetModelTableNoLock(model_table_config);
+void BackendRpcClient::GetModelSessions(std::vector<std::string>* sessions) {
+  for (auto iter : model_table_config_) {
+    sessions->push_back(iter.first);
+  }
 }
 
-void BackendRpcClient::UpdateStats(const BackendStatsProto& stats) {
-  std::lock_guard<std::mutex> lock(mutex_);
+void BackendRpcClient::UpdateStats(const BackendStatsProto& backend_stats) {
   last_time_ = std::chrono::system_clock::now();
-  
+  for (auto model_stats : backend_stats.model_stats()) {
+    auto& rps = model_rps_.at(model_stats.model_session_id());
+    for (auto num_requests : model_stats.num_requests()) {
+      rps.AddSample(num_requests);
+    }
+  }
+}
+
+float BackendRpcClient::GetModelThroughput(const std::string& model_sess_id)
+    const {
+  return model_table_config_.at(model_sess_id).throughput();
+}
+
+float BackendRpcClient::GetModelRps(const std::string& model_sess_id) const {
+  return model_rps_.at(model_sess_id).rate();
 }
 
 bool BackendRpcClient::IsAlive() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto elapse = std::chrono::system_clock::now() - last_time_;
-  if (elapse < timeout_) {
+  auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now() - last_time_).count();
+  if (elapse < timeout_ms_) {
     return true;
   }
   CheckAliveRequest request;
@@ -228,15 +277,7 @@ bool BackendRpcClient::IsAlive() {
 }
 
 bool BackendRpcClient::IsIdle() {
-  std::lock_guard<std::mutex> lock(mutex_);
   return exec_cycle_us_ == 0;
-}
-
-void BackendRpcClient::GetModelTableNoLock(
-    ModelTableConfig* model_table_config) {
-  for (auto model_config : model_table_config_) {
-    model_table_config->add_model_instance_config()->CopyFrom(model_config);
-  }
 }
 
 } // namespace scheduler

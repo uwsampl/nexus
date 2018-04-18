@@ -11,6 +11,8 @@ DEFINE_string(model_root, "", "model root directory");
 DEFINE_string(workload_file, "", "workload file");
 DEFINE_int32(beacon, BEACON_INTERVAL_SEC, "beacon interval in seconds "
              "(default: 5 sec)");
+DEFINE_int32(epoch, EPOCH_INTERVAL_SEC, "beacon interval in seconds "
+             "(default: 30 sec)");
 
 int main(int argc, char** argv) {
   // log to stderr
@@ -25,7 +27,8 @@ int main(int argc, char** argv) {
     LOG(FATAL) << "Missing model_root";
   }
   // Create scheduler
-  Scheduler scheduler(FLAGS_port, 4, FLAGS_model_root, FLAGS_beacon);
+  Scheduler scheduler(FLAGS_port, 4, FLAGS_model_root, FLAGS_beacon,
+                      FLAGS_epoch);
   if (FLAGS_workload_file.length() > 0) {
     scheduler.LoadWorkloadFile(FLAGS_workload_file);
   }

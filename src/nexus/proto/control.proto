@@ -48,7 +48,7 @@ enum CtrlStatus {
 
   // Internal control error code
   CTRL_SERVER_UNREACHABLE = 100;
-  CTRL_NOT_REGISTERED = 101;
+  CTRL_SERVER_NOT_REGISTERED = 101;
   CTRL_MODEL_NOT_SUPPORTED = 102;
   CTRL_ROUTE_TABLE_VERSION_MISMATCH = 103;
 
@@ -77,10 +77,6 @@ message RegisterReply {
   CtrlStatus status = 1;
   // beacon interval in sec
   int32 beacon_interval_sec = 2;
-  // piggy back route table for frontend node
-  //BackendsUpdate init_backend_pool = 10;
-  // piggy back model table for backend node
-  ModelTableConfig init_model_table = 10;
 }
 
 message UnregisterRequest {
@@ -97,20 +93,8 @@ message BackendInfo {
   uint32 node_id = 1;
   string server_address = 2;
 }
-/*
-message BackendPoolUpdate {
-  uint32 curr_version = 1;
-  uint32 base_version = 2;
-  repeated BackendInfo add_backend = 3;
-  repeated BackendInfo remove_backend = 4;
-}
 
-message BackendPoolUpdateReply {
-  CtrlStatus status = 1;
-  uint32 version = 2;
-}
-*/
-message ModelRoute {
+message ModelRouteProto {
   message BackendRate {
     BackendInfo info = 1;
     float throughput = 2;
@@ -120,7 +104,7 @@ message ModelRoute {
 }
 
 message ModelRouteUpdates {
-  repeated ModelRoute model_route = 1;
+  repeated ModelRouteProto model_route = 1;
 }
 
 message LoadModelRequest {
@@ -132,7 +116,7 @@ message LoadModelRequest {
 
 message LoadModelReply {
   CtrlStatus status = 1;
-  ModelRoute model_route = 2;
+  ModelRouteProto model_route = 2;
 }
 
 message ModelInstanceConfig {
@@ -153,8 +137,8 @@ message ModelTableConfig {
 message ModelStatsProto {
   // Model session ID
   string model_session_id = 1;
-  // Requests per second during last period
-  repeated uint64 rps = 2;
+  // Requests every second during last period
+  repeated uint64 num_requests = 2;
 }
 
 message BackendStatsProto {

@@ -70,7 +70,7 @@ class Frontend : public ServerBase, public MessageHandler {
 
   void KeepAlive();
 
-  bool UpdateRoute(const ModelRoute& route);
+  bool UpdateRoute(const ModelRouteProto& route);
 
   void RegisterUser(std::shared_ptr<UserSession> user_sess,
                     const RequestProto& request, ReplyProto* reply);

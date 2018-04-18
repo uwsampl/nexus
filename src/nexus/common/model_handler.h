@@ -16,17 +16,34 @@ namespace nexus {
 
 class ModelHandler;
 
-class Output {
+/*!
+ * \brief OutputFuture provides a mechanism to access the result of
+ *   ansynchronous model execution.
+ */
+class OutputFuture {
  public:
-  Output(uint32_t timeout);
-
+  /*!
+   * \brief Constructor of OutputFuture
+   * \param timeout_ms Timeout for output future in millisecond
+   */
+  OutputFuture(uint32_t timeout_ms);
+  /*! \brief Gets the status of output result */
   uint32_t status();
-
+  /*! \brief Gets the error message if any error happens in the execution */
   std::string error_message();
-
+  /*!
+   * \brief Fill the result to reply
+   * \param reply ReplyProto to fill in
+   */
   void FillReply(ReplyProto* reply);
-
+  /*!
+   * \brief Get the record given then index
+   * \param idx Index of record
+   * \return Record at idx
+   */
   const Record& operator[](uint32_t idx);
+  /*! \brief Get number of records in the output */
+  uint32_t num_records();
 
  private:
   void SetResult(const QueryResultProto& result);
@@ -53,13 +70,13 @@ class ModelHandler {
 
   std::string model_session_id() const { return model_session_id_; }
 
-  std::shared_ptr<Output> Execute(
+  std::shared_ptr<OutputFuture> Execute(
       const ValueProto& input, std::vector<std::string> output_fields={},
       uint32_t topk=1, std::vector<RectProto> windows={});
 
   void HandleResult(const QueryResultProto& result);
 
-  void UpdateRoute(const ModelRoute& route);
+  void UpdateRoute(const ModelRouteProto& route);
 
   std::vector<uint32_t> BackendList();
 
@@ -71,10 +88,14 @@ class ModelHandler {
   std::string model_session_id_;
   BackendPool& backend_pool_;
   std::atomic<uint32_t> query_id_;
-  /*! \brief map from backend id to its serving rate, protected by route_mu_ */
+  /*!
+   * \brief Mapping from backend id to its serving rate,
+   *
+   *   Guarded by route_mu_
+   */
   std::vector<std::pair<uint32_t, float> > backend_rates_;
   float total_throughput_;
-  std::unordered_map<uint32_t, std::shared_ptr<Output> > outputs_;
+  std::unordered_map<uint32_t, std::shared_ptr<OutputFuture> > outputs_;
   std::mutex route_mu_;
   std::mutex outputs_mu_;
   /*! \brief random number generator */

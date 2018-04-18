@@ -29,7 +29,7 @@ class ModelInstance {
                 uint32_t batch, uint32_t max_batch,
                 BlockPriorityQueue<Task>& task_queue);
 
-  ~ModelInstance() {}
+  virtual ~ModelInstance();
 
   std::string model_name() const { return model_name_; }
 

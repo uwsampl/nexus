@@ -44,34 +44,21 @@ void IntervalCounter::TickImpl() {
   history_.push_back(count);
 }
 
-MovingAverage::MovingAverage(uint32_t tick_interval_sec,
-                             uint32_t avg_interval_sec) :
-    Tickable(tick_interval_sec),
+EWMA::EWMA(uint32_t sample_interval_sec, uint32_t avg_interval_sec) :
+    sample_interval_sec_(sample_interval_sec),
     avg_interval_sec_(avg_interval_sec),
-    count_(0), 
     rate_(-1) {
-  alpha_ = 1 - exp(-1. * tick_interval_sec / avg_interval_sec);
+  alpha_ = 1 - exp(-1. * sample_interval_sec_ / avg_interval_sec_);
 }
 
-void MovingAverage::Increase(uint64_t value) {
-  count_.fetch_add(value, std::memory_order_relaxed);
-}
+EWMA::EWMA(const EWMA& other) :
+    sample_interval_sec_(other.sample_interval_sec_),
+    avg_interval_sec_(other.avg_interval_sec_),
+    rate_(other.rate_),
+    alpha_(other.alpha_) {}
 
-void MovingAverage::Reset() {
-  std::lock_guard<std::mutex> guard(rate_mutex_);
-  rate_ = -1;
-  count_.store(0, std::memory_order_seq_cst);
-}
-
-double MovingAverage::rate() {
-  std::lock_guard<std::mutex> guard(rate_mutex_);
-  return rate_;
-}
-
-void MovingAverage::TickImpl() {
-  std::lock_guard<std::mutex> guard(rate_mutex_);
-  uint64_t count = count_.exchange(0, std::memory_order_relaxed);
-  double current_rate = static_cast<double>(count) / tick_interval_sec_;
+void EWMA::AddSample(uint64_t count) {
+  double current_rate = static_cast<double>(count) / sample_interval_sec_;
   if (rate_ < 0) {
     rate_ = current_rate;
   } else {
@@ -82,6 +69,26 @@ void MovingAverage::TickImpl() {
 MetricRegistry& MetricRegistry::Singleton() {
     static MetricRegistry metric_registry_;
     return metric_registry_;
+}
+
+std::shared_ptr<Counter> MetricRegistry::CreateCounter() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto metric = std::make_shared<Counter>();
+  metrics_.insert(metric);
+  return metric;
+}
+
+std::shared_ptr<IntervalCounter> MetricRegistry::CreateIntervalCounter(
+    uint32_t interval_sec) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto metric = std::make_shared<IntervalCounter>(interval_sec);
+  metrics_.insert(metric);
+  return metric;
+}
+
+void MetricRegistry::RemoveMetric(std::shared_ptr<Metric> metric) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  metrics_.erase(metric);
 }
 
 } // namespace nexus
