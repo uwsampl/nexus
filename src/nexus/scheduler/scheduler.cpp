@@ -96,18 +96,16 @@ void Scheduler::Register(RpcCallBase* call, const RegisterRequest& request,
   SplitString(call->PeerAddress(), ':', &tokens);
   std::string server_addr = tokens[1] + ':' + request.server_port();
   std::string rpc_addr = tokens[1] + ':' + request.rpc_port();
-  LOG(INFO) << request.DebugString();
-  // LOG(INFO) << "Register " << NodeType_Name(request.node_type()) << " " <<
-  //     request.node_id() << " : " << server_addr << ", " << rpc_addr;
+  LOG(INFO) << "Register server: " << request.DebugString();
   if (request.node_type() == BACKEND_NODE) {
     auto backend = std::make_shared<BackendRpcClient>(
-        this, request.node_id(), server_addr, rpc_addr,
-        request.gpu_device_name(), request.gpu_available_memory(),
-        beacon_interval_sec_, epoch_interval_sec_);
+        request.node_id(), server_addr, rpc_addr, request.gpu_device_name(),
+        request.gpu_available_memory(), beacon_interval_sec_,
+        epoch_interval_sec_);
     RegisterBackend(std::move(backend), reply);
   } else { // FRONTEND_NODE
     auto frontend = std::make_shared<FrontendRpcClient>(
-        this, request.node_id(), server_addr, rpc_addr, beacon_interval_sec_);
+        request.node_id(), server_addr, rpc_addr, beacon_interval_sec_);
     RegisterFrontend(std::move(frontend), reply);
   }
 }
@@ -145,7 +143,6 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
       assign_backends;
   
   // TODO: check if model_sess_id already exists
-  // lock protection region
   uint32_t frontend_id = request.node_id();
   auto frontend = GetFrontend(frontend_id);
   if (frontend == nullptr) {
@@ -160,17 +157,17 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
     }
     ModelInstanceConfig config;
     float occupancy;
-    backend->PrepareLoadModel(model_sess, workload, &config,
-                              &occupancy);
-    if (config.batch() == 0) {
+    bool ret = backend->PrepareLoadModel(model_sess, workload, &config,
+                                         &occupancy);
+    if (!ret) {
       continue;
     }
     assign_backends.emplace_back(backend, config);
     if (workload == 0) {
       break;
     }
-    workload -= config.workload();
-    if (workload == 0) {
+    workload -= config.throughput();
+    if (workload <= 0) {
       break;
     }
   }

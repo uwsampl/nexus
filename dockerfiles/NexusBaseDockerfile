@@ -74,6 +74,13 @@ RUN cd /tmp && git clone -b v1.10.x https://github.com/grpc/grpc && \
     cd grpc && git submodule update --init && make -j$(nproc) HAS_SYSTEM_PROTOBUF=false && \
     make install
 
+# Install gtest 1.8.0
+RUN mkdir /tmp/gtest && cd /tmp/gtest && \
+    wget https://github.com/google/googletest/archive/release-1.8.0.tar.gz && \
+    tar xf release-1.8.0.tar.gz && cd googletest-release-1.8.0 && \
+    mkdir build && cd build && cmake -DBUILD_SHARED_LIBS=ON .. && \
+    make -j$(nproc) && make install
+
 RUN rm -r /tmp/*
 
 # Link cudnn to /usr/local/cuda

@@ -4,11 +4,10 @@
 namespace nexus {
 namespace scheduler {
 
-FrontendRpcClient::FrontendRpcClient(Scheduler* sch, uint32_t node_id,
+FrontendRpcClient::FrontendRpcClient(uint32_t node_id,
                                      const std::string& server_addr,
                                      const std::string& rpc_addr,
                                      int beacon_sec):
-    scheduler_(sch),
     node_id_(node_id),
     server_address_(server_addr),
     rpc_address_(rpc_addr),

@@ -16,9 +16,8 @@ class Scheduler;
 
 class FrontendRpcClient {
  public:
-  FrontendRpcClient(Scheduler* sch, uint32_t node_id,
-                    const std::string& server_addr, const std::string& rpc_addr,
-                    int beacon_sec);
+  FrontendRpcClient(uint32_t node_id, const std::string& server_addr,
+                    const std::string& rpc_addr, int beacon_sec);
 
   uint32_t node_id() const { return node_id_; }
 
@@ -37,7 +36,6 @@ class FrontendRpcClient {
   const std::unordered_set<std::string>& subscribe_models();
 
  private:
-  Scheduler* scheduler_;
   uint32_t node_id_;
   std::string server_address_;
   std::string rpc_address_;

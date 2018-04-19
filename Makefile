@@ -33,17 +33,20 @@ GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
 CXX_COMMON_SRCS := $(wildcard src/nexus/common/*.cpp)
 CXX_APP_SRCS := $(wildcard src/nexus/app/*.cpp)
 CXX_BACKEND_SRCS := $(wildcard src/nexus/backend/*.cpp)
-CXX_BACKEND_LIB_SRCS := $(filter-out src/nexus/backend/backend_main.cpp, $(CXX_BACKEND_SRCS))
 CXX_SCHEDULER_SRCS := $(wildcard src/nexus/scheduler/*.cpp)
+CXX_LIB_SRCS := $(shell find src ! -name "*_main.cpp" -name "*.cpp")
+CXX_TEST_SRCS := $(wildcard tests/cpp/*.cpp) $(wildcard tests/cpp/*/*.cpp)
 
 CXX_COMMON_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_COMMON_SRCS)) $(PROTO_OBJS)
 CXX_APP_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_APP_SRCS))
 CXX_BACKEND_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_SRCS))
-CXX_BACKEND_LIB_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_LIB_SRCS))
 CXX_SCHEDULER_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_SCHEDULER_SRCS))
-
+CXX_LIB_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_LIB_SRCS)) $(PROTO_OBJS)
+CXX_TEST_OBJS := $(patsubst tests/cpp/%.cpp, build/obj/tests/%.o, $(CXX_TEST_SRCS))
 OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS)
 DEPS := ${OBJS:.o=.d}
+
+TEST_BIN := build/bin/test
 
 # c++ configs
 CXX = g++
@@ -51,9 +54,10 @@ WARNING = -Wall -Wfatal-errors -Wno-unused -Wno-unused-result
 CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc -Ibuild/gen `pkg-config --cflags protobuf`
 # Automatic dependency generation
 CXXFLAGS += -MMD -MP
-LD_FLAGS = -lm -pthread -lglog -lgflags -lboost_system -lboost_thread \
-	-lboost_filesystem -lyaml-cpp  `pkg-config --libs protobuf` \
-	`pkg-config --libs grpc++ grpc` `pkg-config --libs opencv`
+LD_FLAGS = -lm -pthread -lglog -lgflags -lgtest -lgtest_main \
+	-lboost_system -lboost_thread -lboost_filesystem -lyaml-cpp \
+	`pkg-config --libs protobuf` `pkg-config --libs grpc++ grpc` \
+	`pkg-config --libs opencv`
 DLL_LINK_FLAGS = -shared
 ifeq ($(USE_GPU), 1)
 	CXXFLAGS += -I$(CUDA_PATH)/include
@@ -88,7 +92,7 @@ ifeq ($(USE_TENSORFLOW), 1)
 	BACKEND_LD_FLAGS += `pkg-config --libs tensorflow`
 endif
 
-all: proto python lib backend scheduler tool
+all: proto python lib backend scheduler tools
 
 caffe: $(CAFFE_BUILD_DIR)/lib/libcaffe.so
 darknet: $(DARKNET_BUILD_DIR)/libdarknet.so
@@ -119,7 +123,10 @@ backend: build/bin/backend
 
 scheduler: build/bin/scheduler
 
-tool: build/bin/profiler
+tools: build/bin/profiler
+
+test: build/bin/runtest
+	@build/bin/runtest -test_data $(ROOTDIR)/tests/data/model_db
 
 build/lib/libnexus.so: $(CXX_COMMON_OBJS) $(CXX_APP_OBJS)
 	@mkdir -p $(@D)
@@ -133,7 +140,11 @@ build/bin/scheduler: $(CXX_COMMON_OBJS) $(CXX_SCHEDULER_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS)
 
-build/bin/profiler: $(CXX_COMMON_OBJS) $(CXX_BACKEND_LIB_OBJS) build/obj/tools/profiler/profiler.o
+build/bin/profiler: $(CXX_LIB_OBJS) build/obj/tools/profiler/profiler.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
+
+build/bin/runtest: $(CXX_TEST_OBJS) $(CXX_LIB_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
 
@@ -166,9 +177,13 @@ build/obj/tools/%.o: tools/%.cpp | $(PROTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $(BACKEND_CXXFLAGS) -c $< -o $@
 
-.PRECIOUS: %.pb.cc %.pb.h %.grpc.pb.cc %.grpc.pb.h $(PROTO_GEN_HEADERS) $(PROTO_GEN_CC)
+build/obj/tests/%.o: tests/cpp/%.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $(BACKEND_CXXFLAGS) -c $< -o $@
 
-.PHONY: proto python lib backend scheduler tool darknet caffe tensorflow \
+.PRECIOUS: $(PROTO_GEN_HEADERS) $(PROTO_GEN_CC)
+
+.PHONY: proto python lib backend scheduler tools test darknet caffe tensorflow \
 	clean clean-darknet clean-caffe clean-tensorflow cleanall
 
 clean:

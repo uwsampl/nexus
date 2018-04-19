@@ -1,6 +1,0 @@
-model_db: /config/model_db.yml
-model_profile_dir: /nexus-models/model_profiles
-model_dir:
-  darknet: /nexus-models/models/darknet
-  caffe: /nexus-models/models/caffe
-  tensorflow: /nexus-models/models/tensorflow

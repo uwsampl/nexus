@@ -68,7 +68,7 @@ $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus
 First, start the scheduler
 ```
 $ docker run [--network nexus-network] -d -v /path/to/nexus-models:/nexus-models:ro \
---name scheduler nexus/scheduler scheduler -config /nexus/config/scheduler_docker.yml
+--name scheduler nexus/scheduler scheduler -model_root /nexus-models
 ```
 After the scheduler starts, we need to retrieve the IP address of scheduler.
 ```
@@ -78,11 +78,10 @@ Start a backend server on each GPU.
 ```
 $ docker run [--network nexus-network] --runtime=nvidia -d \
 -v /path/to/nexus-models:/nexus-models:ro --name backend0 nexus/backend backend \
--config /nexus/config/backend_docker.yml -sch_addr $(scheduler IP):10001 \
--gpu $(gpu index)
+-model_root /nexus-models -sch_addr $(scheduler IP) -gpu $(gpu index)
 ```
 Start an application serving at port 12345, e.g., object recognition.
 ```
 $ docker run [--network nexus-network] -d -p 12345:9001 --name objrec \
-nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP):10001
+nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP)
 ```

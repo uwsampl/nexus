@@ -7,13 +7,12 @@
 namespace nexus {
 namespace scheduler {
 
-BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
+BackendRpcClient::BackendRpcClient(uint32_t node_id,
                                    const std::string& server_addr,
                                    const std::string& rpc_addr,
                                    const std::string& gpu_device,
                                    size_t gpu_available_memory,
                                    int beacon_sec, int epoch_sec):
-    scheduler_(sch),
     node_id_(node_id),
     server_address_(server_addr),
     rpc_address_(rpc_addr),
@@ -32,13 +31,24 @@ BackendRpcClient::BackendRpcClient(Scheduler* sch, uint32_t node_id,
   last_time_ = std::chrono::system_clock::now();
 }
 
-void BackendRpcClient::GetInfo(BackendInfo* info) {
+float BackendRpcClient::occupancy() const {
+  if (exec_cycle_us_ == 0) {
+    return 0.;
+  }
+  return exec_cycle_us_ / duty_cycle_us_;
+}
+
+void BackendRpcClient::GetInfo(BackendInfo* info) const {
   info->set_node_id(node_id_);
   info->set_server_address(server_address_);
 }
 
-std::time_t BackendRpcClient::LastAliveTime() {
+std::time_t BackendRpcClient::LastAliveTime() const {
   return std::chrono::system_clock::to_time_t(last_time_);
+}
+
+void BackendRpcClient::Tick() {
+  last_time_ = std::chrono::system_clock::now();
 }
 
 bool BackendRpcClient::Assign(const BackendRpcClient& other) {
@@ -55,97 +65,156 @@ bool BackendRpcClient::Assign(const BackendRpcClient& other) {
   return false;
 }
 
-void BackendRpcClient::PrepareLoadModel(
+bool BackendRpcClient::PrepareLoadModel(
     const ModelSession& model_sess, float workload,
-    ModelInstanceConfig* config, float* occupancy) {
+    ModelInstanceConfig* config, float* occupancy) const {
+  if (workload_id_ >= 0) {
+    // Static configured backend doesn't support loading other models
+    return false;
+  }
+  
+  std::string model_sess_id = ModelSessionToString(model_sess);
+  if (model_table_config_.find(model_sess_id) != model_table_config_.end()) {
+    return false;
+  }
   std::string profile_id = ModelSessionToProfileID(model_sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
   if (profile == nullptr) {
-    config->set_batch(0);
-    return;
+    return false;
   }
   config->mutable_model_session()->CopyFrom(model_sess);
 
   // 1. Compute the max batch and throughput to saturate an empty GPU
-  float latency_sla_us = model_sess.latency_sla() * 1000;
+  double latency_sla_us = model_sess.latency_sla() * 1000;
   uint32_t max_batch;
   uint32_t max_throughput;
   std::tie(max_batch, max_throughput) = profile->GetMaxThroughput(
       model_sess.latency_sla());
 
-  if (exec_cycle_us_ == 0) {
-    // empty GPU 
-    if (workload == 0 || max_throughput <= workload) {
-      // workload can saturate the gpu
-      float fwd_latency = profile->GetForwardLatency(max_batch);
+  if (workload == 0 || workload >= max_throughput) {
+    // Workload can saturate entire gpu
+    if (exec_cycle_us_ > 0) {
+      // We should always allocate an entire gpu in this case
+      config->set_batch(0);
+    } else {
+      double fwd_latency = profile->GetForwardLatency(max_batch);
       uint32_t memory_usage = profile->GetMemoryUsage(max_batch);
       config->set_batch(max_batch);
       config->set_max_batch(max_batch);
       config->set_forward_latency(fwd_latency);
       config->set_memory_usage(fwd_latency);
       config->set_throughput(max_throughput);
-      config->set_workload(max_throughput);
       *occupancy = 1.0;
-    } else {
-      // 2. Compute the max batch for residue load
-      uint32_t preprocess = profile->GetPreprocessLatency();
-      uint32_t postprocess = profile->GetPostprocessLatency();
-      uint32_t batch = 1;
-      for (; batch <= max_batch; ++batch) {
-        float fwd_lat = profile->GetForwardLatency(batch);
-        // because batch = ceil(workload * duty_cycle),
-        // duty_cycle >= (batch - 1) / workload
-        float min_duty_cycle = (batch - 1) * 1e6 / workload;
-        if (min_duty_cycle + fwd_lat + preprocess + postprocess >
-            latency_sla_us) {
-          break;
-        }
-      }
-      --batch;
-      if (batch == 0) {
-        // execution latency of batch size 1 is even too large for latency_sla
-        config->set_batch(0);
-      } else {
-        float fwd_lat = profile->GetForwardLatency(batch);
-        uint32_t memory_usage = profile->GetMemoryUsage(batch);
-        float duty_cycle = latency_sla_us - fwd_lat - preprocess - postprocess;
-        float throughput = batch * 1e6 / duty_cycle;
-        config->set_batch(batch);
-        config->set_max_batch(max_batch);
-        config->set_forward_latency(fwd_lat);
-        config->set_memory_usage(memory_usage);
-        config->set_throughput(throughput);
-        config->set_workload(workload);
-        *occupancy = fwd_lat / duty_cycle;
-      }
     }
-  } else {
-    if (workload == 0) {
-      config->set_batch(0);
-      return;
-    }
-    // TODO
-    config->set_batch(0);
+    return true;
   }
+
+  // 2. Compute the max batch for residue load
+  uint32_t preprocess = profile->GetPreprocessLatency();
+  uint32_t postprocess = profile->GetPostprocessLatency();
+  uint32_t batch = 1;
+  for (; batch <= max_batch; ++batch) {
+    float fwd_lat = profile->GetForwardLatency(batch);
+    // because batch = ceil(workload * duty_cycle),
+    // duty_cycle >= (batch - 1) / workload
+    float min_duty_cycle = (batch - 1) * 1e6 / workload;
+    if (min_duty_cycle + fwd_lat + preprocess + postprocess >
+        latency_sla_us) {
+      break;
+    }
+  }
+  --batch;
+  if (batch == 0) {
+    // execution latency of batch size 1 is even too large for latency_sla
+    config->set_batch(0);
+    return false;
+  }
+  float fwd_lat = profile->GetForwardLatency(batch);
+  uint32_t memory_usage = profile->GetMemoryUsage(batch);
+  double duty_cycle = std::min(
+      latency_sla_us - fwd_lat - preprocess - postprocess,
+      batch * 1e6 / workload);
+  float throughput = batch * 1e6 / duty_cycle;
+
+  if (exec_cycle_us_ == 0) {
+    config->set_batch(batch);
+    config->set_max_batch(max_batch);
+    config->set_forward_latency(fwd_lat);
+    config->set_memory_usage(memory_usage);
+    config->set_throughput(throughput);
+    *occupancy = fwd_lat / duty_cycle;
+    return true;
+  }
+
+  float new_duty_cycle, new_exec_cycle;
+  if (duty_cycle < duty_cycle_us_) {
+    new_duty_cycle = duty_cycle;
+    new_exec_cycle = 0.;
+    for (auto iter : model_table_config_) {
+      auto& cfg = iter.second;
+      uint32_t new_b = std::ceil(duty_cycle * cfg.throughput() / 1e6);
+      std::string pid = ModelSessionToProfileID(cfg.model_session());
+      new_exec_cycle += ModelDatabase::Singleton().GetModelForwardLatency(
+          gpu_device_, pid, new_b);
+    }
+    new_exec_cycle += fwd_lat;
+  } else { // duty_cycle >= duty_cycle_us_
+    new_duty_cycle = duty_cycle_us_;
+    batch = std::ceil(new_duty_cycle * workload / 1e6);
+    fwd_lat = profile->GetForwardLatency(batch);
+    memory_usage = profile->GetMemoryUsage(batch);
+    throughput = batch * 1e6 / new_duty_cycle;
+    new_exec_cycle = exec_cycle_us_ + fwd_lat;
+  }
+  if (new_exec_cycle > new_duty_cycle) {
+    // Failed to load residue load on this gpu
+    return false;
+  }
+  
+  config->set_batch(batch);
+  config->set_max_batch(max_batch);
+  config->set_forward_latency(fwd_lat);
+  config->set_memory_usage(memory_usage);
+  config->set_throughput(throughput);
+  *occupancy = new_exec_cycle / new_duty_cycle;
+
+  return true;
 }
 
 void BackendRpcClient::LoadModel(const ModelInstanceConfig& config) {
-  if (exec_cycle_us_ > 0) {
-    LOG(ERROR) << "Backend is not idle. Don't support multi-batching now.";
-  } else {
+  auto model_sess_id = ModelSessionToString(config.model_session());
+  model_table_config_.emplace(model_sess_id, config);
+  model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
+  if (exec_cycle_us_ == 0) {
     exec_cycle_us_ = config.forward_latency();
-    duty_cycle_us_ = config.model_session().latency_sla() * 1e3 -
-                     exec_cycle_us_;
-    auto model_sess_id = ModelSessionToString(config.model_session());
-    model_table_config_.emplace(model_sess_id, config);
-    model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
-    dirty_model_table_ = true;
-
-    LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
-    LOG(INFO) << "Backend " << node_id_ << ": exec cycle " << exec_cycle_us_ <<
-        " us, duty cycle: " << duty_cycle_us_ << " us";
+    duty_cycle_us_ = config.batch() * 1e6 / config.throughput();
+  } else {
+    // Multi-batching
+    float duty_cycle = config.batch() * 1e6 / config.throughput();
+    if (duty_cycle >= duty_cycle_us_) {
+      // duty cycle remains the same
+      exec_cycle_us_ += config.forward_latency();
+    } else {
+      duty_cycle_us_ = duty_cycle;
+      exec_cycle_us_ = 0;
+      for (auto& iter : model_table_config_) {
+        auto& cfg = iter.second;
+        uint32_t new_batch = std::ceil(duty_cycle * cfg.throughput() / 1e6);
+        auto profile = ModelDatabase::Singleton().GetModelProfile(
+            gpu_device_, ModelSessionToProfileID(cfg.model_session()));
+        float fwd_lat = profile->GetForwardLatency(new_batch);
+        exec_cycle_us_ += fwd_lat;
+        cfg.set_batch(new_batch);
+        cfg.set_forward_latency(fwd_lat);
+      }
+    }
   }
+  dirty_model_table_ = true;
+
+  LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
+  LOG(INFO) << "Backend " << node_id_ << ": exec cycle " << exec_cycle_us_ <<
+      " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
 void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
@@ -182,7 +251,6 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
     auto& cfg = iter.second;
     float throughput = cfg.batch() * 1e6 / duty_cycle_us_;
     cfg.set_throughput(throughput);
-    cfg.set_workload(throughput);
   }
   dirty_model_table_ = true;
 
@@ -229,7 +297,8 @@ CtrlStatus BackendRpcClient::UpdateModelTable() {
   return reply.status();
 }
 
-void BackendRpcClient::GetModelSessions(std::vector<std::string>* sessions) {
+void BackendRpcClient::GetModelSessions(std::vector<std::string>* sessions)
+    const {
   for (auto iter : model_table_config_) {
     sessions->push_back(iter.first);
   }
@@ -276,8 +345,8 @@ bool BackendRpcClient::IsAlive() {
   return true;
 }
 
-bool BackendRpcClient::IsIdle() {
-  return exec_cycle_us_ == 0;
+bool BackendRpcClient::IsIdle() const {
+  return (exec_cycle_us_ == 0);
 }
 
 } // namespace scheduler

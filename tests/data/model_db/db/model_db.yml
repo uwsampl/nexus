@@ -1,0 +1,42 @@
+models:
+  - framework: darknet
+    model_name: yolo9000
+    type: detection
+    version: 1
+    cfg_file: darknet/yolo9000.cfg
+    weight_file: darknet/yolo9000.weights
+    class_names: darknet/data/9k.names
+    resizable: true
+    image_height: 480
+    image_width: 480
+  - framework: darknet
+    model_name: darknet
+    type: classification
+    version: 1
+    cfg_file: darknet/darknet.cfg
+    weight_file: darknet/darknet.weights
+    class_name: darknet/data/imagenet.shortnames.list
+  - framework: caffe
+    model_name: vgg_face
+    type: classification
+    version: 1
+    cfg_file: caffe/vgg_face/1/VGG_FACE_deploy.prototxt
+    weight_file: caffe/vgg_face/1/VGG_FACE.caffemodel
+    class_names: caffe/vgg_face/names.txt
+    mean_value: [99.5503, 115.7630, 151.2761]
+  - framework: caffe
+    model_name: vgg_s
+    type: classification
+    version: 1
+    cfg_file: caffe/vgg_s/1/vgg_s.prototxt
+    weight_file: caffe/vgg_s/1/vgg_s.caffemodel
+    class_names: caffe/vgg_s/synset_words.txt
+    mean_file: caffe/vgg_s/1/vgg_s_mean.binaryproto
+  - framework: caffe
+    model_name: vgg16
+    type: classification
+    version: 1
+    cfg_file: caffe/vgg16/1/vgg16.prototxt
+    weight_file: caffe/vgg16/1/vgg16.caffemodel
+    class_names: caffe/vgg16/synset_words.txt
+    mean_value: [103.939, 116.779, 123.68]

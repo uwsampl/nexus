@@ -19,10 +19,9 @@ class Scheduler;
 
 class BackendRpcClient {
  public:
-  BackendRpcClient(
-      Scheduler* sch, uint32_t node_id, const std::string& server_addr,
-      const std::string& rpc_addr, const std::string& gpu_device,
-      size_t gpu_available_memory, int beacon_sec, int epoch_sec);
+  BackendRpcClient(uint32_t node_id, const std::string& server_addr,
+                   const std::string& rpc_addr, const std::string& gpu_device,
+                   size_t gpu_available_memory, int beacon_sec, int epoch_sec);
 
   uint32_t node_id() const { return node_id_; }
 
@@ -38,14 +37,18 @@ class BackendRpcClient {
 
   void set_workload_id(int id) { workload_id_ = id; }
 
-  void GetInfo(BackendInfo* info);
+  float occupancy() const;
 
-  std::time_t LastAliveTime();
+  void GetInfo(BackendInfo* info) const;
+
+  std::time_t LastAliveTime() const;
+
+  void Tick();
 
   bool Assign(const BackendRpcClient& other);
 
-  void PrepareLoadModel(const ModelSession& model_sess, float workload,
-                        ModelInstanceConfig* config, float* occupancy);
+  bool PrepareLoadModel(const ModelSession& model_sess, float workload,
+                        ModelInstanceConfig* config, float* occupancy) const;
 
   void LoadModel(const ModelInstanceConfig& config);
   
@@ -55,7 +58,7 @@ class BackendRpcClient {
 
   CtrlStatus UpdateModelTable();
 
-  void GetModelSessions(std::vector<std::string>* sessions);
+  void GetModelSessions(std::vector<std::string>* sessions) const;
 
   void UpdateStats(const BackendStatsProto& backend_stats);
 
@@ -65,10 +68,9 @@ class BackendRpcClient {
 
   bool IsAlive();
 
-  bool IsIdle();
+  bool IsIdle() const;
 
  private:
-  Scheduler* scheduler_;
   uint32_t node_id_;
   std::string server_address_;
   std::string rpc_address_;
