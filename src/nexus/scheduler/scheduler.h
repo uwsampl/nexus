@@ -149,8 +149,24 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   FrontendRpcClientPtr GetFrontend(uint32_t node_id);
 
-  void BeaconCheck();
 
+  BackendRpcClientPtr FindBestBackend(const ModelSession& model_sess,
+                                      float workload,
+                                      std::unordered_set<uint32_t> used);
+
+  /*!
+   * \brief At each beacon cycle, check whether frontends and backends are
+   *   alive, and aggregate model session request rates from backends.
+   *
+   *   This function acquires mutex_.
+   */
+  void BeaconCheck();
+  /*!
+   * \brief At each epoch cycle, re-schedule the resources for all model
+   *   sessions based on the request rates during last epoch
+   *
+   *   This function acquires mutex_.
+   */
   void EpochSchedule();
 
  private:

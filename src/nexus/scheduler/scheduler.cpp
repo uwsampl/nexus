@@ -139,16 +139,16 @@ void Scheduler::LoadModel(RpcCallBase* call, const LoadModelRequest& request,
   float workload = request.estimate_workload();
 
   std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<std::pair<BackendRpcClientPtr, ModelInstanceConfig> >
-      assign_backends;
   
-  // TODO: check if model_sess_id already exists
-  uint32_t frontend_id = request.node_id();
-  auto frontend = GetFrontend(frontend_id);
+  auto frontend = GetFrontend(request.node_id());
   if (frontend == nullptr) {
     reply->set_status(CTRL_SERVER_NOT_REGISTERED);
     return;
   }
+  // TODO: check if model_sess_id already exists
+
+  std::vector<std::pair<BackendRpcClientPtr, ModelInstanceConfig> >
+      assign_backends;
   // Find backends to serve the workload
   for (auto iter : backends_) {
     auto backend = iter.second;
@@ -430,6 +430,12 @@ FrontendRpcClientPtr Scheduler::GetFrontend(uint32_t node_id) {
     return nullptr;
   }
   return iter->second;
+}
+
+BackendRpcClientPtr Scheduler::FindBestBackend(
+    const ModelSession& model_sess, float workload,
+    std::unordered_set<uint32_t> used) {
+  
 }
 
 void Scheduler::BeaconCheck() {

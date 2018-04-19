@@ -82,6 +82,6 @@ $ docker run [--network nexus-network] --runtime=nvidia -d \
 ```
 Start an application serving at port 12345, e.g., object recognition.
 ```
-$ docker run [--network nexus-network] -d -p 12345:9001 --name objrec \
+$ docker run [--network nexus-network] -d -p 12345:9001 --name obj_rec \
 nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP)
 ```

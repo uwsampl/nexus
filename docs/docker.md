@@ -13,9 +13,9 @@ $ docker build -t nexus/base -f NexusBaseDockerfile .
 Next we can build the docker images for backend, scheduler, and application
 library respectively.
 ```
-$ docker build -t nexus/base -f NexusBackendDockerfile .
-$ docker build -t nexus/base -f NexusSchedulerDockerfile .
-$ docker build -t nexus/base -f NexusAppLibDockerfile .
+$ docker build -t nexus/backend -f NexusBackendDockerfile .
+$ docker build -t nexus/scheduler -f NexusSchedulerDockerfile .
+$ docker build -t nexus/applib -f NexusAppLibDockerfile .
 ```
 
 Compile sample applications
