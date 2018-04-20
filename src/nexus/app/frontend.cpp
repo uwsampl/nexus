@@ -275,7 +275,7 @@ void Frontend::KeepAlive() {
 
 bool Frontend::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(model_pool_mu_);
-  auto model_session_id = ModelSessionToString(route.model_session());
+  auto& model_session_id = route.model_session_id();
   auto iter = model_pool_.find(model_session_id);
   if (iter == model_pool_.end()) {
     LOG(ERROR) << "Cannot find model handler for " << model_session_id;

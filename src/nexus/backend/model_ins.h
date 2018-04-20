@@ -37,6 +37,8 @@ class ModelInstance {
   
   uint32_t batch() const { return batch_; }
 
+  void set_batch(size_t batch);
+
   uint32_t max_batch() const { return max_batch_; }
 
   std::shared_ptr<IntervalCounter> counter() const { return counter_; }
@@ -45,9 +47,7 @@ class ModelInstance {
 
   virtual std::string profile_id() const = 0;
 
-  void Init();
-
-  //void UpdateMaxBatch(size_t max_batch);
+  void Setup();
 
   bool Preprocess(std::shared_ptr<Task> task);
 
@@ -57,8 +57,6 @@ class ModelInstance {
 
  protected:
   virtual void InitBatchInputArray() = 0;
-
-  //virtual void UpdateMaxBatchImpl() = 0;
 
   virtual void PreprocessImpl(std::shared_ptr<Task> task,
                               std::vector<ArrayPtr>* input_arrays) = 0;
@@ -87,7 +85,6 @@ class ModelInstance {
   uint32_t max_batch_;
   BlockPriorityQueue<Task>& task_queue_;
   std::shared_ptr<IntervalCounter> counter_;
-  bool need_update_max_batch_;
   std::atomic<uint64_t> batch_id_;
   CPUDevice* cpu_device_;
   GPUDevice* gpu_device_;

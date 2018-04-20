@@ -62,9 +62,9 @@ class ModelDatabase {
 
   void Init(const std::string& model_root);
 
-  const YAML::Node& GetModelInfo(const std::string& model_id) const;
+  const YAML::Node* GetModelInfo(const std::string& model_id) const;
 
-  const YAML::Node& GetModelInfo(const std::string& framework,
+  const YAML::Node* GetModelInfo(const std::string& framework,
                                  const std::string& model_name,
                                  uint32_t version) const;
 

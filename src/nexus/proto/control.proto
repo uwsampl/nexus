@@ -9,7 +9,6 @@ service SchedulerCtrl {
   rpc Register(RegisterRequest) returns (RegisterReply) {}
   rpc Unregister(UnregisterRequest) returns (RpcReply) {}
   rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
-  rpc UnloadModel(ModelSession) returns (RpcReply) {}
   rpc UpdateBackendStats(BackendStatsProto) returns (RpcReply) {}
   rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
 }
@@ -35,16 +34,18 @@ enum CtrlStatus {
   // User facing error code
   // Service unavailable
   SERVICE_UNAVAILABLE = 1;
+  // Model not found
+  MODEL_NOT_FOUND = 2;
   // No available backends
-  NO_AVAILABLE_RESOURCE = 2;
+  NOT_ENOUGH_BACKENDS = 3;
   // Model session not loaded
-  MODEL_SESSION_NOT_LOADED = 3;
+  MODEL_SESSION_NOT_LOADED = 4;
   // Invalid query
-  MODEL_TYPE_NOT_SUPPORT = 4;
+  MODEL_TYPE_NOT_SUPPORT = 5;
   // Input type incorrect
-  INPUT_TYPE_INCORRECT = 5;
+  INPUT_TYPE_INCORRECT = 6;
   // Latency SLA timeout
-  TIMEOUT = 6;
+  TIMEOUT = 7;
 
   // Internal control error code
   CTRL_SERVER_UNREACHABLE = 100;
@@ -53,7 +54,6 @@ enum CtrlStatus {
   CTRL_ROUTE_TABLE_VERSION_MISMATCH = 103;
 
   CTRL_BACKEND_NODE_ID_CONFLICT = 200;
-  CTRL_NOT_ENOUGH_BACKENDS = 201;
 
   CTRL_FRONTEND_NODE_ID_CONFLICT = 300;
   CTRL_INVALID_LOAD_MODEL_REQUEST = 301;
@@ -99,7 +99,7 @@ message ModelRouteProto {
     BackendInfo info = 1;
     float throughput = 2;
   }
-  ModelSession model_session = 1;
+  string model_session_id = 1;
   repeated BackendRate backend_rate = 2;
 }
 

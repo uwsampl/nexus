@@ -128,14 +128,21 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
       // Load new model instance
       auto model_id = ModelSessionToModelID(model_sess);
       auto info = ModelDatabase::Singleton().GetModelInfo(model_id);
-      auto model = CreateModelInstance(gpu_id_, config, info, task_queue_);
+      if (info == nullptr) {
+        reply->set_status(MODEL_NOT_FOUND);
+        return;
+      }
+      auto model = CreateModelInstance(gpu_id_, config, *info, task_queue_);
       model_table_.emplace(session_id, model);
       LOG(INFO) << "Load model instance " << session_id <<
           ", batch: " << config.batch();
     } else {
       auto model = model_iter->second;
       if (model->batch() != config.batch()) {
-        // TODO: Update batch size
+        // Update the batch size
+        LOG(INFO) << "Update model instance " << session_id << ", batch: " <<
+            model->batch() << " -> " << config.batch();
+        model->set_batch(config.batch());
       }
     }
   }

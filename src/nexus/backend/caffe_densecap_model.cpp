@@ -118,29 +118,7 @@ void CaffeDenseCapModel::InitBatchInputArray() {
       DT_FLOAT, input_blob_->count(), buf);
   caffe::Caffe::set_release_memory(false);
 }
-/*
-void CaffeDenseCapModel::UpdateMaxBatchImpl() {
-  input_shape_[0] = max_batch_;
-  // Set the release_memory flag to free GPU memory in case max batch decreases
-  caffe::Caffe::set_release_memory(true);
-  feature_net_->input_blobs()[0]->Reshape(input_shape_);
-  feature_net_->Reshape();
-  for (auto blob : rnn_net_->input_blobs()) {
-    std::vector<int> shape = blob->shape();
-    shape[1] = max_batch_ * max_boxes_;
-    blob->Reshape(shape);
-  }
-  rnn_net_->Reshape();
-  for (auto blob : embed_net_->input_blobs()) {
-    std::vector<int> shape = blob->shape();
-    shape[1] = max_batch_ * max_boxes_;
-    blob->Reshape(shape);
-  }
-  embed_net_->Reshape();
-  caffe::Caffe::set_release_memory(false);
-  InitBatchInputArray();
-}
-*/
+
 void CaffeDenseCapModel::PreprocessImpl(std::shared_ptr<Task> task,
                                         std::vector<ArrayPtr>* input_arrays) {
   const auto& query = task->query;

@@ -106,11 +106,7 @@ void TensorflowModel::InitBatchInputArray() {
   batch_input_array_ = std::make_shared<Array>(
       DT_FLOAT, input_tensor_->NumElements(), buf);
 }
-/*
-void TensorflowModel::UpdateMaxBatchImpl() {
-  InitBatchInputArray();
-}
-*/
+
 void TensorflowModel::PreprocessImpl(std::shared_ptr<Task> task,
                                      std::vector<ArrayPtr>* input_arrays) {
   auto prepare_image = [&](cv::Mat& image) {

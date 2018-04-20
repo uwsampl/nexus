@@ -27,6 +27,10 @@ std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
     model_sess->set_image_height(image_size[0]);
     model_sess->set_image_width(image_size[1]);
   }
+  if (estimate_workload < 0) {
+    LOG(ERROR) << "Estimate workload must be non-negative value";
+    return nullptr;
+  }
   if (estimate_workload > 0) {
     req.set_estimate_workload(estimate_workload);
   }

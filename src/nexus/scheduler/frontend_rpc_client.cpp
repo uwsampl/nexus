@@ -53,9 +53,5 @@ void FrontendRpcClient::SubscribeModel(const std::string& model_session_id) {
   subscribe_models_.insert(model_session_id);
 }
 
-const std::unordered_set<std::string>& FrontendRpcClient::subscribe_models() {
-  return subscribe_models_;
-}
-
 } // namespace scheduler
 } // namespace nexus

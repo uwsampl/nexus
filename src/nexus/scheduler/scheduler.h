@@ -149,11 +149,14 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   FrontendRpcClientPtr GetFrontend(uint32_t node_id);
 
+  void GetModelRoute(const std::string& model_session_id,
+                     ModelRouteProto* route);
 
-  BackendRpcClientPtr FindBestBackend(const ModelSession& model_sess,
-                                      float workload,
-                                      std::unordered_set<uint32_t> used);
 
+  void FindBestBackend(const ModelSession& model_sess, float workload,
+                       const std::unordered_set<uint32_t>& skips,
+                       BackendRpcClientPtr* best_backend,
+                       ModelInstanceConfig* inst_cfg);
   /*!
    * \brief At each beacon cycle, check whether frontends and backends are
    *   alive, and aggregate model session request rates from backends.

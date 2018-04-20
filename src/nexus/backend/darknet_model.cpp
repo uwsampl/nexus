@@ -110,12 +110,7 @@ void DarknetModel::InitBatchInputArray() {
   batch_input_array_ = std::make_shared<Array>(
       DT_FLOAT, input_size_ * max_batch_, buf);
 }
-/*
-void DarknetModel::UpdateMaxBatchImpl() {
-  reset_batch_network(net_, max_batch_);
-  InitBatchInputArray();
-}
-*/
+
 void DarknetModel::PreprocessImpl(std::shared_ptr<Task> task,
                                   std::vector<ArrayPtr>* input_arrays) {
   auto prepare_image = [&](cv::Mat& cv_img) {
@@ -168,7 +163,6 @@ void DarknetModel::PreprocessImpl(std::shared_ptr<Task> task,
 
 void DarknetModel::ForwardImpl(BatchInput* batch_input,
                                BatchOutput* batch_output) {
-  LOG(INFO) << "Darknet forward";
   size_t batch_size = batch_input->batch_size();
   set_batch_network_lightweight(net_, batch_size);
   network_predict_gpu_nocopy(net_);

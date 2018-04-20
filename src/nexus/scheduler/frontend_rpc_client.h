@@ -33,7 +33,9 @@ class FrontendRpcClient {
 
   void SubscribeModel(const std::string& model_session_id);
 
-  const std::unordered_set<std::string>& subscribe_models();
+  const std::unordered_set<std::string>& subscribe_models() const {
+    return subscribe_models_;
+  }
 
  private:
   uint32_t node_id_;

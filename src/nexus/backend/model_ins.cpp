@@ -27,7 +27,6 @@ ModelInstance::ModelInstance(int gpu_id, const std::string& model_name,
     batch_(batch),
     max_batch_(max_batch),
     task_queue_(task_queue),
-    need_update_max_batch_(false),
     batch_id_(0) {
   cpu_device_ = DeviceManager::Singleton().GetCPUDevice();
   gpu_device_ = DeviceManager::Singleton().GetGPUDevice(gpu_id);
@@ -39,19 +38,16 @@ ModelInstance::~ModelInstance() {
   MetricRegistry::Singleton().RemoveMetric(counter_);
 }
 
-void ModelInstance::Init() {
+void ModelInstance::set_batch(size_t batch) {
+  CHECK_LE(batch, max_batch_) << "Batch size must be less than max_batch";
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  batch_ = batch;
+}
+
+void ModelInstance::Setup() {
   InitBatchInputArray();
 }
-/*
-void ModelInstance::UpdateMaxBatch(size_t max_batch) {
-  std::lock_guard<std::mutex> lock(input_mutex_);
-  if (max_batch_ != max_batch) {
-    LOG(INFO) << "Update max batch size to " << max_batch;
-    max_batch_ = max_batch;
-    need_update_max_batch_ = true;
-  }
-}
-*/
+
 bool ModelInstance::Preprocess(std::shared_ptr<Task> task) {
   std::vector<ArrayPtr> input_arrays;
   PreprocessImpl(task, &input_arrays);
@@ -114,10 +110,6 @@ void ModelInstance::Postprocess(std::shared_ptr<Task> task) {
 
 std::unique_ptr<BatchInput> ModelInstance::GetBatchInput(size_t min_batch) {
   std::lock_guard<std::mutex> lock(input_mutex_);
-  /*if (need_update_max_batch_) {
-    UpdateMaxBatchImpl();
-    need_update_max_batch_ = false;
-    }*/
   if (input_queue_.size() < min_batch) {
     return nullptr;
   }
@@ -218,7 +210,7 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
   } else {
     LOG(FATAL) << "Unknown framework " << framework;
   }
-  model->Init();
+  model->Setup();
   return model;
 }
 

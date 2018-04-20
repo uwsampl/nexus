@@ -116,17 +116,7 @@ void CaffeModel::InitBatchInputArray() {
   batch_input_array_ = std::make_shared<Array>(
       DT_FLOAT, input_blob_->count(), buf);
 }
-/*
-void CaffeModel::UpdateMaxBatchImpl() {
-  input_shape_[0] = max_batch_;
-  // Set the release_memory flag to free GPU memory in case max batch decreases
-  caffe::Caffe::set_release_memory(true);
-  net_->input_blobs()[input_blob_indices_[0]]->Reshape(input_shape_);
-  net_->Reshape();
-  caffe::Caffe::set_release_memory(false);
-  InitBatchInputArray();
-}
-*/
+
 void CaffeModel::PreprocessImpl(std::shared_ptr<Task> task,
                                 std::vector<ArrayPtr>* input_arrays) {
   auto prepare_image = [&](cv::Mat& image) {

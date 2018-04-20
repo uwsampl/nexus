@@ -140,24 +140,26 @@ void ModelDatabase::Init(const std::string& db_root_dir) {
   LoadModelProfiles(profile_dir.string());
 }
 
-const YAML::Node& ModelDatabase::GetModelInfo(const std::string& model_id)
+const YAML::Node* ModelDatabase::GetModelInfo(const std::string& model_id)
     const {
   auto itr = model_info_table_.find(model_id);
   if (itr == model_info_table_.end()) {
-    LOG(FATAL) << "Cannot find model info for " << model_id;
+    LOG(ERROR) << "Cannot find model info for " << model_id;
+    return nullptr;
   }
-  return itr->second;
+  return &itr->second;
 }
 
-const YAML::Node& ModelDatabase::GetModelInfo(
+const YAML::Node* ModelDatabase::GetModelInfo(
     const std::string& framework, const std::string& model_name,
     uint32_t version) const {
   auto model_id = ModelID(framework, model_name, version);
   auto itr = model_info_table_.find(model_id);
   if (itr == model_info_table_.end()) {
-    LOG(FATAL) << "Cannot find model info for " << model_id;
+    LOG(ERROR) << "Cannot find model info for " << model_id;
+    return nullptr;
   }
-  return itr->second;
+  return &itr->second;
 }
 
 const ModelProfile* ModelDatabase::GetModelProfile(

@@ -33,8 +33,6 @@ class CaffeDenseCapModel : public ModelInstance {
  private:
   void InitBatchInputArray() final;
 
-  //void UpdateMaxBatchImpl() final;
-
   void PreprocessImpl(std::shared_ptr<Task> task,
                       std::vector<ArrayPtr>* input_arrays) final;
 
