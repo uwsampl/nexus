@@ -1,18 +1,18 @@
 #include <glog/logging.h>
 
 #include "nexus/common/model_db.h"
-#include "nexus/scheduler/backend_rpc_client.h"
+#include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/scheduler.h"
 
 namespace nexus {
 namespace scheduler {
 
-BackendRpcClient::BackendRpcClient(uint32_t node_id,
-                                   const std::string& server_addr,
-                                   const std::string& rpc_addr,
-                                   const std::string& gpu_device,
-                                   size_t gpu_available_memory,
-                                   int beacon_sec, int epoch_sec):
+BackendDelegate::BackendDelegate(uint32_t node_id,
+                                 const std::string& server_addr,
+                                 const std::string& rpc_addr,
+                                 const std::string& gpu_device,
+                                 size_t gpu_available_memory,
+                                 int beacon_sec, int epoch_sec):
     node_id_(node_id),
     server_address_(server_addr),
     rpc_address_(rpc_addr),
@@ -31,27 +31,27 @@ BackendRpcClient::BackendRpcClient(uint32_t node_id,
   last_time_ = std::chrono::system_clock::now();
 }
 
-float BackendRpcClient::occupancy() const {
+float BackendDelegate::Occupancy() const {
   if (exec_cycle_us_ == 0) {
     return 0.;
   }
   return exec_cycle_us_ / duty_cycle_us_;
 }
 
-void BackendRpcClient::GetInfo(BackendInfo* info) const {
+void BackendDelegate::GetInfo(BackendInfo* info) const {
   info->set_node_id(node_id_);
   info->set_server_address(server_address_);
 }
 
-std::time_t BackendRpcClient::LastAliveTime() const {
+std::time_t BackendDelegate::LastAliveTime() const {
   return std::chrono::system_clock::to_time_t(last_time_);
 }
 
-void BackendRpcClient::Tick() {
+void BackendDelegate::Tick() {
   last_time_ = std::chrono::system_clock::now();
 }
 
-bool BackendRpcClient::Assign(const BackendRpcClient& other) {
+bool BackendDelegate::Assign(const BackendDelegate& other) {
   CHECK(IsIdle()) << "Backend is not idle";
   if (gpu_device_ == other.gpu_device_) {
     workload_id_ = other.workload_id_;
@@ -59,13 +59,14 @@ bool BackendRpcClient::Assign(const BackendRpcClient& other) {
     model_table_config_ = other.model_table_config_;
     exec_cycle_us_ = other.exec_cycle_us_;
     duty_cycle_us_ = other.exec_cycle_us_;
+    dirty_model_table_ = true;
     return true;
   }
   // TODO: support assign for two backend that have different GPU devices
   return false;
 }
 
-bool BackendRpcClient::PrepareLoadModel(
+bool BackendDelegate::PrepareLoadModel(
     const ModelSession& model_sess, float workload,
     ModelInstanceConfig* config, float* occupancy) const {
   if (workload_id_ >= 0) {
@@ -74,6 +75,9 @@ bool BackendRpcClient::PrepareLoadModel(
   }
   
   std::string model_sess_id = ModelSessionToString(model_sess);
+  if (Occupancy() == 1.0) {
+    return false;
+  }
   if (model_table_config_.find(model_sess_id) != model_table_config_.end()) {
     return false;
   }
@@ -111,8 +115,8 @@ bool BackendRpcClient::PrepareLoadModel(
   }
 
   // 2. Compute the max batch for residue load
-  uint32_t preprocess = profile->GetPreprocessLatency();
-  uint32_t postprocess = profile->GetPostprocessLatency();
+  float preprocess = profile->GetPreprocessLatency();
+  float postprocess = profile->GetPostprocessLatency();
   uint32_t batch = 1;
   for (; batch <= max_batch; ++batch) {
     float fwd_lat = profile->GetForwardLatency(batch);
@@ -132,6 +136,10 @@ bool BackendRpcClient::PrepareLoadModel(
   }
   float fwd_lat = profile->GetForwardLatency(batch);
   uint32_t memory_usage = profile->GetMemoryUsage(batch);
+  // duty_cycle are constrainted by the following condition:
+  // (1) throughput = batch / duty_cycle >= workload
+  //     => duty_cycle <= batch / workload
+  // (2) duty_cycle + preprocess + postprocess + fwd_lat <= latency_sla
   double duty_cycle = std::min(
       latency_sla_us - fwd_lat - preprocess - postprocess,
       batch * 1e6 / workload);
@@ -182,7 +190,7 @@ bool BackendRpcClient::PrepareLoadModel(
   return true;
 }
 
-void BackendRpcClient::LoadModel(const ModelInstanceConfig& config) {
+void BackendDelegate::LoadModel(const ModelInstanceConfig& config) {
   auto model_sess_id = ModelSessionToString(config.model_session());
   model_table_config_.emplace(model_sess_id, config);
   model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
@@ -217,7 +225,7 @@ void BackendRpcClient::LoadModel(const ModelInstanceConfig& config) {
       " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
-void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
+void BackendDelegate::LoadModel(const YAML::Node& model_info) {
   ModelInstanceConfig config;
   auto sess = config.mutable_model_session();
   sess->set_framework(model_info["framework"].as<std::string>());
@@ -259,7 +267,7 @@ void BackendRpcClient::LoadModel(const YAML::Node& model_info) {
         " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
-void BackendRpcClient::UnloadModel(const std::string& model_sess_id) {
+void BackendDelegate::UnloadModel(const std::string& model_sess_id) {
   LOG(INFO) << "Backend " << node_id_ << " unload model: " << model_sess_id;
   auto config = model_table_config_.at(model_sess_id);
   model_table_config_.erase(model_sess_id);
@@ -273,7 +281,74 @@ void BackendRpcClient::UnloadModel(const std::string& model_sess_id) {
   dirty_model_table_ = true;
 }
 
-CtrlStatus BackendRpcClient::UpdateModelTable() {
+float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
+                                             float workload) {
+  auto& cfg = model_table_config_.at(model_sess_id);
+  uint32_t batch = std::ceil(workload * duty_cycle_us_ / 1e6);
+  if (batch > cfg.max_batch()) {
+    batch = cfg.max_batch();
+  }
+  if (batch != cfg.batch()) {
+    ModelSession model_sess;
+    ParseModelSession(model_sess_id, &model_sess);
+    std::string profile_id = ModelSessionToProfileID(model_sess);
+    auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
+                                                              profile_id);
+    exec_cycle_us_ -= profile->GetForwardLatency(cfg.batch());
+    // Update batch and throughput
+    cfg.set_batch(batch);
+    float throughput = batch * 1e6 / duty_cycle_us_;
+    cfg.set_throughput(throughput);
+    exec_cycle_us_ += profile->GetForwardLatency(batch);
+    dirty_model_table_ = true;
+  }
+  return std::max(workload - cfg.throughput(), 0.f);
+}
+
+void BackendDelegate::SpillOutWorkload(
+    std::vector<std::pair<std::string, float> >* spillout) {
+  if (Occupancy() <= 1.0 || workload_id_ >= 0) {
+    return;
+  }
+  std::vector<std::pair<std::string, float> > workloads;
+  for (auto iter : model_table_config_) {
+    workloads.emplace_back(iter.first, iter.second.forward_latency());
+  }
+  std::sort(workloads.begin(), workloads.end(),
+            [](std::pair<std::string, float> a,
+               std::pair<std::string, float> b) {
+              return a.second > b.second;
+            });
+  // Recompute exec cycle and duty cycle
+  exec_cycle_us_ = 0.;
+  duty_cycle_us_ = 0.;
+  for (auto iter : workloads) {
+    auto& model_sess_id = iter.first;
+    float fwd_lat = iter.second;
+    auto& cfg = model_table_config_.at(model_sess_id);
+    auto profile = ModelDatabase::Singleton().GetModelProfile(
+        gpu_device_, ModelSessionToProfileID(cfg.model_session()));
+    float latency_sla_us = cfg.model_session().latency_sla() * 1000.;
+    float preprocess = profile->GetPreprocessLatency();
+    float postprocess = profile->GetPostprocessLatency();
+    float new_duty_cycle = std::min(
+        latency_sla_us - fwd_lat - preprocess - postprocess,
+        cfg.batch() * 1e6f / cfg.throughput());
+    if (duty_cycle_us_ > 0 && duty_cycle_us_ < new_duty_cycle) {
+      new_duty_cycle = duty_cycle_us_;
+    }
+    if (exec_cycle_us_ + fwd_lat < new_duty_cycle) {
+      exec_cycle_us_ += fwd_lat;
+      duty_cycle_us_ = new_duty_cycle;
+    } else {
+      spillout->emplace_back(model_sess_id, cfg.throughput());
+      model_table_config_.erase(model_sess_id);
+    }
+  }
+  CHECK_LE(exec_cycle_us_, duty_cycle_us_);
+}
+
+CtrlStatus BackendDelegate::UpdateModelTableRpc() {
   if (!dirty_model_table_) {
     return CTRL_OK;
   }
@@ -297,14 +372,7 @@ CtrlStatus BackendRpcClient::UpdateModelTable() {
   return reply.status();
 }
 
-void BackendRpcClient::GetModelSessions(std::vector<std::string>* sessions)
-    const {
-  for (auto iter : model_table_config_) {
-    sessions->push_back(iter.first);
-  }
-}
-
-void BackendRpcClient::UpdateStats(const BackendStatsProto& backend_stats) {
+void BackendDelegate::UpdateStats(const BackendStatsProto& backend_stats) {
   last_time_ = std::chrono::system_clock::now();
   for (auto model_stats : backend_stats.model_stats()) {
     auto& rps = model_rps_.at(model_stats.model_session_id());
@@ -314,16 +382,32 @@ void BackendRpcClient::UpdateStats(const BackendStatsProto& backend_stats) {
   }
 }
 
-float BackendRpcClient::GetModelThroughput(const std::string& model_sess_id)
+void BackendDelegate::AllModelSessions(std::vector<std::string>* sessions)
+    const {
+  for (auto iter : model_table_config_) {
+    sessions->push_back(iter.first);
+  }
+}
+
+const ModelInstanceConfig* BackendDelegate::GetModelConfig(
+    const std::string& model_sess_id) const {
+  auto iter = model_table_config_.find(model_sess_id);
+  if (iter == model_table_config_.end()) {
+    return nullptr;
+  }
+  return &iter->second;
+}
+
+float BackendDelegate::GetModelThroughput(const std::string& model_sess_id)
     const {
   return model_table_config_.at(model_sess_id).throughput();
 }
 
-float BackendRpcClient::GetModelRps(const std::string& model_sess_id) const {
+float BackendDelegate::GetModelRps(const std::string& model_sess_id) const {
   return model_rps_.at(model_sess_id).rate();
 }
 
-bool BackendRpcClient::IsAlive() {
+bool BackendDelegate::IsAlive() {
   auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now() - last_time_).count();
   if (elapse < timeout_ms_) {
@@ -345,7 +429,7 @@ bool BackendRpcClient::IsAlive() {
   return true;
 }
 
-bool BackendRpcClient::IsIdle() const {
+bool BackendDelegate::IsIdle() const {
   return (exec_cycle_us_ == 0);
 }
 

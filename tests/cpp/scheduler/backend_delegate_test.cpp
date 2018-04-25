@@ -6,31 +6,30 @@
 #include "nexus/common/model_db.h"
 #include "nexus/proto/control.pb.h"
 #include "nexus/proto/nnquery.pb.h"
-#include "nexus/scheduler/backend_rpc_client.h"
+#include "nexus/scheduler/backend_delegate.h"
 
-DECLARE_string(test_data);
+DECLARE_string(model_db);
 
 namespace nexus {
 namespace scheduler {
 
-class BackendRpcClientTest : public ::testing::Test {
+class BackendDelegateTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    LOG(INFO) << FLAGS_test_data;
-    ModelDatabase::Singleton().Init(FLAGS_test_data);
+    ModelDatabase::Singleton().Init(FLAGS_model_db);
     gpu_device_ = "TITAN_X_(Pascal)";
     gpu_available_memory_ = 100;
-    backend_.reset(new BackendRpcClient(
+    backend_.reset(new BackendDelegate(
         1, "127.0.0.1:8001", "127.0.0.1:8002", gpu_device_,
         gpu_available_memory_, 1, EPOCH_INTERVAL_SEC));
   }
 
   std::string gpu_device_;
   size_t gpu_available_memory_;
-  std::unique_ptr<BackendRpcClient> backend_;
+  std::unique_ptr<BackendDelegate> backend_;
 };
 
-TEST_F(BackendRpcClientTest, PrepareLoadModel) {
+TEST_F(BackendDelegateTest, PrepareLoadModel) {
   ModelSession vgg16_sess;
   vgg16_sess.set_framework("caffe");
   vgg16_sess.set_model_name("vgg16");
@@ -70,7 +69,7 @@ TEST_F(BackendRpcClientTest, PrepareLoadModel) {
   float occupancy;
   backend_->PrepareLoadModel(vgg16_sess, 150., &vgg16_cfg, &occupancy);
   backend_->LoadModel(vgg16_cfg);
-  ASSERT_EQ(backend_->occupancy(), occupancy);
+  ASSERT_NEAR(backend_->Occupancy(), occupancy, 1e-3);
 
   // Try load second model
   for (float workload : {50, 100, 125}) {
@@ -98,10 +97,10 @@ TEST_F(BackendRpcClientTest, PrepareLoadModel) {
   backend_->PrepareLoadModel(vgg_face_sess, 125., &vgg_face_cfg, &occupancy);
   
   backend_->LoadModel(vgg_face_cfg);
-  ASSERT_EQ(backend_->occupancy(), occupancy);
+  ASSERT_NEAR(backend_->Occupancy(), occupancy, 1e-3);
 }
 
-TEST_F(BackendRpcClientTest, CheckAlive) {
+TEST_F(BackendDelegateTest, CheckAlive) {
   std::this_thread::sleep_for(std::chrono::milliseconds(2100));
   ASSERT_FALSE(backend_->IsAlive());
   backend_->Tick();

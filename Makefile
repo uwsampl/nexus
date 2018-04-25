@@ -126,7 +126,9 @@ scheduler: build/bin/scheduler
 tools: build/bin/profiler
 
 test: build/bin/runtest
-	@build/bin/runtest -test_data $(ROOTDIR)/tests/data/model_db
+
+runtest: test
+	@build/bin/runtest -model_db $(ROOTDIR)/tests/data/model_db
 
 build/lib/libnexus.so: $(CXX_COMMON_OBJS) $(CXX_APP_OBJS)
 	@mkdir -p $(@D)
@@ -183,7 +185,8 @@ build/obj/tests/%.o: tests/cpp/%.cpp
 
 .PRECIOUS: $(PROTO_GEN_HEADERS) $(PROTO_GEN_CC)
 
-.PHONY: proto python lib backend scheduler tools test darknet caffe tensorflow \
+.PHONY: proto python lib backend scheduler tools test runtest \
+	darknet caffe tensorflow \
 	clean clean-darknet clean-caffe clean-tensorflow cleanall
 
 clean:

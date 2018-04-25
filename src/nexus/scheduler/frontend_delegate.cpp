@@ -1,13 +1,13 @@
-#include "nexus/scheduler/frontend_rpc_client.h"
+#include "nexus/scheduler/frontend_delegate.h"
 #include "nexus/scheduler/scheduler.h"
 
 namespace nexus {
 namespace scheduler {
 
-FrontendRpcClient::FrontendRpcClient(uint32_t node_id,
-                                     const std::string& server_addr,
-                                     const std::string& rpc_addr,
-                                     int beacon_sec):
+FrontendDelegate::FrontendDelegate(uint32_t node_id,
+                                   const std::string& server_addr,
+                                   const std::string& rpc_addr,
+                                   int beacon_sec):
     node_id_(node_id),
     server_address_(server_addr),
     rpc_address_(rpc_addr),
@@ -19,15 +19,15 @@ FrontendRpcClient::FrontendRpcClient(uint32_t node_id,
   last_time_ = std::chrono::system_clock::now();
 }
 
-std::time_t FrontendRpcClient::LastAliveTime() {
+std::time_t FrontendDelegate::LastAliveTime() {
   return std::chrono::system_clock::to_time_t(last_time_);
 }
 
-void FrontendRpcClient::Tick() {
+void FrontendDelegate::Tick() {
   last_time_ = std::chrono::system_clock::now();
 }
 
-bool FrontendRpcClient::IsAlive() {
+bool FrontendDelegate::IsAlive() {
   long elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now() - last_time_).count();
   if (elapse < timeout_ms_) {
@@ -49,8 +49,26 @@ bool FrontendRpcClient::IsAlive() {
   return true;
 }
 
-void FrontendRpcClient::SubscribeModel(const std::string& model_session_id) {
+void FrontendDelegate::SubscribeModel(const std::string& model_session_id) {
   subscribe_models_.insert(model_session_id);
+}
+
+CtrlStatus FrontendDelegate::UpdateModelRoutesRpc(
+    const ModelRouteUpdates& request) {
+  RpcReply reply;
+  // Inovke RPC CheckAlive
+  grpc::ClientContext context;
+  grpc::Status status = stub_->UpdateModelRoutes(&context, request, &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << status.error_code() << ": " << status.error_message();
+    return CTRL_SERVER_UNREACHABLE;
+  }
+  last_time_ = std::chrono::system_clock::now();
+  if (reply.status() != CTRL_OK) {
+    LOG(ERROR) << "Frontend " << node_id_ << " UpdateModelRoutes error: " <<
+        CtrlStatus_Name(reply.status());
+  }
+  return reply.status();
 }
 
 } // namespace scheduler

@@ -18,12 +18,14 @@ BackendRpcService::BackendRpcService(BackendServer* backend, std::string port,
 void BackendRpcService::HandleRpcs() {
   new UpdateModelTable_Call(
       &service_, cq_.get(),
-      [this](RpcCallBase*, const ModelTableConfig& req, RpcReply* reply) {
+      [this](const grpc::ServerContext&, const ModelTableConfig& req,
+             RpcReply* reply) {
         backend_->UpdateModelTable(req, reply);
       });
   new CheckAlive_Call(
       &service_, cq_.get(),
-      [](RpcCallBase*, const CheckAliveRequest&, RpcReply* reply) {
+      [](const grpc::ServerContext&, const CheckAliveRequest&,
+         RpcReply* reply) {
         reply->set_status(CTRL_OK);
       });
   void* tag;

@@ -1,5 +1,5 @@
-#ifndef NEXUS_SCHEDULER_BACKEND_RPC_CLIENT_H_
-#define NEXUS_SCHEDULER_BACKEND_RPC_CLIENT_H_
+#ifndef NEXUS_SCHEDULER_BACKEND_DELEGATE_H_
+#define NEXUS_SCHEDULER_BACKEND_DELEGATE_H_
 
 #include <chrono>
 #include <grpc++/grpc++.h>
@@ -17,11 +17,11 @@ namespace scheduler {
 
 class Scheduler;
 
-class BackendRpcClient {
+class BackendDelegate {
  public:
-  BackendRpcClient(uint32_t node_id, const std::string& server_addr,
-                   const std::string& rpc_addr, const std::string& gpu_device,
-                   size_t gpu_available_memory, int beacon_sec, int epoch_sec);
+  BackendDelegate(uint32_t node_id, const std::string& server_addr,
+                  const std::string& rpc_addr, const std::string& gpu_device,
+                  size_t gpu_available_memory, int beacon_sec, int epoch_sec);
 
   uint32_t node_id() const { return node_id_; }
 
@@ -37,7 +37,7 @@ class BackendRpcClient {
 
   void set_workload_id(int id) { workload_id_ = id; }
 
-  float occupancy() const;
+  float Occupancy() const;
 
   void GetInfo(BackendInfo* info) const;
 
@@ -45,7 +45,7 @@ class BackendRpcClient {
 
   void Tick();
 
-  bool Assign(const BackendRpcClient& other);
+  bool Assign(const BackendDelegate& other);
 
   bool PrepareLoadModel(const ModelSession& model_sess, float workload,
                         ModelInstanceConfig* config, float* occupancy) const;
@@ -55,12 +55,26 @@ class BackendRpcClient {
   void LoadModel(const YAML::Node& model_info);
 
   void UnloadModel(const std::string& model_sess_id);
+  /*!
+   * \brief Update model throughput given model session id and throughput.
+   * \param model_sess_id Model session ID.
+   * \param throughput Expected throughput to be achieved.
+   * \return Left over throughput if expected throughput is not achieved,
+   *   otherwise 0.
+   */
+  float UpdateModelThroughput(const std::string& model_sess_id,
+                              float throughput);
 
-  CtrlStatus UpdateModelTable();
+  void SpillOutWorkload(std::vector<std::pair<std::string, float> >* spillout);
 
-  void GetModelSessions(std::vector<std::string>* sessions) const;
+  CtrlStatus UpdateModelTableRpc();
 
   void UpdateStats(const BackendStatsProto& backend_stats);
+
+  void AllModelSessions(std::vector<std::string>* sessions) const;
+
+  const ModelInstanceConfig* GetModelConfig(const std::string& model_sess_id)
+      const;
 
   float GetModelThroughput(const std::string& model_sess_id) const;
 
@@ -95,4 +109,4 @@ class BackendRpcClient {
 } // namespace scheduler
 } // namespace nexus
 
-#endif // NEXUS_SCHEDULER_BACKEND_RPC_CLIENT_H_
+#endif // NEXUS_SCHEDULER_BACKEND_DELEGATE_H_

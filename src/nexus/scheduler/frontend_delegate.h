@@ -1,5 +1,5 @@
-#ifndef NEXUS_SCHEDULER_FRONTEND_RPC_CLIENT_H_
-#define NEXUS_SCHEDULER_FRONTEND_RPC_CLIENT_H_
+#ifndef NEXUS_SCHEDULER_FRONTEND_DELEGATE_H_
+#define NEXUS_SCHEDULER_FRONTEND_DELEGATE_H_
 
 #include <chrono>
 #include <grpc++/grpc++.h>
@@ -14,9 +14,9 @@ namespace scheduler {
 
 class Scheduler;
 
-class FrontendRpcClient {
+class FrontendDelegate {
  public:
-  FrontendRpcClient(uint32_t node_id, const std::string& server_addr,
+  FrontendDelegate(uint32_t node_id, const std::string& server_addr,
                     const std::string& rpc_addr, int beacon_sec);
 
   uint32_t node_id() const { return node_id_; }
@@ -37,6 +37,8 @@ class FrontendRpcClient {
     return subscribe_models_;
   }
 
+  CtrlStatus UpdateModelRoutesRpc(const ModelRouteUpdates& request);
+
  private:
   uint32_t node_id_;
   std::string server_address_;
@@ -51,4 +53,4 @@ class FrontendRpcClient {
 } // namespace scheduler
 } // namespace nexus
 
-#endif // NEXUS_SCHEDULER_FRONTEND_RPC_CLIENT_H_
+#endif // NEXUS_SCHEDULER_FRONTEND_DELEGATE_H_

@@ -18,10 +18,6 @@ class RpcCallBase {
       status_(RPC_CALL_CREATE) {
   }
 
-  std::string PeerAddress() {
-    return ctx_.peer();
-  }
-
   virtual ~RpcCallBase() {}
 
   virtual void Proceed() = 0;
@@ -35,9 +31,10 @@ class RpcCallBase {
 #define INSTANTIATE_RPC_CALL(SERVICE, RPCCALL, REQUEST, REPLY)          \
   class RPCCALL##_Call : public RpcCallBase {                           \
    public:                                                              \
-    RPCCALL##_Call(                                                     \
-        SERVICE* service, grpc::ServerCompletionQueue* cq,              \
-        std::function<void(RpcCallBase*, const REQUEST&, REPLY*)> handle) : \
+    using Handler = std::function<void(const grpc::ServerContext&,      \
+                                       const REQUEST&, REPLY*)>;        \
+    RPCCALL##_Call(SERVICE* service, grpc::ServerCompletionQueue* cq,   \
+                   Handler handle) :                                    \
         RpcCallBase(cq),                                                \
         service_(service),                                              \
         handle_(handle),                                                \
@@ -51,7 +48,7 @@ class RpcCallBase {
             &ctx_, &request_, &responder_, cq_, cq_, this);             \
       } else if (status_ == RPC_CALL_PROCESS) {                         \
         new RPCCALL##_Call(service_, cq_, handle_);                     \
-        handle_(this, request_, &reply_);                               \
+        handle_(ctx_, request_, &reply_);                               \
         status_ = RPC_CALL_FINISH;                                      \
         responder_.Finish(reply_, grpc::Status::OK, this);              \
       } else {                                                          \
@@ -61,12 +58,11 @@ class RpcCallBase {
     }                                                                   \
    private:                                                             \
     SERVICE* service_;                                                  \
-    std::function<void(RpcCallBase*, const REQUEST&, REPLY*)> handle_;  \
+    Handler handle_;                                                    \
     grpc::ServerAsyncResponseWriter<REPLY> responder_;                  \
     REQUEST request_;                                                   \
     REPLY reply_;                                                       \
   }
-
 
 } // namespace nexus
 
