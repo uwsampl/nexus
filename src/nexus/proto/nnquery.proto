@@ -86,6 +86,8 @@ message ReplyProto {
   string error_message = 4;
   // Output
   repeated RecordProto output = 5;
+  // Latency
+  uint64 latency_us = 20;
 }
 
 message ModelSession {

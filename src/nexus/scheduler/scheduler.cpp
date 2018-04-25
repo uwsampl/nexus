@@ -685,9 +685,6 @@ void Scheduler::EpochSchedule() {
   
   // 3. Allocate the unassigned workloads to backends that still have space
   AllocateUnassignedWorkloads(&changed_routes);
-  for (auto s : changed_routes) {
-    LOG(INFO) << s;
-  }
 
   // 4. Update model table to backends and model routes to frontends
   for (auto iter : backends_) {

@@ -32,6 +32,7 @@ void Worker::Run() {
     if (msg == nullptr) {
       continue;
     }
+    auto beg = Clock::now();
     RequestProto request;
     ReplyProto reply;
     msg->DecodeBody(&request);
@@ -43,6 +44,10 @@ void Worker::Run() {
     reply.set_user_id(request.user_id());
     reply.set_req_id(request.req_id());
     frontend_->Process(request, &reply);
+    auto end = Clock::now();
+    auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
+        end - beg).count();
+    reply.set_latency_us(latency);
     auto reply_msg = std::make_shared<Message>(kUserReply,
                                                reply.ByteSizeLong());
     reply_msg->EncodeBody(reply);

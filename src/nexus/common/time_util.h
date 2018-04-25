@@ -71,6 +71,8 @@ class TimeSystem {
  public:
   static TimeSystem& Singleton();
 
+  ~TimeSystem();
+
   void Stop();
 
   bool AddTickable(Tickable* tickable);

@@ -64,6 +64,11 @@ TimeSystem::TimeSystem() :
   thread_ = std::thread(&TimeSystem::Run, this);
 }
 
+TimeSystem::~TimeSystem() {
+  running_ = false;
+  thread_.join();
+}
+
 void TimeSystem::Stop() {
   running_ = false;
   thread_.join();

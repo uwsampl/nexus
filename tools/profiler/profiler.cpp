@@ -42,9 +42,11 @@ class ModelProfiler {
   ModelProfiler(int gpu, const std::string& framework,
                 const std::string& model_name, int model_version,
                 const std::string& image_dir, int height=0, int width=0) :
-      gpu_(gpu),
-      model_info_(ModelDatabase::Singleton().GetModelInfo(
-          framework, model_name, model_version)) {
+      gpu_(gpu) {
+    model_info_ = ModelDatabase::Singleton().GetModelInfo(
+        framework, model_name, model_version);
+    CHECK(model_info_ != nullptr) << "Cannot find model info for " <<
+        framework << ":" << model_name << ":" << model_version;
     // Init model session
     model_sess_.set_framework(framework);
     model_sess_.set_model_name(model_name);
@@ -55,14 +57,16 @@ class ModelProfiler {
       model_sess_.set_image_height(height);
       model_sess_.set_image_width(width);
     } else {
-      if (model_info_["resizable"] && model_info_["resizable"].as<bool>()) {
+      if ((*model_info_)["resizable"] &&
+          (*model_info_)["resizable"].as<bool>()) {
         // Set default image size for resizable CNN
         model_sess_.set_image_height(
-            model_info_["image_height"].as<uint32_t>());
+            (*model_info_)["image_height"].as<uint32_t>());
         model_sess_.set_image_width(
-            model_info_["image_width"].as<uint32_t>());
+            (*model_info_)["image_width"].as<uint32_t>());
       }
     }
+    LOG(INFO) << model_sess_.DebugString();
     LOG(INFO) << "Profile model " << ModelSessionToProfileID(model_sess_);
     // Get test dataset
     ListImages(image_dir);
@@ -73,7 +77,6 @@ class ModelProfiler {
 
   void Profile(int min_batch, int max_batch, const std::string output="",
                int repeat=10) {
-    // Get model info
     size_t origin_freemem = gpu_device_->FreeMemory();
     std::vector<uint64_t> preprocess_lats;
     std::vector<uint64_t> postprocess_lats;
@@ -88,7 +91,7 @@ class ModelProfiler {
     {
       config.set_batch(1);
       config.set_max_batch(1);
-      auto model = CreateModelInstance(gpu_, config, model_info_, task_queue);
+      auto model = CreateModelInstance(gpu_, config, *model_info_, task_queue);
       // prepare the input
       int num_inputs = max_batch * (repeat + 1);
       if (num_inputs > 1000) {
@@ -100,7 +103,7 @@ class ModelProfiler {
         std::string im;
         ReadImage(test_images_[idx], &im);
         auto task = std::make_shared<Task>();
-        task->SetDeadline(std::chrono::milliseconds(1000000000));
+        task->SetDeadline(std::chrono::milliseconds(10000000));
         auto input = task->query.mutable_input();
         input->set_data_type(DT_IMAGE);
         auto image = input->mutable_image();
@@ -124,7 +127,7 @@ class ModelProfiler {
     for (int batch = min_batch; batch <= max_batch; ++batch) {
       config.set_batch(batch);
       config.set_max_batch(batch);
-      auto model = CreateModelInstance(gpu_, config, model_info_, task_queue);
+      auto model = CreateModelInstance(gpu_, config, *model_info_, task_queue);
       // latencies
       std::vector<uint64_t> forward_lats;
       for (int i = 0; i < batch * (repeat + 1); ++i) {
@@ -230,7 +233,7 @@ class ModelProfiler {
  private:
   int gpu_;
   ModelSession model_sess_;
-  const YAML::Node& model_info_;
+  const YAML::Node* model_info_;
   std::string framework_;
   std::string model_name_;
   int version_;
@@ -256,18 +259,10 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   // Setup backtrace on segfault
   google::InstallFailureSignalHandler();
-  if (FLAGS_model_root.length() == 0) {
-    LOG(FATAL) << "Missing model_root";
-  }
-  if (FLAGS_framework.length() == 0) {
-    LOG(FATAL) << "Missing framework";
-  }
-  if (FLAGS_model.length() == 0) {
-    LOG(FATAL) << "Missing model";
-  }
-  if (FLAGS_image_dir.length() == 0) {
-    LOG(FATAL) << "Missing image_dir";
-  }
+  CHECK_GT(FLAGS_model_root.length(), 0) << "Missing model_root";
+  CHECK_GT(FLAGS_framework.length(), 0) << "Missing framework";
+  CHECK_GT(FLAGS_model.length(), 0) << "Missing model";
+  CHECK_GT(FLAGS_image_dir.length(), 0) << "Missing image_dir";
   srand(time(NULL));
   ModelDatabase::Singleton().Init(FLAGS_model_root);
   ModelProfiler profiler(FLAGS_gpu, FLAGS_framework, FLAGS_model,
