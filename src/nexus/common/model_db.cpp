@@ -50,7 +50,7 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
 
 float ModelProfile::GetForwardLatency(uint32_t batch) const {
   if (forward_lats_.find(batch) == forward_lats_.end()) {
-    return 0;
+    return 0.;
   }
   auto entry = forward_lats_.at(batch);
   return entry.latency_mean + entry.latency_std;
@@ -184,7 +184,7 @@ float ModelDatabase::GetModelForwardLatency(const std::string& gpu_device,
                                             uint32_t batch) const {
   auto profile = GetModelProfile(gpu_device, profile_id);
   if (profile == nullptr) {
-    return 1.;
+    return 0;
   }
   return profile->GetForwardLatency(batch);
 }
@@ -200,7 +200,7 @@ size_t ModelDatabase::GetModelMemoryUsage(const std::string& gpu_device,
 }
 
 void ModelDatabase::LoadModelInfo(const std::string& db_file) {
-  LOG(INFO) << "Load model DB from " << db_file;
+  VLOG(1) << "Load model DB from " << db_file;
   YAML::Node db = YAML::LoadFile(db_file);
   const YAML::Node& models = db["models"];
   for (uint i = 0; i < models.size(); ++i) {
@@ -235,10 +235,10 @@ void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
     if (!fs::is_directory(path)) {
       continue;
     }
-    LOG(INFO) << "Load model profiles for GPU " << path.filename().string();
+    VLOG(1) << "Load model profiles for GPU " << path.filename().string();
     for (fs::directory_iterator file_itr(path); file_itr != end_iter;
          ++file_itr) {
-      LOG(INFO) << "- Load model profile " << file_itr->path().string();
+      VLOG(1) << "- Load model profile " << file_itr->path().string();
       ModelProfile profile(file_itr->path().string());
       auto device = profile.gpu_device_name();
       if (device_profile_table_.find(device) == device_profile_table_.end()) {

@@ -84,6 +84,7 @@ ModelHandler::ModelHandler(const ModelSession& model_session,
     model_session_(model_session),
     backend_pool_(pool),
     query_id_(0),
+    total_throughput_(0.),
     rand_gen_(rd_()) {
   model_session_id_ = ModelSessionToString(model_session);
 }
@@ -141,9 +142,16 @@ void ModelHandler::HandleResult(const QueryResultProto& result) {
 void ModelHandler::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(route_mu_);
   backend_rates_.clear();
+  total_throughput_ = 0.;
+  LOG(INFO) << "Update model route for " << model_session_id_;
+  
   for (auto itr : route.backend_rate()) {
     backend_rates_.emplace_back(itr.info().node_id(), itr.throughput());
+    total_throughput_ += itr.throughput();
+    LOG(INFO) << "- backend " << itr.info().node_id() << ": " <<
+        itr.throughput();
   }
+  LOG(INFO) << "Total throughput: " << total_throughput_;
 }
 
 std::vector<uint32_t> ModelHandler::BackendList() {

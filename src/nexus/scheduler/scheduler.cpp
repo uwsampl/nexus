@@ -11,6 +11,8 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace scheduler {
 
+DEFINE_bool(epoch_schedule, true, "Enable epoch scheduling");
+
 INSTANTIATE_RPC_CALL(AsyncService, Register, RegisterRequest, RegisterReply);
 INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, LoadModel, LoadModelRequest, LoadModelReply);
@@ -24,8 +26,13 @@ Scheduler::Scheduler(std::string port, size_t nthreads,
     AsyncRpcServiceBase(port, nthreads),
     beacon_interval_sec_(beacon_interval),
     epoch_interval_sec_(epoch_interval) {
-  history_len_ = (epoch_interval + beacon_interval - 1) / beacon_interval;
+  min_history_len_ = (epoch_interval + beacon_interval - 1) / beacon_interval;
+  history_len_ = min_history_len_ * 2;
   ModelDatabase::Singleton().Init(model_db_root);
+  enable_epoch_schedule_ = FLAGS_epoch_schedule;
+  if (!enable_epoch_schedule_) {
+    LOG(INFO) << "Epoch scheduling is off";
+  }
 }
 
 void Scheduler::LoadWorkloadFile(const std::string& workload_file) {
@@ -80,7 +87,9 @@ void Scheduler::Run() {
     }
     if (elapse_sec > 0 && elapse_sec % epoch_interval_sec_ == 0) {
       last_epoch = elapse_sec;
-      EpochSchedule();
+      if (enable_epoch_schedule_) {
+        EpochSchedule();
+      }
     }
     int next_sec = std::min(last_beacon + beacon_interval_sec_,
                             last_epoch + epoch_interval_sec_);
@@ -159,30 +168,29 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
   }
 
   // Find best-fit backends to serve the workload
-  std::vector<std::pair<BackendDelegatePtr, ModelInstanceConfig> >
-      assign_backends;
+  std::vector<std::pair<BackendDelegatePtr, InstanceInfo> > assign_backends;
   std::unordered_set<uint32_t> used;
   if (workload == 0) {
     BackendDelegatePtr backend;
-    ModelInstanceConfig cfg;
-    FindBestBackend(model_sess, workload, used, &backend, &cfg);
+    InstanceInfo inst_info;
+    FindBestBackend(model_sess, workload, used, &backend, &inst_info);
     if (backend == nullptr) {
       reply->set_status(NOT_ENOUGH_BACKENDS);
       return;
     }
-    assign_backends.emplace_back(backend, cfg);
+    assign_backends.emplace_back(backend, inst_info);
   } else {
     while (workload > 0) {
       BackendDelegatePtr backend;
-      ModelInstanceConfig cfg;
-      FindBestBackend(model_sess, workload, used, &backend, &cfg);
+      InstanceInfo inst_info;
+      FindBestBackend(model_sess, workload, used, &backend, &inst_info);
       if (backend == nullptr) {
         reply->set_status(NOT_ENOUGH_BACKENDS);
         return;
       }
-      assign_backends.emplace_back(backend, cfg);
+      assign_backends.emplace_back(backend, inst_info);
       used.insert(backend->node_id());
-      workload -= cfg.throughput();
+      workload -= inst_info.throughput;
     }
   }
 
@@ -191,11 +199,11 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
   model_info.subscribers.insert(request.node_id());
   for (auto iter : assign_backends) {
     auto backend = iter.first;
-    const auto& config = iter.second;
-    backend->LoadModel(config);
+    auto const& inst_info = iter.second;
+    backend->LoadModel(inst_info);
     backend->UpdateModelTableRpc();
     model_info.backend_throughputs.emplace(backend->node_id(),
-                                           config.throughput());
+                                           inst_info.throughput);
   }
   model_table_.emplace(model_sess_id, model_info);
   frontend->SubscribeModel(model_sess_id);
@@ -326,33 +334,42 @@ void Scheduler::AddBackend(BackendDelegatePtr backend) {
       backend->LoadModel(model_info);
     }
     backend->set_workload_id(assign_load_id);
-  } else if (!unassigned_workloads_.empty()) {
-    // 2. There are unassigned workloads
-    std::sort(unassigned_workloads_.begin(), unassigned_workloads_.end(),
+  } else {
+    // 2. Check if there are unassigned workloads
+    std::vector<std::pair<std::string, float> > unassigned_workloads;
+    for (auto const& iter : model_table_) {
+      auto const& model_info = iter.second;
+      if (model_info.unassigned_workload > 0) {
+        unassigned_workloads.emplace_back(iter.first,
+                                          model_info.unassigned_workload);
+      }
+    }
+    std::sort(unassigned_workloads.begin(), unassigned_workloads.end(),
               [](std::pair<std::string, float> a,
                  std::pair<std::string, float> b) {
                 return a.second > b.second;
               });
-    for (auto iter = unassigned_workloads_.begin();
-         iter != unassigned_workloads_.end(); ) {
-      auto& model_sess_id = iter->first;
-      float request_rate = iter->second;
+    for (auto iter : unassigned_workloads) {
+      std::string model_sess_id = iter.first;
+      float request_rate = iter.second;
       ModelSession model_sess;
       ParseModelSession(model_sess_id, &model_sess);
-      ModelInstanceConfig cfg;
+      InstanceInfo inst_info;
       float occupancy;
-      if (backend->PrepareLoadModel(model_sess, request_rate, &cfg,
+      if (backend->PrepareLoadModel(model_sess, request_rate, &inst_info,
                                     &occupancy)) {
-        backend->LoadModel(cfg);
-        iter = unassigned_workloads_.erase(iter);
-      } else {
-        ++iter;
+        backend->LoadModel(inst_info);
+        request_rate -= inst_info.throughput;
+        model_table_.at(model_sess_id).unassigned_workload = std::max(
+            0.f, request_rate);
       }
     }
   }
 
-  // 3. Update model table
+  // 3. Update backend model table
   backend->UpdateModelTableRpc();
+  
+  // 4. Update model info and route
   std::vector<std::string> model_sessions;
   backend->AllModelSessions(&model_sessions);
   for (auto& model_sess_id : model_sessions) {
@@ -405,11 +422,14 @@ void Scheduler::RemoveBackend(BackendDelegatePtr backend) {
       // 3. If it's not static configured workload, try to allocate model
       // instances to other backends
       for (auto& model_sess_id : model_sessions) {
-        unassigned_workloads_.emplace_back(
-            model_sess_id, backend->GetModelThroughput(model_sess_id));
+        float tp = backend->GetModelThroughput(model_sess_id);
+        model_table_.at(model_sess_id).unassigned_workload += tp;
       }
       std::unordered_set<BackendDelegatePtr> changed_backends;
       AllocateUnassignedWorkloads(&changed_routes, &changed_backends);
+      for (auto backend : changed_backends) {
+        backend->UpdateModelTableRpc();
+      }
     }
   }
 
@@ -474,8 +494,8 @@ void Scheduler::GetModelRoute(const std::string& model_sess_id,
 void Scheduler::FindBestBackend(
     const ModelSession& model_sess, float request_rate,
     const std::unordered_set<uint32_t>& skips,
-    BackendDelegatePtr* best_backend, ModelInstanceConfig* inst_cfg) {
-  using ModelLoad = std::tuple<BackendDelegatePtr, ModelInstanceConfig, float>;
+    BackendDelegatePtr* best_backend, InstanceInfo* inst_info) {
+  using ModelLoad = std::tuple<BackendDelegatePtr, InstanceInfo, float>;
   ModelLoad max_tp_load;
   ModelLoad max_occ_load;
   for (auto iter : backends_) {
@@ -489,35 +509,35 @@ void Scheduler::FindBestBackend(
     if (request_rate == 0 && !backend->IsIdle()) {
       continue;
     }
-    ModelInstanceConfig cfg;
+    InstanceInfo inst_info;
     float occupancy;
-    bool ret = backend->PrepareLoadModel(model_sess, request_rate, &cfg,
+    bool ret = backend->PrepareLoadModel(model_sess, request_rate, &inst_info,
                                          &occupancy);
     if (!ret) {
       continue;
     }
     if (std::get<0>(max_tp_load) == nullptr ||
-        cfg.throughput() > std::get<1>(max_tp_load).throughput()) {
-      max_tp_load = std::make_tuple(backend, cfg, occupancy);
+        inst_info.throughput > std::get<1>(max_tp_load).throughput) {
+      max_tp_load = std::make_tuple(backend, inst_info, occupancy);
     }
     if (std::get<0>(max_occ_load) == nullptr ||
         occupancy > std::get<2>(max_occ_load)) {
-      max_occ_load = std::make_tuple(backend, cfg, occupancy);
+      max_occ_load = std::make_tuple(backend, inst_info, occupancy);
     }
   }
   if (request_rate == 0) {
     // for request rate = 0, return backend that provides highest throughput
     *best_backend = std::get<0>(max_tp_load);
-    inst_cfg->CopyFrom(std::get<1>(max_tp_load));
-  } else if (std::get<1>(max_tp_load).throughput() < request_rate) {
+    *inst_info = std::get<1>(max_tp_load);
+  } else if (std::get<1>(max_tp_load).throughput < request_rate) {
     // If no backend can achieve request rate, return backend that provides
     // highest throughput
     *best_backend = std::get<0>(max_tp_load);
-    inst_cfg->CopyFrom(std::get<1>(max_tp_load));
+    *inst_info = std::get<1>(max_tp_load);
   } else {
     // Otherwise, return backend that has highest occupancy
     *best_backend = std::get<0>(max_occ_load);
-    inst_cfg->CopyFrom(std::get<1>(max_occ_load));
+    *inst_info = std::get<1>(max_occ_load);
   }
 }
 
@@ -545,10 +565,17 @@ void Scheduler::BeaconCheck() {
     const auto& model_sess_id = model_iter.first;
     auto& model_info = model_iter.second;
     double rps = 0.;
+    VLOG(1) << model_sess_id << " rps: ";
     for (auto backend_iter : model_info.backend_throughputs) {
-      rps += backends_.at(backend_iter.first)->GetModelRps(model_sess_id);
+      auto backend = backends_.at(backend_iter.first);
+      VLOG(1) << "- backend " << backend->node_id() << ": " <<
+          backend->GetModelRps(model_sess_id);
+      rps += backend->GetModelRps(model_sess_id);
     }
-    model_info.rps_history.push_back(rps);
+    if (model_info.rps_history.size() > 0 || rps > 0) {
+      // Don't push 0 in the begining
+      model_info.rps_history.push_back(rps);
+    }
     if (model_info.rps_history.size() > history_len_) {
       model_info.rps_history.pop_front();
     }
@@ -580,6 +607,7 @@ void Scheduler::BeaconCheck() {
 void Scheduler::EpochSchedule() {
   std::lock_guard<std::mutex> lock(mutex_);
   std::unordered_set<std::string> changed_routes;
+  std::vector<BackendDelegatePtr> overload_backends;
 
   // 1. Adjust the GPU allocation based on the workload
   for (auto& iter : model_table_) {
@@ -588,7 +616,7 @@ void Scheduler::EpochSchedule() {
     double throughput = model_info.total_throughput();
     // Compute the workload mean and std
     uint32_t n = model_info.rps_history.size();
-    if (n < history_len_) {
+    if (n < min_history_len_) {
       continue;
     }
     double rps_mean = 0., rps_std = 0.;
@@ -600,12 +628,14 @@ void Scheduler::EpochSchedule() {
       rps_std += (rps - rps_mean) * (rps - rps_mean);
     }
     rps_std = sqrt(rps_std / (n - 1));
-    double estimate_rps = model_info.rps_history[n - 1] + rps_std;
+    double estimate_rps = std::max(
+        model_info.rps_history[n - 1] + rps_std, 0.1);
+    model_info.unassigned_workload = std::max(0., estimate_rps - throughput);
     VLOG(1) << model_sess_id << " estimate rps: " << estimate_rps <<
         " (last: " << model_info.rps_history[n - 1] << ", mean: " <<
-        rps_mean << ", std: " << rps_std << ")";
+        rps_mean << ", std: " << rps_std << "), throughput: " << throughput;
 
-    if (estimate_rps < throughput * 0.95) {
+    if (estimate_rps < throughput * 0.97) {
       // Workload is smaller than throughput, can release some GPUs
       std::vector<std::pair<uint32_t, double> > adjust_backends;
       // Backends with static configured workload are still fixed
@@ -630,16 +660,16 @@ void Scheduler::EpochSchedule() {
           model_info.backend_throughputs.erase(iter.first);
         } else if (iter.second > estimate_rps) {
           auto backend = backends_.at(iter.first);
-          estimate_rps = backend->UpdateModelThroughput(model_sess_id,
+          float new_tp = backend->UpdateModelThroughput(model_sess_id,
                                                         estimate_rps);
-          model_info.backend_throughputs[iter.first] =
-              backend->GetModelThroughput(model_sess_id);
+          model_info.backend_throughputs[iter.first] = new_tp;
+          estimate_rps -= new_tp;
         } else {
           estimate_rps -= iter.second;
         }
       }
       changed_routes.insert(model_sess_id);
-    } else if (estimate_rps > throughput * 1.03) {
+    } else if (estimate_rps > throughput) {
       // Workload is larger than throughput, need to allocate more gpus
       std::vector<std::pair<uint32_t, double> > adjust_backends;
       // Backends with static configured workload are still fix
@@ -659,28 +689,30 @@ void Scheduler::EpochSchedule() {
                 });
       for (auto iter : adjust_backends) {
         auto backend = backends_.at(iter.first);
-        auto cfg = backend->GetModelConfig(model_sess_id);
-        if (cfg->batch() == cfg->max_batch()) {
-          // Already at max throughput
-          estimate_rps -= iter.second;
-        } else {
-          estimate_rps = backend->UpdateModelThroughput(model_sess_id,
-                                                        estimate_rps);
-          model_info.backend_throughputs[iter.first] =
-              backend->GetModelThroughput(model_sess_id);
+        float new_tp = backend->UpdateModelThroughput(model_sess_id,
+                                                      estimate_rps);
+        model_info.backend_throughputs[iter.first] = new_tp;
+        estimate_rps -= new_tp;
+        if (backend->overload()) {
+          overload_backends.push_back(backend);
         }
       }
       if (estimate_rps > 0) {
-        unassigned_workloads_.emplace_back(model_sess_id, estimate_rps);
+        model_info.unassigned_workload = estimate_rps;
       }
       changed_routes.insert(model_sess_id);
     }
   }
 
-  // 2. Check if any backend has occupancy greater than 100%
-  for (auto iter : backends_) {
-    auto backend = iter.second;
-    backend->SpillOutWorkload(&unassigned_workloads_);
+  // 2. Adjust overloaded backends
+  for (auto backend : overload_backends) {
+    std::vector<std::pair<std::string, float> > spillout;
+    backend->SpillOutWorkload(&spillout);
+    for (auto iter : spillout) {
+      auto& model_info = model_table_.at(iter.first);
+      model_info.backend_throughputs.erase(backend->node_id());
+      model_info.unassigned_workload += iter.second;
+    }
   }
   
   // 3. Allocate the unassigned workloads to backends that still have space
@@ -700,34 +732,50 @@ void Scheduler::AllocateUnassignedWorkloads(
     std::unordered_set<BackendDelegatePtr>* changed_backends) {
   // TODO: what if more than one unassigned workloads belong to same model session
   // Sort unassigned workloads by request rate
-  std::sort(unassigned_workloads_.begin(), unassigned_workloads_.end(),
+  std::vector<std::pair<std::string, float> > unassigned_workloads;
+  for (auto const& iter : model_table_) {
+    auto const& model_info = iter.second;
+    if (model_info.unassigned_workload > 0) {
+      unassigned_workloads.emplace_back(iter.first,
+                                        model_info.unassigned_workload);
+    }
+  }
+  if (unassigned_workloads.empty()) {
+    return;
+  }
+  std::sort(unassigned_workloads.begin(), unassigned_workloads.end(),
             [](std::pair<std::string, float> a,
                std::pair<std::string, float> b) {
                   return a.second > b.second;
             });
-  for (auto iter = unassigned_workloads_.begin();
-       iter != unassigned_workloads_.end(); ) {
-    std::string model_sess_id = iter->first;
-    float request_rate = iter->second;
+  for (auto const& iter : unassigned_workloads) {
+    std::string model_sess_id = iter.first;
+    float request_rate = iter.second;
+    // LOG(INFO) << "Try to assign workload " << model_sess_id << ", " <<
+    //     request_rate << " req/s";
     ModelSession model_sess;
     ParseModelSession(model_sess_id, &model_sess);
-    BackendDelegatePtr backend;
-    ModelInstanceConfig cfg;
-    FindBestBackend(model_sess, request_rate, {}, &backend, &cfg);
-    if (backend == nullptr) {
-      LOG(INFO) << "Unassigned workload " << model_sess_id << ", " <<
-          request_rate << " req/s";
-      ++iter;
-    } else {
-      backend->LoadModel(cfg);
-      model_table_.at(model_sess_id).backend_throughputs.emplace(
-          backend->node_id(), cfg.throughput());
-      changed_routes->insert(model_sess_id);
-      if (changed_backends != nullptr) {
-        changed_backends->insert(backend);
+    while (request_rate > 0) {
+      BackendDelegatePtr backend;
+      InstanceInfo inst_info;
+      FindBestBackend(model_sess, request_rate, {}, &backend, &inst_info);
+      if (backend == nullptr) {
+        LOG(INFO) << "Unassigned workload " << model_sess_id << ", " <<
+            request_rate << " req/s";
+        break;
+      } else {
+        request_rate -= inst_info.throughput;
+        backend->LoadModel(inst_info);
+        model_table_.at(model_sess_id).backend_throughputs.emplace(
+            backend->node_id(), inst_info.throughput);
+        changed_routes->insert(model_sess_id);
+        if (changed_backends != nullptr) {
+          changed_backends->insert(backend);
+        }
       }
-      iter = unassigned_workloads_.erase(iter);
     }
+    model_table_.at(model_sess_id).unassigned_workload = std::max(
+        0.f, request_rate);
   }
 }
 
@@ -758,9 +806,9 @@ void Scheduler::DisplayModelTable() {
     for (auto backend_iter : model_info.backend_throughputs) {
       auto backend = GetBackend(backend_iter.first);
       double throughput = backend_iter.second;
-      auto cfg = backend->GetModelConfig(model_sess_id);
+      auto info = backend->GetInstanceInfo(model_sess_id);
       ss << " " << backend_iter.first << "/" << throughput << "/" <<
-          cfg->batch();
+          info->batch;
     }
     ss << "\n";
   }

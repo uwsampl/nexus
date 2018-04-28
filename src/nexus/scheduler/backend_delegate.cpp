@@ -24,6 +24,7 @@ BackendDelegate::BackendDelegate(uint32_t node_id,
     workload_id_(-1),
     exec_cycle_us_(0.),
     duty_cycle_us_(0.),
+    overload_(false),
     dirty_model_table_(false) {
   auto channel = grpc::CreateChannel(rpc_addr,
                                      grpc::InsecureChannelCredentials());
@@ -56,7 +57,7 @@ bool BackendDelegate::Assign(const BackendDelegate& other) {
   if (gpu_device_ == other.gpu_device_) {
     workload_id_ = other.workload_id_;
     model_rps_ = other.model_rps_;
-    model_table_config_ = other.model_table_config_;
+    model_instances_ = other.model_instances_;
     exec_cycle_us_ = other.exec_cycle_us_;
     duty_cycle_us_ = other.exec_cycle_us_;
     dirty_model_table_ = true;
@@ -68,284 +69,170 @@ bool BackendDelegate::Assign(const BackendDelegate& other) {
 
 bool BackendDelegate::PrepareLoadModel(
     const ModelSession& model_sess, float workload,
-    ModelInstanceConfig* config, float* occupancy) const {
-  if (workload_id_ >= 0) {
-    // Static configured backend doesn't support loading other models
+    InstanceInfo* inst_info, float* occupancy) const {
+  if (workload_id_ >= 0 || Occupancy() == 1.0) {
+    // Static configured backend or fully occupied backend cannot load a new
+    // model
     return false;
   }
-  
   std::string model_sess_id = ModelSessionToString(model_sess);
-  if (Occupancy() == 1.0) {
-    return false;
-  }
-  if (model_table_config_.find(model_sess_id) != model_table_config_.end()) {
+  if (model_instances_.find(model_sess_id) != model_instances_.end()) {
+    // Already load this model session
     return false;
   }
   std::string profile_id = ModelSessionToProfileID(model_sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
   if (profile == nullptr) {
+    // Cannot find model profile for this GPU
     return false;
   }
-  config->mutable_model_session()->CopyFrom(model_sess);
-
-  // 1. Compute the max batch and throughput to saturate an empty GPU
-  double latency_sla_us = model_sess.latency_sla() * 1000;
-  uint32_t max_batch;
-  uint32_t max_throughput;
-  std::tie(max_batch, max_throughput) = profile->GetMaxThroughput(
-      model_sess.latency_sla());
-
-  if (workload == 0 || workload >= max_throughput) {
-    // Workload can saturate entire gpu
-    if (exec_cycle_us_ > 0) {
-      // We should always allocate an entire gpu in this case
-      config->set_batch(0);
-    } else {
-      double fwd_latency = profile->GetForwardLatency(max_batch);
-      uint32_t memory_usage = profile->GetMemoryUsage(max_batch);
-      config->set_batch(max_batch);
-      config->set_max_batch(max_batch);
-      config->set_forward_latency(fwd_latency);
-      config->set_memory_usage(fwd_latency);
-      config->set_throughput(max_throughput);
-      *occupancy = 1.0;
-    }
-    return true;
-  }
-
-  // 2. Compute the max batch for residue load
-  float preprocess = profile->GetPreprocessLatency();
-  float postprocess = profile->GetPostprocessLatency();
-  uint32_t batch = 1;
-  for (; batch <= max_batch; ++batch) {
-    float fwd_lat = profile->GetForwardLatency(batch);
-    // because batch = ceil(workload * duty_cycle),
-    // duty_cycle >= (batch - 1) / workload
-    float min_duty_cycle = (batch - 1) * 1e6 / workload;
-    if (min_duty_cycle + fwd_lat + preprocess + postprocess >
-        latency_sla_us) {
-      break;
-    }
-  }
-  --batch;
-  if (batch == 0) {
-    // execution latency of batch size 1 is even too large for latency_sla
-    config->set_batch(0);
+  inst_info->model_session.CopyFrom(model_sess);
+  inst_info->profile = profile;
+  // Compute the best batch size for the workload
+  ComputeBatchSize(inst_info, workload);
+  if (inst_info->batch == 0) {
     return false;
   }
-  float fwd_lat = profile->GetForwardLatency(batch);
-  uint32_t memory_usage = profile->GetMemoryUsage(batch);
-  // duty_cycle are constrainted by the following condition:
-  // (1) throughput = batch / duty_cycle >= workload
-  //     => duty_cycle <= batch / workload
-  // (2) duty_cycle + preprocess + postprocess + fwd_lat <= latency_sla
-  double duty_cycle = std::min(
-      latency_sla_us - fwd_lat - preprocess - postprocess,
-      batch * 1e6 / workload);
-  float throughput = batch * 1e6 / duty_cycle;
-
-  if (exec_cycle_us_ == 0) {
-    config->set_batch(batch);
-    config->set_max_batch(max_batch);
-    config->set_forward_latency(fwd_lat);
-    config->set_memory_usage(memory_usage);
-    config->set_throughput(throughput);
-    *occupancy = fwd_lat / duty_cycle;
-    return true;
-  }
-
+  // Compute new duty cycle and new exec cycle if we load this model
   float new_duty_cycle, new_exec_cycle;
-  if (duty_cycle < duty_cycle_us_) {
-    new_duty_cycle = duty_cycle;
+  if (duty_cycle_us_ == 0 || inst_info->max_duty_cycle_us < duty_cycle_us_) {
+    new_duty_cycle = inst_info->max_duty_cycle_us;
     new_exec_cycle = 0.;
-    for (auto iter : model_table_config_) {
-      auto& cfg = iter.second;
-      uint32_t new_b = std::ceil(duty_cycle * cfg.throughput() / 1e6);
-      std::string pid = ModelSessionToProfileID(cfg.model_session());
-      new_exec_cycle += ModelDatabase::Singleton().GetModelForwardLatency(
-          gpu_device_, pid, new_b);
+    for (auto iter : model_instances_) {
+      auto& info = iter.second;
+      uint32_t new_b = std::ceil(new_duty_cycle * info.throughput / 1e6);
+      new_exec_cycle += info.profile->GetForwardLatency(new_b);
     }
-    new_exec_cycle += fwd_lat;
-  } else { // duty_cycle >= duty_cycle_us_
+    new_exec_cycle += inst_info->fwd_latency_us;
+  } else { // max_duty_cycle >= duty_cycle_us_
     new_duty_cycle = duty_cycle_us_;
-    batch = std::ceil(new_duty_cycle * workload / 1e6);
-    fwd_lat = profile->GetForwardLatency(batch);
-    memory_usage = profile->GetMemoryUsage(batch);
-    throughput = batch * 1e6 / new_duty_cycle;
-    new_exec_cycle = exec_cycle_us_ + fwd_lat;
+    inst_info->batch = std::ceil(new_duty_cycle * inst_info->throughput / 1e6);
+    inst_info->fwd_latency_us = profile->GetForwardLatency(inst_info->batch);
+    inst_info->throughput = inst_info->batch * 1e6 / new_duty_cycle;
+    new_exec_cycle = exec_cycle_us_ + inst_info->fwd_latency_us;
   }
   if (new_exec_cycle > new_duty_cycle) {
-    // Failed to load residue load on this gpu
+    // Doesn't have enough spare cycles to load this workload
     return false;
   }
-  
-  config->set_batch(batch);
-  config->set_max_batch(max_batch);
-  config->set_forward_latency(fwd_lat);
-  config->set_memory_usage(memory_usage);
-  config->set_throughput(throughput);
   *occupancy = new_exec_cycle / new_duty_cycle;
-
   return true;
 }
 
-void BackendDelegate::LoadModel(const ModelInstanceConfig& config) {
-  auto model_sess_id = ModelSessionToString(config.model_session());
-  model_table_config_.emplace(model_sess_id, config);
+void BackendDelegate::LoadModel(const InstanceInfo& inst_info) {
+  auto model_sess_id = ModelSessionToString(inst_info.model_session);
+  model_instances_.emplace(model_sess_id, inst_info);
   model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
-  if (exec_cycle_us_ == 0) {
-    exec_cycle_us_ = config.forward_latency();
-    duty_cycle_us_ = config.batch() * 1e6 / config.throughput();
-  } else {
-    // Multi-batching
-    float duty_cycle = config.batch() * 1e6 / config.throughput();
-    if (duty_cycle >= duty_cycle_us_) {
-      // duty cycle remains the same
-      exec_cycle_us_ += config.forward_latency();
-    } else {
-      duty_cycle_us_ = duty_cycle;
-      exec_cycle_us_ = 0;
-      for (auto& iter : model_table_config_) {
-        auto& cfg = iter.second;
-        uint32_t new_batch = std::ceil(duty_cycle * cfg.throughput() / 1e6);
-        auto profile = ModelDatabase::Singleton().GetModelProfile(
-            gpu_device_, ModelSessionToProfileID(cfg.model_session()));
-        float fwd_lat = profile->GetForwardLatency(new_batch);
-        exec_cycle_us_ += fwd_lat;
-        cfg.set_batch(new_batch);
-        cfg.set_forward_latency(fwd_lat);
-      }
-    }
-  }
-  dirty_model_table_ = true;
-
-  LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
-  LOG(INFO) << "Backend " << node_id_ << ": exec cycle " << exec_cycle_us_ <<
-      " us, duty cycle: " << duty_cycle_us_ << " us";
+  UpdateCycle();
+  auto const& info = model_instances_.at(model_sess_id);
+  LOG(INFO) << "Backend " << node_id_ << " loads " << model_sess_id <<
+      ", batch " << info.batch << ", max batch " << info.max_batch <<
+      ", max duty cycle " << info.max_duty_cycle_us << " us, " <<
+      "throughput " << info.throughput << " req/s. Backend exec cycle " <<
+      exec_cycle_us_ << " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
 void BackendDelegate::LoadModel(const YAML::Node& model_info) {
-  ModelInstanceConfig config;
-  auto sess = config.mutable_model_session();
-  sess->set_framework(model_info["framework"].as<std::string>());
-  sess->set_model_name(model_info["model_name"].as<std::string>());
-  sess->set_version(model_info["version"].as<uint32_t>());
-  sess->set_latency_sla(model_info["latency_sla"].as<uint32_t>());
+  InstanceInfo inst_info;
+  ModelSession& sess = inst_info.model_session;
+  sess.set_framework(model_info["framework"].as<std::string>());
+  sess.set_model_name(model_info["model_name"].as<std::string>());
+  sess.set_version(model_info["version"].as<uint32_t>());
+  sess.set_latency_sla(model_info["latency_sla"].as<uint32_t>());
   if (model_info["image_height"]) {
-    sess->set_image_height(model_info["image_height"].as<uint32_t>());
-    sess->set_image_width(model_info["image_width"].as<uint32_t>());
+    sess.set_image_height(model_info["image_height"].as<uint32_t>());
+    sess.set_image_width(model_info["image_width"].as<uint32_t>());
   }
-  std::string model_sess_id = ModelSessionToString(*sess);
-  std::string profile_id = ModelSessionToProfileID(*sess);
+  std::string model_sess_id = ModelSessionToString(sess);
+  std::string profile_id = ModelSessionToProfileID(sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
-  uint32_t batch = model_info["batch"].as<uint32_t>();
-  uint32_t max_batch = batch;
-  //uint32_t max_batch = profile->GetMaxBatch(sess->latency_sla());
-  uint32_t memory_usage = profile->GetMemoryUsage(max_batch);
-  float fwd_latency = profile->GetForwardLatency(batch);
-  config.set_batch(batch);
-  config.set_max_batch(max_batch);
-  config.set_memory_usage(memory_usage);
-  config.set_forward_latency(fwd_latency);
+  inst_info.batch = model_info["batch"].as<uint32_t>();
+  inst_info.max_batch = inst_info.batch;
+  //inst_info.max_batch = profile->GetMaxBatch(sess.latency_sla());
+  inst_info.fwd_latency_us = profile->GetForwardLatency(inst_info.batch);
+  inst_info.memory_usage = profile->GetMemoryUsage(inst_info.max_batch);
 
   // update execution and batch cycles and throughput
-  model_table_config_.emplace(model_sess_id, config);
+  model_instances_.emplace(model_sess_id, inst_info);
   model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
-  exec_cycle_us_ += fwd_latency;
-  duty_cycle_us_ += fwd_latency;
-  for (auto& iter : model_table_config_) {
-    auto& cfg = iter.second;
-    float throughput = cfg.batch() * 1e6 / duty_cycle_us_;
-    cfg.set_throughput(throughput);
+  exec_cycle_us_ += inst_info.fwd_latency_us;
+  duty_cycle_us_ += inst_info.fwd_latency_us;
+  for (auto& iter : model_instances_) {
+    auto& info = iter.second;
+    info.throughput = info.batch * 1e6 / duty_cycle_us_;
   }
   dirty_model_table_ = true;
 
-  LOG(INFO) << "Backend " << node_id_ << " loads " << config.DebugString();
-  LOG(INFO) << "Backend " << node_id_ << ": exec cycle " << exec_cycle_us_ <<
-        " us, duty cycle: " << duty_cycle_us_ << " us";
+  LOG(INFO) << "Backend " << node_id_ << " loads " << model_sess_id <<
+      ", batch " << inst_info.batch << ", exec cycle " << exec_cycle_us_ <<
+      " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
 void BackendDelegate::UnloadModel(const std::string& model_sess_id) {
-  LOG(INFO) << "Backend " << node_id_ << " unload model: " << model_sess_id;
-  auto config = model_table_config_.at(model_sess_id);
-  model_table_config_.erase(model_sess_id);
-  model_rps_.erase(model_sess_id);
-  if (model_table_config_.empty()) {
-    exec_cycle_us_ = 0;
-    duty_cycle_us_ = 0;
-  } else {
-    // TODO: support unload model for multi batching
+  if (workload_id_ >= 0) {
+    return;
   }
-  dirty_model_table_ = true;
+  LOG(INFO) << "Backend " << node_id_ << " unload model: " << model_sess_id;
+  auto config = model_instances_.at(model_sess_id);
+  model_instances_.erase(model_sess_id);
+  model_rps_.erase(model_sess_id);
+  UpdateCycle();
 }
 
 float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
                                              float workload) {
-  auto& cfg = model_table_config_.at(model_sess_id);
-  uint32_t batch = std::ceil(workload * duty_cycle_us_ / 1e6);
-  if (batch > cfg.max_batch()) {
-    batch = cfg.max_batch();
+  InstanceInfo* inst_info = &model_instances_.at(model_sess_id);
+  uint32_t prev_throughput = inst_info->throughput;
+  ComputeBatchSize(inst_info, workload);
+  if (prev_throughput == inst_info->throughput) {
+    LOG(INFO) << "No change";
+  } else {
+    UpdateCycle();
+    LOG(INFO) << "Backend " << node_id_ << " updates " << model_sess_id <<
+        ", batch " << inst_info->batch << ", max batch " <<
+        inst_info->max_batch << ", new throughput " << inst_info->throughput;
   }
-  if (batch != cfg.batch()) {
-    ModelSession model_sess;
-    ParseModelSession(model_sess_id, &model_sess);
-    std::string profile_id = ModelSessionToProfileID(model_sess);
-    auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
-                                                              profile_id);
-    exec_cycle_us_ -= profile->GetForwardLatency(cfg.batch());
-    // Update batch and throughput
-    cfg.set_batch(batch);
-    float throughput = batch * 1e6 / duty_cycle_us_;
-    cfg.set_throughput(throughput);
-    exec_cycle_us_ += profile->GetForwardLatency(batch);
-    dirty_model_table_ = true;
-  }
-  return std::max(workload - cfg.throughput(), 0.f);
+  return inst_info->throughput;
 }
 
 void BackendDelegate::SpillOutWorkload(
     std::vector<std::pair<std::string, float> >* spillout) {
-  if (Occupancy() <= 1.0 || workload_id_ >= 0) {
+  if (!overload_ || workload_id_ >= 0) {
     return;
   }
-  std::vector<std::pair<std::string, float> > workloads;
-  for (auto iter : model_table_config_) {
-    workloads.emplace_back(iter.first, iter.second.forward_latency());
+  std::vector<std::tuple<std::string, float, float> > workloads;
+  for (auto iter : model_instances_) {
+    workloads.emplace_back(iter.first, iter.second.fwd_latency_us,
+                           iter.second.throughput);
   }
+  // Sort workload based on exec latency
   std::sort(workloads.begin(), workloads.end(),
-            [](std::pair<std::string, float> a,
-               std::pair<std::string, float> b) {
-              return a.second > b.second;
+            [](std::tuple<std::string, float, float> a,
+               std::tuple<std::string, float, float> b) {
+              return std::get<1>(a) > std::get<1>(b);
             });
   // Recompute exec cycle and duty cycle
+  model_instances_.clear();
   exec_cycle_us_ = 0.;
   duty_cycle_us_ = 0.;
   for (auto iter : workloads) {
-    auto& model_sess_id = iter.first;
-    float fwd_lat = iter.second;
-    auto& cfg = model_table_config_.at(model_sess_id);
-    auto profile = ModelDatabase::Singleton().GetModelProfile(
-        gpu_device_, ModelSessionToProfileID(cfg.model_session()));
-    float latency_sla_us = cfg.model_session().latency_sla() * 1000.;
-    float preprocess = profile->GetPreprocessLatency();
-    float postprocess = profile->GetPostprocessLatency();
-    float new_duty_cycle = std::min(
-        latency_sla_us - fwd_lat - preprocess - postprocess,
-        cfg.batch() * 1e6f / cfg.throughput());
-    if (duty_cycle_us_ > 0 && duty_cycle_us_ < new_duty_cycle) {
-      new_duty_cycle = duty_cycle_us_;
-    }
-    if (exec_cycle_us_ + fwd_lat < new_duty_cycle) {
-      exec_cycle_us_ += fwd_lat;
-      duty_cycle_us_ = new_duty_cycle;
+    auto model_sess_id = std::get<0>(iter);
+    ModelSession model_sess;
+    ParseModelSession(model_sess_id, &model_sess);
+    float workload = std::get<2>(iter);
+    InstanceInfo inst_info;
+    float occupancy;
+    bool ret = PrepareLoadModel(model_sess, workload, &inst_info, &occupancy);
+    if (!ret) {
+      spillout->emplace_back(model_sess_id, workload);
     } else {
-      spillout->emplace_back(model_sess_id, cfg.throughput());
-      model_table_config_.erase(model_sess_id);
+      LoadModel(inst_info);
     }
   }
   CHECK_LE(exec_cycle_us_, duty_cycle_us_);
+  overload_ = false;
 }
 
 CtrlStatus BackendDelegate::UpdateModelTableRpc() {
@@ -354,8 +241,13 @@ CtrlStatus BackendDelegate::UpdateModelTableRpc() {
   }
   ModelTableConfig request;
   RpcReply reply;
-  for (auto iter : model_table_config_) {
-    request.add_model_instance_config()->CopyFrom(iter.second);
+  for (auto iter : model_instances_) {
+    auto const& inst_info = iter.second;
+    auto cfg = request.add_model_instance_config();
+    cfg->mutable_model_session()->CopyFrom(inst_info.model_session);
+    cfg->set_batch(inst_info.batch);
+    cfg->set_max_batch(inst_info.max_batch);
+    cfg->set_memory_usage(inst_info.memory_usage);
   }
   
   // Invoke UpdateModelTable RPC
@@ -377,6 +269,9 @@ void BackendDelegate::UpdateStats(const BackendStatsProto& backend_stats) {
   for (auto model_stats : backend_stats.model_stats()) {
     auto& rps = model_rps_.at(model_stats.model_session_id());
     for (auto num_requests : model_stats.num_requests()) {
+      if (rps.rate() < 0 && num_requests == 0) {
+        continue;
+      }
       rps.AddSample(num_requests);
     }
   }
@@ -384,15 +279,15 @@ void BackendDelegate::UpdateStats(const BackendStatsProto& backend_stats) {
 
 void BackendDelegate::AllModelSessions(std::vector<std::string>* sessions)
     const {
-  for (auto iter : model_table_config_) {
+  for (auto iter : model_instances_) {
     sessions->push_back(iter.first);
   }
 }
 
-const ModelInstanceConfig* BackendDelegate::GetModelConfig(
+const InstanceInfo* BackendDelegate::GetInstanceInfo(
     const std::string& model_sess_id) const {
-  auto iter = model_table_config_.find(model_sess_id);
-  if (iter == model_table_config_.end()) {
+  auto iter = model_instances_.find(model_sess_id);
+  if (iter == model_instances_.end()) {
     return nullptr;
   }
   return &iter->second;
@@ -400,11 +295,11 @@ const ModelInstanceConfig* BackendDelegate::GetModelConfig(
 
 float BackendDelegate::GetModelThroughput(const std::string& model_sess_id)
     const {
-  return model_table_config_.at(model_sess_id).throughput();
+  return model_instances_.at(model_sess_id).throughput;
 }
 
 float BackendDelegate::GetModelRps(const std::string& model_sess_id) const {
-  return model_rps_.at(model_sess_id).rate();
+  return std::max(0., model_rps_.at(model_sess_id).rate());
 }
 
 bool BackendDelegate::IsAlive() {
@@ -431,6 +326,92 @@ bool BackendDelegate::IsAlive() {
 
 bool BackendDelegate::IsIdle() const {
   return (exec_cycle_us_ == 0);
+}
+
+void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
+                                       float workload) const {
+  // 1. Compute the max batch and throughput to saturate an empty GPU
+  uint32_t batch, max_batch;
+  float max_throughput;
+  max_batch = inst_info->profile->GetMaxBatch(
+      inst_info->model_session.latency_sla());
+  max_throughput = max_batch * 1e6 / inst_info->profile->GetForwardLatency(
+      max_batch);
+  // std::tie(batch, max_throughput) = inst_info->profile->GetMaxThroughput(
+  //     inst_info->model_session.latency_sla());
+  if (workload == 0 || workload >= max_throughput) {
+    inst_info->batch = max_batch;
+    inst_info->max_batch = max_batch;
+    inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
+        max_batch);
+    inst_info->max_duty_cycle_us = inst_info->fwd_latency_us;
+    inst_info->throughput = max_throughput;
+    inst_info->memory_usage = inst_info->profile->GetMemoryUsage(max_batch);
+    return;
+  }
+
+  // 2. Compute the max batch for residue load
+  double latency_sla_us = inst_info->model_session.latency_sla() * 1000;
+  float preprocess = inst_info->profile->GetPreprocessLatency();
+  float postprocess = inst_info->profile->GetPostprocessLatency();
+  batch = 1;
+  for (; batch <= max_batch; ++batch) {
+    float fwd_lat = inst_info->profile->GetForwardLatency(batch);
+    // because batch = ceil(workload * duty_cycle),
+    // duty_cycle >= (batch - 1) / workload
+    float min_duty_cycle = (batch - 1) * 1e6 / workload;
+    if (min_duty_cycle + fwd_lat + preprocess + postprocess > latency_sla_us) {
+      break;
+    }
+  }
+  --batch;
+  if (batch == 0) {
+    // This GPU is too slow so that exec latency of batch 1 is too large to
+    // satisfy latency_sla
+    inst_info->batch = 0;
+    return;
+  }
+  inst_info->batch = batch;
+  inst_info->max_batch = max_batch;
+  inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(batch);
+  // duty_cycle are constrainted by the following condition:
+  // (1) throughput = batch / duty_cycle >= workload
+  //     => duty_cycle <= batch / workload
+  // (2) duty_cycle + preprocess + postprocess + fwd_lat <= latency_sla
+  inst_info->max_duty_cycle_us = std::min(
+      latency_sla_us - inst_info->fwd_latency_us - preprocess - postprocess,
+      batch * 1e6 / workload);
+  inst_info->throughput = batch * 1e6 / inst_info->max_duty_cycle_us;
+  inst_info->memory_usage = inst_info->profile->GetMemoryUsage(max_batch);
+}
+
+void BackendDelegate::UpdateCycle() {
+  exec_cycle_us_ = 0.;
+  duty_cycle_us_ = 0.;
+  for (auto iter : model_instances_) {
+    auto& inst_info = iter.second;
+    if (duty_cycle_us_ == 0 || inst_info.max_duty_cycle_us < duty_cycle_us_) {
+      duty_cycle_us_ = inst_info.max_duty_cycle_us;
+    }
+  }
+  for (auto& iter : model_instances_) {
+    auto& inst_info = iter.second;
+    inst_info.batch = std::ceil(duty_cycle_us_ * inst_info.throughput / 1e6);
+    if (inst_info.batch > inst_info.max_batch) {
+      overload_ = true;
+      inst_info.batch = 0;
+      inst_info.fwd_latency_us = inst_info.profile->GetForwardLatency(
+          inst_info.max_batch);
+    } else {
+      inst_info.fwd_latency_us = inst_info.profile->GetForwardLatency(
+          inst_info.batch);
+    }
+    exec_cycle_us_ += inst_info.fwd_latency_us;
+  }
+  dirty_model_table_ = true;
+  if (exec_cycle_us_ > duty_cycle_us_) {
+    overload_ = true;
+  }
 }
 
 } // namespace scheduler

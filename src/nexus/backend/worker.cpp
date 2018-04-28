@@ -36,9 +36,6 @@ void Worker::Run() {
     if (task == nullptr) {
       continue;
     }
-    // LOG(INFO) << "Worker " << index_ << " process query " <<
-    //     task->query.query_id() << ", model session " <<
-    //     task->query.model_session_id() << ", stage " << task->stage;
     Process(task);
   }
   LOG(INFO) << "Worker " << index_ << " stopped";
@@ -55,6 +52,13 @@ void Worker::Process(std::shared_ptr<Task> task) {
         SendReply(std::move(task));
         break;
       }
+      // Increase input counter
+      if (task->query.window_size() > 0) {
+        task->model->counter()->Increase(task->query.window_size());
+      } else {
+        task->model->counter()->Increase(1);
+      }
+      // Preprocess task
       if (!task->model->Preprocess(task)) {
         SendReply(std::move(task));
       }

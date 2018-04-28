@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <deque>
+#include <gflags/gflags.h>
 #include <grpc++/grpc++.h>
 #include <gtest/gtest.h>
 #include <mutex>
@@ -21,6 +22,8 @@
 namespace nexus {
 namespace scheduler {
 
+DECLARE_bool(epoch_schedule);
+
 using AsyncService = nexus::SchedulerCtrl::AsyncService;
 using BackendDelegatePtr = std::shared_ptr<BackendDelegate>;
 using FrontendDelegatePtr = std::shared_ptr<FrontendDelegate>;
@@ -30,6 +33,9 @@ struct ModelInfo {
   std::unordered_map<uint32_t, double> backend_throughputs;
   std::unordered_set<uint32_t> subscribers;
   std::deque<double> rps_history;
+  float unassigned_workload;
+
+  ModelInfo() : unassigned_workload(0) {}
 
   double total_throughput() const {
     double total = 0.;
@@ -205,7 +211,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void FindBestBackend(const ModelSession& model_sess, float request_rate,
                        const std::unordered_set<uint32_t>& skips,
                        BackendDelegatePtr* best_backend,
-                       ModelInstanceConfig* inst_cfg);
+                       InstanceInfo* inst_info);
   /*!
    * \brief At each beacon cycle, check whether frontends and backends are
    *   alive, and aggregate model session request rates from backends.
@@ -236,13 +242,18 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   uint32_t beacon_interval_sec_;
   /*! \brief Epoch duration in seconds */
   uint32_t epoch_interval_sec_;
+  /*! \brief Minimum history length for epoch scheduling */
+  uint32_t min_history_len_;
+  /*! \brief History length to keep in the model stats */
   uint32_t history_len_;
+  /*! \brief Flag for turning on/off epoch scheduling */
+  bool enable_epoch_schedule_;
   /*! \brief Static workload configuration */
   std::vector<std::vector<YAML::Node> > static_workloads_;
   /*! \brief Mapping from static workload id to backend node id */
   std::unordered_map<int, uint32_t> assigned_static_workloads_;
   /*! \brief Unassigned workloads in <model session id, request rate> pairs */
-  std::vector<std::pair<std::string, float> > unassigned_workloads_;
+  //std::vector<std::pair<std::string, float> > unassigned_workloads_;
   /*! \brief Mapping from frontend node id to frontend client */
   std::unordered_map<uint32_t, FrontendDelegatePtr> frontends_;
   /*! \brief Mapping from backend node id to backend client */

@@ -276,6 +276,8 @@ void Frontend::KeepAlive() {
 bool Frontend::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(model_pool_mu_);
   auto& model_session_id = route.model_session_id();
+  LOG(INFO) << "Update model route for " << model_session_id;
+  LOG(INFO) << route.DebugString();
   auto iter = model_pool_.find(model_session_id);
   if (iter == model_pool_.end()) {
     LOG(ERROR) << "Cannot find model handler for " << model_session_id;
@@ -288,15 +290,16 @@ bool Frontend::UpdateRoute(const ModelRouteProto& route) {
   for (auto backend : route.backend_rate()) {
     uint32_t backend_id = backend.info().node_id();
     backend_pool_.AddBackend(backend.info(), model_session_id);
+    new_backends.insert(backend_id);
   }
-  for (auto backend : old_backends) {
-    if (new_backends.find(backend) == new_backends.end()) {
-      backend_pool_.RemoveModelSessionFromBackend(backend, model_session_id);
+  for (auto backend_id : old_backends) {
+    if (new_backends.find(backend_id) == new_backends.end()) {
+      backend_pool_.RemoveModelSessionFromBackend(backend_id, model_session_id);
     }
   }
   // Update route in mdoel handler
   model_handler->UpdateRoute(route);
-  return false;
+  return true;
 }
 
 void Frontend::RegisterUser(
@@ -307,10 +310,10 @@ void Frontend::RegisterUser(
   std::lock_guard<std::mutex> lock(user_mutex_);
   auto itr = user_sessions_.find(uid);
   if (itr == user_sessions_.end()) {
-    LOG(INFO) << "New user session: " << uid;
+    VLOG(1) << "New user session: " << uid;
     user_sessions_.emplace(uid, user_sess);
   } else if (itr->second != user_sess) {
-    LOG(INFO) << "Update user session: " << uid;
+    VLOG(1) << "Update user session: " << uid;
     user_sessions_[uid] = user_sess;
   }
   reply->set_user_id(uid);

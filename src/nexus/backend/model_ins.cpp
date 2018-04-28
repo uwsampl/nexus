@@ -120,10 +120,10 @@ std::unique_ptr<BatchInput> ModelInstance::GetBatchInput(size_t min_batch) {
   float latency = static_cast<uint32_t>(
       ModelDatabase::Singleton().GetModelForwardLatency(
           gpu_device_->device_name(), profile_id(), batch_size));
-  bool has_estimate;
+  bool has_estimate = true;
   TimePoint finish;
   if (latency <= 0) {
-    bool has_estimate = false;
+    has_estimate = false;
   } else {
     finish = Clock::now() + std::chrono::microseconds(int(latency));
   }
@@ -161,7 +161,8 @@ void ModelInstance::AppendInputs(std::shared_ptr<Task> task,
     auto input = std::make_shared<Input>(task, input_arrays[i], i);
     input_queue_.push(input);
   }
-  counter_->Increase(input_arrays.size());
+  // Increase counter in the worker thread instead
+  //counter_->Increase(input_arrays.size());
 }
 
 void ModelInstance::RemoveOutput(uint64_t batch_id) {

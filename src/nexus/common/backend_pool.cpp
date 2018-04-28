@@ -79,6 +79,7 @@ void BackendPool::AddBackend(const BackendInfo& backend_info,
   std::lock_guard<std::mutex> lock(pool_mu_);
   uint32_t node_id = backend_info.node_id();
   if (backends_.find(node_id) == backends_.end()) {
+    LOG(INFO) << "New connection to backend " << node_id;
     auto backend = std::make_shared<BackendSession>(this, backend_info,
                                                     io_service_, handler_);
     backends_.emplace(node_id, backend);
@@ -106,6 +107,7 @@ void BackendPool::RemoveModelSessionFromBackend(
   auto backend = iter->second;
   if (backend->RemoveModelSession(model_session)) {
     // No model session loaded by this backend
+    LOG(INFO) << "Remove connection to backend " << backend_id;
     backend->Stop();
     backends_.erase(iter);
   }

@@ -9,6 +9,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "nexus/common/metric.h"
+#include "nexus/common/model_db.h"
 #include "nexus/common/model_def.h"
 #include "nexus/proto/control.grpc.pb.h"
 
@@ -16,6 +17,17 @@ namespace nexus {
 namespace scheduler {
 
 class Scheduler;
+
+struct InstanceInfo {
+  ModelSession model_session;
+  uint32_t batch;
+  uint32_t max_batch;
+  const ModelProfile* profile;
+  float fwd_latency_us;
+  float max_duty_cycle_us;
+  float throughput;
+  uint64_t memory_usage;
+};
 
 class BackendDelegate {
  public:
@@ -37,6 +49,8 @@ class BackendDelegate {
 
   void set_workload_id(int id) { workload_id_ = id; }
 
+  float overload() const { return overload_; }
+
   float Occupancy() const;
 
   void GetInfo(BackendInfo* info) const;
@@ -48,9 +62,9 @@ class BackendDelegate {
   bool Assign(const BackendDelegate& other);
 
   bool PrepareLoadModel(const ModelSession& model_sess, float workload,
-                        ModelInstanceConfig* config, float* occupancy) const;
+                        InstanceInfo* inst_info, float* occupancy) const;
 
-  void LoadModel(const ModelInstanceConfig& config);
+  void LoadModel(const InstanceInfo& inst_info);
   
   void LoadModel(const YAML::Node& model_info);
 
@@ -73,8 +87,7 @@ class BackendDelegate {
 
   void AllModelSessions(std::vector<std::string>* sessions) const;
 
-  const ModelInstanceConfig* GetModelConfig(const std::string& model_sess_id)
-      const;
+  const InstanceInfo* GetInstanceInfo(const std::string& model_sess_id) const;
 
   float GetModelThroughput(const std::string& model_sess_id) const;
 
@@ -85,6 +98,10 @@ class BackendDelegate {
   bool IsIdle() const;
 
  private:
+  void ComputeBatchSize(InstanceInfo* inst_info, float workload) const;
+  
+  void UpdateCycle();
+  
   uint32_t node_id_;
   std::string server_address_;
   std::string rpc_address_;
@@ -96,11 +113,12 @@ class BackendDelegate {
   int workload_id_;
   std::unique_ptr<BackendCtrl::Stub> stub_;
   /*! \brief Mapping from model session id to instance config */
-  std::unordered_map<std::string, ModelInstanceConfig> model_table_config_;
+  std::unordered_map<std::string, InstanceInfo> model_instances_;
   /*! \brief Mapping from model session id to incoming request rate */
   std::unordered_map<std::string, EWMA> model_rps_;
   float exec_cycle_us_;
   float duty_cycle_us_;
+  bool overload_;
   /*! \brief Indicates whether model table is dirty. */
   bool dirty_model_table_;
   std::chrono::time_point<std::chrono::system_clock> last_time_;
