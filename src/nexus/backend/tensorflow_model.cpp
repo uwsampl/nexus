@@ -1,10 +1,11 @@
-#include "tensorflow_model.h"
+#if USE_TENSORFLOW == 1
 
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <opencv2/opencv.hpp>
 
 #include "nexus/backend/slice.h"
+#include "nexus/backend/tensorflow_model.h"
 #include "nexus/common/image.h"
 #include "nexus/common/util.h"
 // Tensorflow headers
@@ -110,9 +111,12 @@ void TensorflowModel::InitBatchInputArray() {
 void TensorflowModel::PreprocessImpl(std::shared_ptr<Task> task,
                                      std::vector<ArrayPtr>* input_arrays) {
   auto prepare_image = [&](cv::Mat& image) {
+    // Tensorflow uses NHWC by default. More details see
+    // https://www.tensorflow.org/versions/master/performance/performance_guide
     auto in_arr = std::make_shared<Array>(DT_FLOAT, input_size_, cpu_device_);
     // create a cv::Mat using buffer allocated in the in_arr
-    cv::Mat resized(image_width_, image_height_, CV_32FC3, in_arr->Data<void>());
+    cv::Mat resized(image_width_, image_height_, CV_32FC3,
+                    in_arr->Data<void>());
     cv::resize(image, resized, cv::Size(image_width_, image_height_));
     for (cv::Point3_<float>& p : cv::Mat_<cv::Point3_<float> >(resized)) {
       p.x = (p.x - input_mean_[0]) / input_std_[0];
@@ -250,3 +254,5 @@ void TensorflowModel::MarshalClassificationResult(
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_TENSORFLOW == 1

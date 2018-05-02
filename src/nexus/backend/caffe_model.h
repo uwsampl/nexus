@@ -1,6 +1,8 @@
 #ifndef NEXUS_BACKEND_CAFFE_MODEL_H_
 #define NEXUS_BACKEND_CAFFE_MODEL_H_
 
+#if USE_CAFFE == 1
+
 #include <boost/shared_ptr.hpp>
 
 #include "nexus/backend/model_ins.h"
@@ -73,5 +75,7 @@ class CaffeModel : public ModelInstance {
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_CAFFE == 1
 
 #endif // NEXUS_BACKEND_CAFFE_MODEL_H_

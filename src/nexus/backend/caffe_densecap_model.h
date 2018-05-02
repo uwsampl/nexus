@@ -1,6 +1,8 @@
 #ifndef NEXUS_BACKEND_CAFFE_DENSECAP_MODEL_H_
 #define NEXUS_BACKEND_CAFFE_DENSECAP_MODEL_H_
 
+#if USE_CAFFE == 1
+
 #include "nexus/backend/model_ins.h"
 
 // Caffe headers
@@ -73,5 +75,7 @@ class CaffeDenseCapModel : public ModelInstance {
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_CAFFE == 1
 
 #endif // NEXUS_BACKEND_CAFFE_DENSECAP_MODEL_H_

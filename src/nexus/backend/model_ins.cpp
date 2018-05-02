@@ -7,6 +7,7 @@
 #include "nexus/common/time_util.h"
 #include "nexus/backend/caffe_densecap_model.h"
 #include "nexus/backend/caffe_model.h"
+#include "nexus/backend/caffe2_model.h"
 #include "nexus/backend/darknet_model.h"
 #include "nexus/backend/model_ins.h"
 #include "nexus/backend/tensorflow_model.h"
@@ -161,8 +162,6 @@ void ModelInstance::AppendInputs(std::shared_ptr<Task> task,
     auto input = std::make_shared<Input>(task, input_arrays[i], i);
     input_queue_.push(input);
   }
-  // Increase counter in the worker thread instead
-  //counter_->Increase(input_arrays.size());
 }
 
 void ModelInstance::RemoveOutput(uint64_t batch_id) {
@@ -190,11 +189,15 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
     info["image_width"] = model_sess.image_width();
   }
   std::shared_ptr<ModelInstance> model;
+#if USE_DARKNET == 1
   if (framework == "darknet") {
     model = std::make_shared<DarknetModel>(
         gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
         info);
-  } else if (framework == "caffe") {
+  } else
+#endif
+#if USE_CAFFE == 1
+  if (framework == "caffe") {
     if (model_name == "densecap") {
       model = std::make_shared<CaffeDenseCapModel>(
           gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
@@ -204,11 +207,23 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
           gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
           info);
     }
-  } else if (framework == "tensorflow") {
+  } else
+#endif
+#if USE_CAFFE2 == 1
+  if (framework == "caffe2") {
+    model = std::make_shared<Caffe2Model>(
+        gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
+        info);
+  } else
+#endif
+#if USE_TENSORFLOW == 1
+    if (framework == "tensorflow") {
     model = std::make_shared<TensorflowModel>(
         gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
         info);
-  } else {
+  } else
+#endif
+  {
     LOG(FATAL) << "Unknown framework " << framework;
   }
   model->Setup();

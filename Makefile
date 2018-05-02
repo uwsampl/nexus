@@ -61,7 +61,7 @@ LD_FLAGS = -lm -pthread -lglog -lgflags -lgtest -lgtest_main \
 DLL_LINK_FLAGS = -shared
 ifeq ($(USE_GPU), 1)
 	CXXFLAGS += -I$(CUDA_PATH)/include
-	LD_FLAGS += -L$(CUDA_PATH)/lib64 -lcuda -lcudart
+	LD_FLAGS += -L$(CUDA_PATH)/lib64 -lcuda -lcudart -lcurand
 endif
 
 # library dependency
@@ -69,14 +69,24 @@ DARKNET_ROOT_DIR = $(ROOTDIR)/frameworks/darknet
 DARKNET_BUILD_DIR = $(DARKNET_ROOT_DIR)
 CAFFE_ROOT_DIR = $(ROOTDIR)/frameworks/caffe
 CAFFE_BUILD_DIR = $(CAFFE_ROOT_DIR)/build
+CAFFE2_ROOT_DIR = $(ROOTDIR)/frameworks/caffe2
+CAFFE2_BUILD_DIR = $(CAFFE2_ROOT_DIR)/build
+CAFFE2_INSTALL_DIR = $(CAFFE2_ROOT_DIR)/install
 TENSORFLOW_ROOT_DIR = $(ROOTDIR)/frameworks/tensorflow
 TENSORFLOW_BUILD_DIR = $(TENSORFLOW_ROOT_DIR)/build
 
 BACKEND_DEPS =
 BACKEND_CXXFLAGS = 
 BACKEND_LD_FLAGS = 
+
+ifeq ($(USE_CAFFE2), 1)
+	BACKEND_DEPS += caffe2
+	BACKEND_CXXFLAGS += -I$(CAFFE2_INSTALL_DIR)/include
+	BACKEND_LD_FLAGS += -L$(CAFFE2_INSTALL_DIR)/lib -lcaffe2 -lcaffe2_gpu -Wl,-rpath,$(CAFFE2_INSTALL_DIR)/lib
+	USE_CAFFE = 0
+endif
 ifeq ($(USE_CAFFE), 1)
-	BACKEND_DEPS += $(CAFFE_BUILD_DIR)/lib/libcaffe.so
+	BACKEND_DEPS += caffe
 	BACKEND_CXXFLAGS += -I$(CAFFE_ROOT_DIR)/include -I$(CAFFE_BUILD_DIR)/src
 	BACKEND_LD_FLAGS += -L$(CAFFE_BUILD_DIR)/lib -lcaffe -Wl,-rpath,$(CAFFE_BUILD_DIR)/lib
 endif
@@ -95,11 +105,18 @@ endif
 all: proto python lib backend scheduler tools
 
 caffe: $(CAFFE_BUILD_DIR)/lib/libcaffe.so
+caffe2: $(CAFFE2_INSTALL_DIR)/lib/libcaffe2_gpu.so
 darknet: $(DARKNET_BUILD_DIR)/libdarknet.so
 tensorflow: $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so
 
 $(CAFFE_BUILD_DIR)/lib/libcaffe.so:
 	cd $(CAFFE_ROOT_DIR) && $(MAKE) proto && $(MAKE) all && $(MAKE) pycaffe && cd -
+
+$(CAFFE2_INSTALL_DIR)/lib/libcaffe2_gpu.so:
+	@mkdir -p $(CAFFE2_BUILD_DIR)
+	@cd $(CAFFE2_BUILD_DIR) && \
+	cmake .. -DUSE_NNPACK=OFF -DUSE_NCCL=OFF -DCMAKE_INSTALL_PREFIX=../install \
+	&& $(MAKE) && $(MAKE) install
 
 $(DARKNET_BUILD_DIR)/libdarknet.so:
 	cd $(DARKNET_ROOT_DIR) && $(MAKE) all && cd -
@@ -187,7 +204,7 @@ build/obj/tests/%.o: tests/cpp/%.cpp
 
 .PHONY: proto python lib backend scheduler tools test runtest \
 	darknet caffe tensorflow \
-	clean clean-darknet clean-caffe clean-tensorflow cleanall
+	clean clean-darknet clean-caffe clean-caffe2 clean-tensorflow cleanall
 
 clean:
 	rm -rf build $(PROTO_GEN_PY_DIR) $(PROTO_GEN_CC) $(PROTO_GEN_HEADERS)
@@ -198,9 +215,12 @@ clean-darknet:
 clean-caffe:
 	cd $(CAFFE_ROOT_DIR) && $(MAKE) clean && cd -
 
+clean-caffe2:
+	rm -rf $(CAFFE2_BUILD_DIR) $(CAFFE2_INSTALL_DIR)
+
 clean-tensorflow:
 	rm -rf $(TENSORFLOW_BUILD_DIR) $(TENSORFLOW_ROOT_DIR)/.tf_configure.bazelrc $(TENSORFLOW_ROOT_DIR)/bazel-*
 
-cleanall: clean clean-darknet clean-caffe clean-tensorflow
+cleanall: clean clean-darknet clean-caffe clean-caffe2 clean-tensorflow
 
 -include $(DEPS)

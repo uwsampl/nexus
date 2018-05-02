@@ -1,6 +1,8 @@
 #ifndef NEXUS_BACKEND_DARKNET_MODEL_H_
 #define NEXUS_BACKEND_DARKNET_MODEL_H_
 
+#if USE_DARKNET == 1
+
 #include <memory>
 #include <string>
 
@@ -58,5 +60,7 @@ class DarknetModel : public ModelInstance {
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_DARKNET == 1
 
 #endif // NEXUS_BACKEND_DARKNET_MODEL_H_

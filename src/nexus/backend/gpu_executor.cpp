@@ -30,9 +30,13 @@ void GpuExecutorMultiBatching::Stop() {
 
 void GpuExecutorMultiBatching::Run() {
   auto min_cycle = std::chrono::microseconds(50);
+
+  #if USE_CAFFE == 1
   caffe::Caffe::set_mode(caffe::Caffe::GPU);
   caffe::Caffe::set_release_memory(false);
   caffe::Caffe::SetDevice(gpu_id_);
+  #endif
+
   NEXUS_CUDA_CHECK(cudaSetDevice(gpu_id_));
   LOG(INFO) << "GpuExecutor started";
   while (running_) {
@@ -79,8 +83,13 @@ void GpuExecutorNoMultiBatching::Stop() {
 
 void GpuExecutorNoMultiBatching::Run(std::shared_ptr<ModelInstance> model) {
   auto min_cycle = std::chrono::microseconds(50);
+
+  #if USE_CAFFE == 1
   caffe::Caffe::set_mode(caffe::Caffe::GPU);
+  caffe::Caffe::set_release_memory(false);
   caffe::Caffe::SetDevice(gpu_id_);
+  #endif
+
   NEXUS_CUDA_CHECK(cudaSetDevice(gpu_id_));
   LOG(INFO) << "GpuExecutor started for model " << model->framework() <<
       ":" << model->model_name();

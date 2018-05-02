@@ -13,7 +13,6 @@ enum ChannelOrder {
 };
 
 cv::Mat DecodeImage(const ImageProto& image, ChannelOrder order);
-//cv::Mat decode_image_rgb(const NNImage& nn_image);
 
 } // namespace nexus
 

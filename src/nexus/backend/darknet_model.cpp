@@ -1,3 +1,5 @@
+#if USE_DARKNET == 1
+
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <glog/logging.h>
@@ -345,3 +347,5 @@ void DarknetModel::MarshalClassificationResult(
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_DARKNET == 1

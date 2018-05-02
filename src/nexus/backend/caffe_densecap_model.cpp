@@ -1,3 +1,5 @@
+#if USE_CAFFE == 1
+
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <glog/logging.h>
@@ -461,3 +463,5 @@ void CaffeDenseCapModel::TransformBbox(
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_CAFFE == 1
