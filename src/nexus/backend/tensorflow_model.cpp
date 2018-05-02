@@ -1,4 +1,4 @@
-#if USE_TENSORFLOW == 1
+#ifdef USE_TENSORFLOW
 
 #include <boost/filesystem.hpp>
 #include <fstream>
@@ -255,4 +255,4 @@ void TensorflowModel::MarshalClassificationResult(
 } // namespace backend
 } // namespace nexus
 
-#endif // USE_TENSORFLOW == 1
+#endif // USE_TENSORFLOW

@@ -78,6 +78,8 @@ class ModelProfiler {
   void Profile(int min_batch, int max_batch, const std::string output="",
                int repeat=10) {
     size_t origin_freemem = gpu_device_->FreeMemory();
+    LOG(INFO) << "Origin free memory: " << origin_freemem;
+
     std::vector<uint64_t> preprocess_lats;
     std::vector<uint64_t> postprocess_lats;
     std::unordered_map<int, std::tuple<float, float, size_t> > forward_stats;
@@ -122,6 +124,7 @@ class ModelProfiler {
         }
       }
     }
+    std::this_thread::sleep_for(std::chrono::microseconds(200));
 
     // forward and postprocess
     for (int batch = min_batch; batch <= max_batch; ++batch) {
@@ -166,7 +169,11 @@ class ModelProfiler {
       std::tie(mean, std) = GetStats<uint64_t>(forward_lats);
       forward_stats.emplace(batch, std::make_tuple(mean, std, memory_usage));
       CHECK_EQ(task_queue.size(), 0) << "Task queue is not empty";
+      std::this_thread::sleep_for(std::chrono::microseconds(200));
     }
+
+    LOG(INFO) << "Final free memory: " << gpu_device_->FreeMemory();
+    
     // output to file
     std::ostream* fout;
     if (output.length() == 0) {

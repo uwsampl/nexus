@@ -8,11 +8,7 @@ using namespace nexus::scheduler;
 
 DEFINE_string(port, "10001", "RPC port");
 DEFINE_string(model_root, "", "model root directory");
-DEFINE_string(workload_file, "", "workload file");
-DEFINE_int32(beacon, BEACON_INTERVAL_SEC, "beacon interval in seconds "
-             "(default: 5 sec)");
-DEFINE_int32(epoch, EPOCH_INTERVAL_SEC, "beacon interval in seconds "
-             "(default: 30 sec)");
+DEFINE_string(workload, "", "Static workload config file");
 
 int main(int argc, char** argv) {
   // log to stderr
@@ -23,14 +19,11 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   // Setup backtrace on segfault
   google::InstallFailureSignalHandler();
-  if (FLAGS_model_root.length() == 0) {
-    LOG(FATAL) << "Missing model_root";
-  }
+  CHECK_GT(FLAGS_model_root.length(), 0) << "Missing model_root";
   // Create scheduler
-  Scheduler scheduler(FLAGS_port, 4, FLAGS_model_root, FLAGS_beacon,
-                      FLAGS_epoch);
-  if (FLAGS_workload_file.length() > 0) {
-    scheduler.LoadWorkloadFile(FLAGS_workload_file);
+  Scheduler scheduler(FLAGS_port, 4, FLAGS_model_root);
+  if (FLAGS_workload.length() > 0) {
+    scheduler.LoadWorkloadFile(FLAGS_workload);
   }
   scheduler.Run();
   while (true) {

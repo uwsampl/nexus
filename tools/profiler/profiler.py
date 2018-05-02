@@ -93,7 +93,7 @@ def profile_model(framework, model_name):
 def main():
     parser = argparse.ArgumentParser(description='Profile models')
     parser.add_argument('-f', '--framework',
-                        choices=['caffe', 'tensorflow', 'darknet'],
+                        choices=['caffe', 'caffe2', 'tensorflow', 'darknet'],
                         help='Framework name')
     parser.add_argument('-m', '--model', type=str, help='Model name')
     parser.add_argument('-v', '--version', type=int, default=1,

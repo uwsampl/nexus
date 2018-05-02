@@ -81,24 +81,24 @@ BACKEND_LD_FLAGS =
 
 ifeq ($(USE_CAFFE2), 1)
 	BACKEND_DEPS += caffe2
-	BACKEND_CXXFLAGS += -I$(CAFFE2_INSTALL_DIR)/include
+	BACKEND_CXXFLAGS += -DUSE_CAFFE2 -I$(CAFFE2_INSTALL_DIR)/include
 	BACKEND_LD_FLAGS += -L$(CAFFE2_INSTALL_DIR)/lib -lcaffe2 -lcaffe2_gpu -Wl,-rpath,$(CAFFE2_INSTALL_DIR)/lib
 	USE_CAFFE = 0
 endif
 ifeq ($(USE_CAFFE), 1)
 	BACKEND_DEPS += caffe
-	BACKEND_CXXFLAGS += -I$(CAFFE_ROOT_DIR)/include -I$(CAFFE_BUILD_DIR)/src
+	BACKEND_CXXFLAGS += -DUSE_CAFFE -I$(CAFFE_ROOT_DIR)/include -I$(CAFFE_BUILD_DIR)/src
 	BACKEND_LD_FLAGS += -L$(CAFFE_BUILD_DIR)/lib -lcaffe -Wl,-rpath,$(CAFFE_BUILD_DIR)/lib
 endif
 ifeq ($(USE_DARKNET), 1)
-	BACKEND_DEPS += $(DARKNET_BUILD_DIR)/libdarknet.so
-	BACKEND_CXXFLAGS += -I$(DARKNET_ROOT_DIR)/src -I$(DARKNET_ROOT_DIR)/include
+	BACKEND_DEPS += darknet
+	BACKEND_CXXFLAGS += -DUSE_DARKNET -I$(DARKNET_ROOT_DIR)/src -I$(DARKNET_ROOT_DIR)/include
 	BACKEND_LD_FLAGS += -L$(DARKNET_BUILD_DIR) -ldarknet -Wl,-rpath,$(DARKNET_BUILD_DIR)
 endif
 ifeq ($(USE_TENSORFLOW), 1)
 	export PKG_CONFIG_PATH:=$(TENSORFLOW_BUILD_DIR)/lib/pkgconfig:${PKG_CONFIG_PATH}
-	BACKEND_DEPS += $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so
-	BACKEND_CXXFLAGS += `pkg-config --cflags tensorflow`
+	BACKEND_DEPS += tensorflow
+	BACKEND_CXXFLAGS += -DUSE_TENSORFLOW `pkg-config --cflags tensorflow`
 	BACKEND_LD_FLAGS += `pkg-config --libs tensorflow`
 endif
 

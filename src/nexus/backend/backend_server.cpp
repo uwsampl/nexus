@@ -1,3 +1,4 @@
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <unordered_set>
 
@@ -7,6 +8,8 @@
 
 namespace nexus {
 namespace backend {
+
+DEFINE_bool(multi_batch, true, "Enable multi batching");
 
 BackendServer::BackendServer(std::string port, std::string rpc_port,
                              std::string sch_addr, size_t num_workers,
@@ -28,8 +31,6 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
   auto channel = grpc::CreateChannel(sch_addr,
                                      grpc::InsecureChannelCredentials());
   sch_stub_ = SchedulerCtrl::NewStub(channel);
-  // Init node id and register backend to global scheduler
-  Register();
   // Start workers
   for (size_t i = 0; i < num_workers; ++i) {
     std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_));
@@ -37,8 +38,16 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     workers_.push_back(std::move(worker));
   }
   // Start GPU executor
-  gpu_executor_.reset(new GpuExecutorMultiBatching(gpu_id, this));
+  if (FLAGS_multi_batch) {
+    LOG(INFO) << "Multi-batching is enabled";
+    gpu_executor_.reset(new GpuExecutorMultiBatching(gpu_id));
+  } else {
+    LOG(INFO) << "Multi-batching is disabled";
+    gpu_executor_.reset(new GpuExecutorNoMultiBatching(gpu_id));
+  }
   gpu_executor_->Start();
+  // Init node id and register backend to global scheduler
+  Register();
 }
 
 BackendServer::~BackendServer() {
@@ -134,6 +143,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
       }
       auto model = CreateModelInstance(gpu_id_, config, *info, task_queue_);
       model_table_.emplace(session_id, model);
+      gpu_executor_->AddModel(session_id, model);
       LOG(INFO) << "Load model instance " << session_id <<
           ", batch: " << config.batch();
     } else {
@@ -154,6 +164,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
   }
   for (auto session_id : to_remove) {
     LOG(INFO) << "Unload model instance " << session_id;
+    gpu_executor_->RemoveModel(session_id);
     model_table_.erase(session_id);
   }
   reply->set_status(CTRL_OK);

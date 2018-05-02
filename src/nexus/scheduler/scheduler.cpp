@@ -12,6 +12,8 @@ namespace nexus {
 namespace scheduler {
 
 DEFINE_bool(epoch_schedule, true, "Enable epoch scheduling");
+DEFINE_int32(beacon, 2, "beacon interval in seconds");
+DEFINE_int32(epoch, 10, "epoch scheduling interval in seconds");
 
 INSTANTIATE_RPC_CALL(AsyncService, Register, RegisterRequest, RegisterReply);
 INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);
@@ -21,18 +23,18 @@ INSTANTIATE_RPC_CALL(AsyncService, UpdateBackendStats, BackendStatsProto,
 INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
 
 Scheduler::Scheduler(std::string port, size_t nthreads,
-                     std::string model_db_root, uint32_t beacon_interval,
-                     uint32_t epoch_interval) :
+                     std::string model_db_root) :
     AsyncRpcServiceBase(port, nthreads),
-    beacon_interval_sec_(beacon_interval),
-    epoch_interval_sec_(epoch_interval) {
-  min_history_len_ = (epoch_interval + beacon_interval - 1) / beacon_interval;
+    beacon_interval_sec_(FLAGS_beacon),
+    epoch_interval_sec_(FLAGS_epoch),
+    enable_epoch_schedule_(FLAGS_epoch_schedule) {
+  min_history_len_ = (epoch_interval_sec_ + beacon_interval_sec_ - 1) /
+                     beacon_interval_sec_;
   history_len_ = min_history_len_ * 2;
-  ModelDatabase::Singleton().Init(model_db_root);
-  enable_epoch_schedule_ = FLAGS_epoch_schedule;
   if (!enable_epoch_schedule_) {
     LOG(INFO) << "Epoch scheduling is off";
   }
+  ModelDatabase::Singleton().Init(model_db_root);
 }
 
 void Scheduler::LoadWorkloadFile(const std::string& workload_file) {
@@ -44,10 +46,10 @@ void Scheduler::LoadWorkloadFile(const std::string& workload_file) {
   // Load static workload configuration
   for (uint i = 0; i < config["backends"].size(); ++i) {
     const YAML::Node& backend_info = config["backends"][i];
-    std::vector<YAML::Node> workload;
-    LOG(INFO) << "Workload " << i << ":";
-    for (uint j = 0; j < backend_info["workloads"].size(); ++j) {
-      const YAML::Node& model_info = backend_info["workloads"][j];
+    std::vector<YAML::Node> models;
+    LOG(INFO) << "Backend " << i << ":";
+    for (uint j = 0; j < backend_info["models"].size(); ++j) {
+      const YAML::Node& model_info = backend_info["models"][j];
       if (!model_info["framework"]) {
         LOG(FATAL) << "Missing framework in the workload config";
       }
@@ -66,9 +68,9 @@ void Scheduler::LoadWorkloadFile(const std::string& workload_file) {
       LOG(INFO) << "- " << model_info["framework"] << ":" <<
           model_info["model_name"] << ":" << model_info["version"] <<
           ", batch " << model_info["max_batch"];
-      workload.push_back(model_info);
+      models.push_back(model_info);
     }
-    static_workloads_.push_back(workload);
+    static_workloads_.push_back(models);
   }
 }
 

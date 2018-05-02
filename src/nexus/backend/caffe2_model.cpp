@@ -1,4 +1,4 @@
-#if USE_CAFFE2 == 1
+#ifdef USE_CAFFE2
 
 #include <boost/filesystem.hpp>
 #include <fstream>
@@ -290,4 +290,4 @@ void Caffe2Model::MarshalClassificationResult(
 } // namespace backend
 } // namespace nexus
 
-#endif // USE_CAFFE2 == 1
+#endif // USE_CAFFE2

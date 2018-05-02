@@ -1,7 +1,7 @@
 #ifndef NEXUS_BACKEND_TENSORFLOW_MODEL_H_
 #define NEXUS_BACKEND_TENSORFLOW_MODEL_H_
 
-#if USE_TENSORFLOW == 1
+#ifdef USE_TENSORFLOW
 
 #include "nexus/backend/model_ins.h"
 // Tensorflow headers
@@ -60,6 +60,6 @@ class TensorflowModel : public ModelInstance {
 } // namespace backend
 } // namespace nexus
 
-#endif // USE_TENSORFLOW == 1
+#endif // USE_TENSORFLOW
 
 #endif // NEXUS_BACKEND_TENSORFLOW_MODEL_H_

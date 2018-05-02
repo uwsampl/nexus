@@ -238,6 +238,9 @@ void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
     VLOG(1) << "Load model profiles for GPU " << path.filename().string();
     for (fs::directory_iterator file_itr(path); file_itr != end_iter;
          ++file_itr) {
+      if (file_itr->path().filename().string()[0] == '.') {
+        continue;
+      }
       VLOG(1) << "- Load model profile " << file_itr->path().string();
       ModelProfile profile(file_itr->path().string());
       auto device = profile.gpu_device_name();

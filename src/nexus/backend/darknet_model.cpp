@@ -1,4 +1,4 @@
-#if USE_DARKNET == 1
+#ifdef USE_DARKNET
 
 #include <boost/filesystem.hpp>
 #include <fstream>
@@ -348,4 +348,4 @@ void DarknetModel::MarshalClassificationResult(
 } // namespace backend
 } // namespace nexus
 
-#endif // USE_DARKNET == 1
+#endif // USE_DARKNET

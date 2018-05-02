@@ -189,14 +189,14 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
     info["image_width"] = model_sess.image_width();
   }
   std::shared_ptr<ModelInstance> model;
-#if USE_DARKNET == 1
+#ifdef USE_DARKNET
   if (framework == "darknet") {
     model = std::make_shared<DarknetModel>(
         gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
         info);
   } else
 #endif
-#if USE_CAFFE == 1
+#ifdef USE_CAFFE
   if (framework == "caffe") {
     if (model_name == "densecap") {
       model = std::make_shared<CaffeDenseCapModel>(
@@ -209,14 +209,14 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
     }
   } else
 #endif
-#if USE_CAFFE2 == 1
+#ifdef USE_CAFFE2
   if (framework == "caffe2") {
     model = std::make_shared<Caffe2Model>(
         gpu_id, model_name, version, model_type, batch, max_batch, task_queue,
         info);
   } else
 #endif
-#if USE_TENSORFLOW == 1
+#ifdef USE_TENSORFLOW
     if (framework == "tensorflow") {
     model = std::make_shared<TensorflowModel>(
         gpu_id, model_name, version, model_type, batch, max_batch, task_queue,

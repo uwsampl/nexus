@@ -44,24 +44,24 @@ bool DecodeHeader(const char* buffer, MessageHeader* header);
 
 /*!
  * \brief Message is used to hold the packets that are communicated between
- *   client and frontend server, and between frontend server and backend server.
+ * client and frontend server, and between frontend server and backend server.
  */
 class Message {
  public:
   /*!
-   * \brief construct a nessage.
+   * \brief Construct a nessage.
    *
-   *  It allocates the data buffer with maximal size. This constructor is mainly
-   *  used to hold an inbound packet when the message size is unknown.
+   * It allocates the data buffer with maximal size. This constructor is mainly
+   * used to hold an inbound packet when the message size is unknown.
    */
   //Message();
   Message(const MessageHeader& header);
   /*!
-   * \brief construct a nessage with explicit body length.
+   * \brief Construct a nessage with explicit body length.
    * 
-   *  It allocates the data buffer with body length plus header size. This
-   *  constructor is mainly used to hold an outbound packet when the message
-   *  size is known
+   * It allocates the data buffer with body length plus header size. This
+   * constructor is mainly used to hold an outbound packet when the message
+   * size is known
    *
    * \param body_length Length of payload in bytes
    */
@@ -94,14 +94,10 @@ class Message {
   void EncodeBody(const google::protobuf::Message& message);
 
  private:
-  /*! \brief Data buffer pointer */
+  /*! \brief Data buffer */
   char* data_;
   /*! \brief Message type */
   MessageType type_;
-  // /*! \brief User id */
-  // uint32_t user_id_;
-  // /*! \brief Query id */
-  // uint32_t query_id_;
   /*! \brief Length of message body in bytes */
   size_t body_length_;
 };

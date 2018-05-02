@@ -1,7 +1,7 @@
 #ifndef NEXUS_BACKEND_CAFFE2_MODEL_H_
 #define NEXUS_BACKEND_CAFFE2_MODEL_H_
 
-#if USE_CAFFE2 == 1
+#ifdef USE_CAFFE2
 
 #include "nexus/backend/model_ins.h"
 // Caffe2 headers
@@ -74,6 +74,6 @@ class Caffe2Model : public ModelInstance {
 } // namespace backend
 } // namespace nexus
 
-#endif // USE_CAFFE2 == 1
+#endif // USE_CAFFE2
 
 #endif // NEXUS_BACKEND_CAFFE2_MODEL_H_
