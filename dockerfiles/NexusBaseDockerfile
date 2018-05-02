@@ -81,6 +81,11 @@ RUN mkdir /tmp/gtest && cd /tmp/gtest && \
     mkdir build && cd build && cmake -DBUILD_SHARED_LIBS=ON .. && \
     make -j$(nproc) && make install
 
+# Install Eigen latest
+RUN cd /tmp && git clone https://github.com/eigenteam/eigen-git-mirror eigen && \
+    cd eigen && mkdir build && cd build && cmake .. && make -j10 && \
+    make install
+
 RUN rm -r /tmp/*
 
 # Link cudnn to /usr/local/cuda
