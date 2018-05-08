@@ -21,17 +21,17 @@ class Task;
 class Input : public DeadlineItem {
  public:
   /*!
-   * \brief construct a Input
-   * \param task Task that input data comes from
+   * \brief Construct a Input
+   * \param task Task that input belongs to.
    * \param arr Input array that contains the input data
    * \param idx Index in the inputs of task
    */
   Input(std::shared_ptr<Task> task, std::shared_ptr<Array> arr, int idx);
-  /*! \brief task that input data comes from */
+  /*! \brief Task that input belongs to. */
   std::shared_ptr<Task> task;
-  /*! \brief input array that contains the data */
+  /*! \brief Input array that contains the data. */
   std::shared_ptr<Array> array;
-  /*! \brief index among all inputs from the task */
+  /*! \brief Index within all inputs belonging to task. */
   int index;
 };
 
@@ -42,36 +42,36 @@ class Input : public DeadlineItem {
 class BatchInput {
  public:
   /*!
-   * \brief construct a BatchInput.
+   * \brief Construct a BatchInput.
    * \param batch_id Batch index
    * \param batch_size Number of inputs in the batch
    * \param arr Array with a continuous GPU buffer for holding all input data
    */
   BatchInput(uint64_t batch_id, ArrayPtr arr);
   /*!
-   * \brief
+   * \brief Append a new input into the batch input.
    * \param input A single input
    */
   void Append(std::shared_ptr<Input> input);
-  /*! \brief get batch id */
+  /*! \brief Get batch id */
   uint64_t batch_id() const { return batch_id_; }
-  /*! \brief get the batch size */
+  /*! \brief Get the batch size */
   size_t batch_size() const { return inputs_.size(); }
-  /*! \brief get the array */
+  /*! \brief Get the array */
   ArrayPtr array() const { return array_; }
-  /*! \brief get all inputs added to this batch */
+  /*! \brief Get all inputs added to this batch */
   std::vector<std::shared_ptr<Input> > inputs() const { return inputs_; }
 
  private:
-  /*! \brief batch id */
+  /*! \brief Batch id */
   uint64_t batch_id_;
-  /*! \brief array that holds batch input data */
+  /*! \brief Array that holds batch input data */
   ArrayPtr array_;
-  /*! \brief inputs in the batch */
+  /*! \brief Inputs in the batch */
   std::vector<std::shared_ptr<Input> > inputs_;
-  /*! \brief write pointer to array_ */
+  /*! \brief Write pointer to array_ */
   float* write_pt_;
-  /*! \brief number of floats written in the array_ */
+  /*! \brief Number of floats written in the array_ */
   size_t num_elements_;
 };
 
@@ -82,65 +82,42 @@ class BatchOutput; // forward declare
  */
 class Output {
  public:
-  /*! \brief get batch id */
+  /*! \brief Return batch id */
   uint64_t batch_id() const;
   /*!
-   * \brief get all outputs
-   * \return a vector of arrays
+   * \brief Get the output array given name.
+   * \param name Name of array.
+   * \return Array pointer corresponding to the name
    */
-  std::vector<ArrayPtr> GetOutputs() const { return outputs_; }
+  ArrayPtr GetArray(const std::string& name) const;
   /*!
-   * \brief get i-th output data
-   * \return an array
+   * \brief Get the output array given name.
+   * \param name Name of array.
+   * \return Array pointer corresponding to the name
    */
-  ArrayPtr GetOutput(int i) const;
-  /*!
-   * \brief get output data with name
-   * \return an array
-   */
-  ArrayPtr GetOutput(const std::string& name) const;
-  /*!
-   * \brief finish the use of this output
-   * \return whether all outputs in this batch are finished
-   */
-  bool Finish() const;
+  ArrayPtr operator[](const std::string& name) const;
 
  private:
   /*!
-   * \brief private constructor of Return
-   * \param output_batch Pointer to the BatchOutput class
-   * \param output A vector of pointers to the output buffer
+   * \brief Construct an Output.
+   * \param output_batch Pointer to the BatchOutput class.
+   * \param arrays Map from name to arrays.
    */
-  Output(BatchOutput* batch_output, const std::vector<ArrayPtr>& outputs) :
-      batch_output_(batch_output),
-      outputs_(outputs) {}
-  /*!
-   * \brief private constructor of Return
-   * \param output_batch Pointer to the BatchOutput class
-   * \param outputs A vector of pointers to output buffers
-   * \param names A vector of names of output buffers
-   */
-  Output(BatchOutput* batch_output, const std::vector<ArrayPtr>& outputs,
-         const std::vector<std::string> names) :
-      batch_output_(batch_output),
-      outputs_(outputs),
-      output_names_(names) {}
-  /*! \brief friend class of BatchOutput to allow it create Output */
+  Output(std::shared_ptr<BatchOutput> batch_output,
+         const std::unordered_map<std::string, ArrayPtr>& arrays);
+
   friend class BatchOutput;
 
- private:
-  /*! \brief Pointer to BatchOutput */
-  BatchOutput* batch_output_;
-  /*! \brief Pointers to output data */
-  std::vector<ArrayPtr> outputs_;
-  /*! \brief Names of output data */
-  std::vector<std::string> output_names_;
+  /*! \brief Pointer to BatchOutput. */
+  std::shared_ptr<BatchOutput> batch_output_;
+  /*! \brief Map from array name to array. */
+  std::unordered_map<std::string, ArrayPtr> arrays_;
 };
 
 /*!
  * \brief BatchOutput contains a batch of outputs.
  */
-class BatchOutput {
+class BatchOutput : public std::enable_shared_from_this<BatchOutput> {
  public:
   /*!
    * \brief construct a BatchOutput
@@ -153,53 +130,43 @@ class BatchOutput {
   /*! \brief get batch size */
   size_t batch_size() const { return batch_size_; }
   /*!
-   * \brief set the output buffer and batch size
-   * \param outputs A vector of batch output arrays
-   * \param slices Slices for each batch output to single outputs
+   * \brief Set arrays for holding the batch output results.
+   * \param arrays Map from name to arrays.
    */
-  void SetOutputBatch(const std::vector<ArrayPtr>& outputs,
-                      const std::vector<Slice>& slices);
+  void SetArrays(const std::unordered_map<std::string, ArrayPtr>& arrays);
   /*!
-   * \brief set the output buffer and batch size
-   * \param outputs A vector of batch output batch arrays
-   * \param slices Slices for each batch output to single outputs
-   * \param names Names of output buffers
+   * \brief Create arrays to hold the batch output results.
+   * \param sizes Map from name to output sizes in float for a single batch.
+   * \param device Device for allocation of output arrays.
    */
-  void SetOutputBatch(const std::vector<ArrayPtr>& outputs,
-                      const std::vector<Slice>& slices,
-                      const std::vector<std::string>& names);
+  void CreateArrays(const std::unordered_map<std::string, size_t>& sizes,
+                    Device* device);
   /*!
-   * \brief set the output buffer and batch size
-   * \param outputs A vector of raw pointers to batch output data
-   * \param slices Slices for each batch output to single outputs
-   * \param device Device where all buffers in the outputs is located
+   * \brief Get the batch output array given name.
+   * \param name Name of array.
+   * \return Array pointer corresponding to the name
    */
-  void SetOutputBatch(const std::vector<float*>& outputs,
-                      const std::vector<Slice>& slices, Device* device);
+  ArrayPtr GetArray(const std::string& name);
   /*!
-   * \brief get all single outputs in the batch
-   * \return A vector of Outputs
+   * \brief Slice the batch output into individual outputs.
+   * \param slices Slices for all arrays.
+   */
+  void SliceBatch(const std::unordered_map<std::string, Slice>& slices);
+  /*!
+   * \brief Get all individual outputs in the batch.
+   * \return A vector of Output.
    */
   std::vector<std::unique_ptr<Output> > GetOutputs();
-  /*!
-   * \brief finish the use of one single output
-   * \return whether all outputs in this batch are finished
-   */
-  bool Finish();
 
  private:
   /*! \brief Batch index */
   uint64_t batch_id_;
   /*! \brief Batch size */
   size_t batch_size_;
-  /*! \brief Arrays of all batch outputs */
-  std::vector<ArrayPtr> outputs_;
-  /*! \brief Slices for batch outputs */
-  std::vector<Slice> slices_;
-  /*! \brief Names of batch outputs */
-  std::vector<std::string> output_names_;
-  /*! \brief Number of outputs that are finished of processing */
-  std::atomic_uint finished_;
+  /*! \brief Map from name to array */
+  std::unordered_map<std::string, ArrayPtr> arrays_;
+  /*! \brief Map from name to slices */
+  std::unordered_map<std::string, Slice> slices_;
 };
 
 } // namespace backend

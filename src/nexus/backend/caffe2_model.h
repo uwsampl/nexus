@@ -13,33 +13,24 @@ namespace backend {
 
 class Caffe2Model : public ModelInstance {
  public:
-  Caffe2Model(int gpu_id, const std::string& model_name, uint32_t version,
-              const std::string& type, uint32_t batch, uint32_t max_batch,
-              BlockPriorityQueue<Task>& task_queue, const YAML::Node& info);
+  Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
+              const YAML::Node& info);
 
-  ~Caffe2Model() {}
+  ArrayPtr CreateInputGpuArray() final;
 
-  std::string framework() const final { return "caffe2"; }
+  std::unordered_map<std::string, size_t> OutputSizes() const final;
 
-  std::string profile_id() const final;
+  void Preprocess(std::shared_ptr<Task> task) final;
+
+  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+
+  void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
-  void InitBatchInputArray() final;
-
-  void PreprocessImpl(std::shared_ptr<Task> task,
-                      std::vector<ArrayPtr>* input_arrays) final;
-
-  void ForwardImpl(BatchInput* batch_input, BatchOutput* batch_output) final;
-
-  void PostprocessImpl(std::shared_ptr<Task> task, Output* output) final;
+  std::pair<std::string, caffe2::Blob*> NewInputBlob();
 
   void LoadClassnames(const std::string& filename);
 
-  void MarshalClassificationResult(
-      const QueryProto& query, const float* probs, size_t nprobs,
-      float threshold, QueryResultProto* result);
-
- private:
   std::unique_ptr<caffe2::CUDAContext> gpu_ctx_;
   std::string net_name_;
   std::unique_ptr<caffe2::Workspace> workspace_;
@@ -57,7 +48,8 @@ class Caffe2Model : public ModelInstance {
   // size of output in a single batch
   size_t output_size_;
   // Input tensor
-  caffe2::TensorCUDA* input_tensor_;
+  std::vector<std::pair<std::string, caffe2::Blob*> > input_blobs_;
+  bool first_input_array_;
   // Output tensor
   const caffe2::TensorCUDA* output_tensor_;
 

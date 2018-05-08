@@ -1,12 +1,14 @@
 #ifdef USE_CAFFE
 
 #include <boost/filesystem.hpp>
+#include <boost/make_shared.hpp>
 #include <fstream>
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 #include <sstream>
 
 #include "nexus/backend/caffe_model.h"
+#include "nexus/backend/postprocess.h"
 #include "nexus/backend/slice.h"
 #include "nexus/common/image.h"
 #include "nexus/common/util.h"
@@ -17,13 +19,9 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace backend {
 
-CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
-                       uint32_t version, const std::string& type,
-                       uint32_t batch, uint32_t max_batch,
-                       BlockPriorityQueue<Task>& task_queue,
+CaffeModel::CaffeModel(int gpu_id, const ModelInstanceConfig& config,
                        const YAML::Node& info) :
-    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
-                  task_queue) {
+    ModelInstance(gpu_id, config, info) {
   CHECK(info["cfg_file"]) << "Missing cfg_file in the model info";
   CHECK(info["weight_file"]) << "Missing weight_file in the model info";
   CHECK(info["mean_file"] || info["mean_value"])
@@ -36,11 +34,13 @@ CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
       " doesn't exist";
   CHECK(fs::exists(weight_path)) << "weight file " << weight_path <<
       " doesn't exist";
+
   // init gpu device
   caffe::Caffe::SetDevice(gpu_id);
   caffe::Caffe::set_mode(caffe::Caffe::GPU);
+
   // load network
-  net_.reset(new caffe::ServeNet<float>(cfg_path.string(), max_batch));
+  net_.reset(new caffe::ServeNet<float>(cfg_path.string(), max_batch_));
   net_->CopyTrainedLayersFrom(weight_path.string());
   // get input and output shape
   // NOTE: currently we only consider single input and single output
@@ -50,7 +50,9 @@ CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
       << "CaffeModel only support caffe model that has single output";
   input_shape_ = std::vector<int>(net_->input_blobs()[0]->shape());
   output_shape_ = std::vector<int>(net_->output_blobs()[0]->shape());
-  input_blob_indices_ = net_->input_blob_indices();
+  input_blob_idx_ = net_->input_blob_indices()[0];
+  output_blob_name_ = net_->blob_names()[net_->output_blob_indices()[0]];
+
   // get the single input and output size
   input_size_ = 1;
   output_size_ = 1;
@@ -60,14 +62,17 @@ CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
   for (size_t i = 1; i < output_shape_.size(); ++i) {
     output_size_ *= output_shape_[i];
   }
-  LOG(INFO) << "model " << model_name_ << ": input size " << input_size_ <<
-      ", output size " << output_size_;
+  image_height_ = input_shape_[2];
+  image_width_ = input_shape_[3];
+  LOG(INFO) << "Model " << model_session_id_ << ": input size " <<
+      input_size_ << ", output size " << output_size_;
+  
   // set up data transformer
   caffe::TransformationParameter transform_param;
   if (info["scale"]) {
     transform_param.set_scale(info["scale"].as<float>());
   }
-  transform_param.set_crop_size(input_shape_[2]); // height of input_shape_
+  transform_param.set_crop_size(image_height_);
   if (info["mean_file"]) {
     fs::path mean_file = model_dir / info["mean_file"].as<std::string>();
     transform_param.set_mean_file(mean_file.string());
@@ -81,12 +86,7 @@ CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
   }
   transformer_.reset(new caffe::DataTransformer<float>(
       transform_param, net_->phase()));
-  // resize image shape
-  if (info["image_dim"]) {
-    image_dim_ = info["image_dim"].as<int>();
-  } else {
-    image_dim_ = input_shape_[2];
-  }
+
   // whether enbable prefix batching
   if (info["prefix_layer"]) {
     prefix_layer_ = info["prefix_layer"].as<std::string>();
@@ -104,33 +104,37 @@ CaffeModel::CaffeModel(int gpu_id, const std::string& model_name,
   }
 }
 
-std::string CaffeModel::profile_id() const {
-  std::stringstream ss;
-  ss << "caffe:" << model_name_ << ":" << version_;
-  return ss.str();
+ArrayPtr CaffeModel::CreateInputGpuArray() {
+  boost::shared_ptr<caffe::Blob<float> > blob;
+  if (input_blobs_.empty()) {
+    blob = net_->blobs()[input_blob_idx_];
+  } else {
+    blob = boost::make_shared<caffe::Blob<float> >(input_shape_);
+  }
+  auto buf = std::make_shared<Buffer>(blob->mutable_gpu_data(),
+                                      blob->count() * sizeof(float),
+                                      gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, blob->count(), buf);
+  arr->set_tag(input_blobs_.size());
+  input_blobs_.push_back(blob);
+  return arr;
 }
 
-void CaffeModel::InitBatchInputArray() {
-  input_blob_ = net_->input_blobs()[input_blob_indices_[0]];
-  auto buf = std::make_shared<Buffer>(
-      input_blob_->mutable_gpu_data(), input_blob_->count() * sizeof(float),
-      gpu_device_);
-  batch_input_array_ = std::make_shared<Array>(
-      DT_FLOAT, input_blob_->count(), buf);
+std::unordered_map<std::string, size_t> CaffeModel::OutputSizes() const {
+  return {{output_blob_name_, output_size_}};
 }
 
-void CaffeModel::PreprocessImpl(std::shared_ptr<Task> task,
-                                std::vector<ArrayPtr>* input_arrays) {
+void CaffeModel::Preprocess(std::shared_ptr<Task> task) {
   auto prepare_image = [&](cv::Mat& image) {
     auto in_arr = std::make_shared<Array>(DT_FLOAT, input_size_, cpu_device_);
     cv::Mat resized_image;
-    cv::resize(image, resized_image, cv::Size(image_dim_, image_dim_));
+    cv::resize(image, resized_image, cv::Size(image_width_, image_height_));
     std::vector<int> blob_shape = input_shape_;
     blob_shape[0] = 1;
     caffe::Blob<float> blob(blob_shape);
     blob.data()->set_cpu_data(in_arr->Data<void>());
     transformer_->Transform(resized_image, &blob);
-    input_arrays->push_back(in_arr);
+    task->AppendInput(in_arr);
   };
 
   const auto& query = task->query;
@@ -159,15 +163,16 @@ void CaffeModel::PreprocessImpl(std::shared_ptr<Task> task,
   }
 }
 
-void CaffeModel::ForwardImpl(BatchInput* batch_input,
-                             BatchOutput* batch_output) {
-  size_t batch = batch_input->batch_size();
+void CaffeModel::Forward(BatchInput* batch_input, BatchOutput* batch_output) {
+  auto blob = input_blobs_[batch_input->array()->tag()];
   // reshape input blob to current batch size
+  size_t batch = batch_input->batch_size();
   std::vector<int> input_shape = input_shape_;
   input_shape[0] = batch;
-  input_blob_->Reshape(input_shape);
-  auto out_arr = std::make_shared<Array>(DT_FLOAT, batch * output_size_,
-                                         cpu_device_);
+  blob->Reshape(input_shape);
+  // Replace input blob in the network by the corresponding blob
+  net_->set_blob(input_blob_idx_, blob);
+  auto out_arr = batch_output->GetArray(output_blob_name_);
   // We don't need to reshape the network, because during the forwarding
   // Caffe will reshape every layers based on the input batch size
   if (prefix_index_ >= 0) {
@@ -215,79 +220,41 @@ void CaffeModel::ForwardImpl(BatchInput* batch_input,
     Memcpy(out_arr->Data<void>(), cpu_device_, output_blob->gpu_data(),
            gpu_device_, output_blob->count() * sizeof(float));
   }
-  batch_output->SetOutputBatch({out_arr}, {Slice(batch, output_size_)});
+  batch_output->SliceBatch({{output_blob_name_, Slice(batch, output_size_)}});
 }
 
-void CaffeModel::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
+void CaffeModel::Postprocess(std::shared_ptr<Task> task) {
   const QueryProto& query = task->query;
   QueryResultProto* result = &task->result;
-  auto out_arr = output->GetOutputs()[0];
-  float* out_data = out_arr->Data<float>();
-  if (type_ == "classification") {
-    result->set_status(CTRL_OK);
-    float threshold = 0.;
-    MarshalClassificationResult(query, out_data, output_size_, threshold,
-                                &task->result);
-  } else {
-    result->set_status(MODEL_TYPE_NOT_SUPPORT);
-    std::ostringstream oss;
-    oss << "Unsupported model type " << type() << " for " << framework();
-    result->set_error_message(oss.str());
+  result->set_status(CTRL_OK);
+  for (auto& output : task->outputs) {
+    auto out_arr = output->GetArray(output_blob_name_);
+    float* out_data = out_arr->Data<float>();
+    if (type_ == "classification") {
+      if (classnames_.empty()) {
+        PostprocessClassification(query, out_data, output_size_, result);
+      } else {
+        PostprocessClassification(query, out_data, output_size_, result,
+                                  &classnames_);
+      }
+    } else {
+      std::ostringstream oss;
+      oss << "Unsupported model type " << type() << " for " << framework();
+      result->set_status(MODEL_TYPE_NOT_SUPPORT);
+      result->set_error_message(oss.str());
+      break;
+    }
   }
 }
 
 void CaffeModel::LoadClassnames(const std::string& filepath) {
-  std::ifstream infile(filepath);
-  CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
+  std::ifstream fs(filepath);
+  CHECK(fs.good()) << "Classname file " << filepath << " doesn't exist";
   std::string line;
-  while (std::getline(infile, line)) {
+  while (std::getline(fs, line)) {
     classnames_.push_back(line);
   }
-  infile.close();
-}
-
-void CaffeModel::MarshalClassificationResult(
-    const QueryProto& query, const float* prob, size_t nprobs, float threshold,
-    QueryResultProto* result) {
-  std::vector<std::string> output_fields(query.output_field().begin(),
-                                         query.output_field().end());
-  if (output_fields.size() == 0) {
-    output_fields.push_back("class_name");
-  }
-  float max_prob = 0.;
-  int max_idx = -1;
-  for (int i = 0; i < (int) nprobs; ++i) {
-    float p = prob[i];
-    if (p >= threshold) {
-      if (p > max_prob) {
-        max_prob = p;
-        max_idx = i;
-      }
-    }
-  }
-  if (max_idx > -1) {
-    auto record = result->add_output();
-    for (auto field : output_fields) {
-      if (field == "class_id") {
-        auto value = record->add_named_value();
-        value->set_name("class_id");
-        value->set_data_type(DT_INT);
-        value->set_i(max_idx);
-      } else if (field == "class_prob") {
-        auto value = record->add_named_value();
-        value->set_name("class_prob");
-        value->set_data_type(DT_FLOAT);
-        value->set_f(max_prob);
-      } else if (field == "class_name") {
-        auto value = record->add_named_value();
-        value->set_name("class_name");
-        value->set_data_type(DT_STRING);
-        if (classnames_.size() > max_idx) {
-          value->set_s(classnames_.at(max_idx));
-        }
-      }
-    }
-  }
+  fs.close();
 }
 
 } // namespace backend

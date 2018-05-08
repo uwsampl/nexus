@@ -63,6 +63,10 @@ class Array {
 
   DeviceType device_type() const { return buffer_->device()->type(); }
 
+  void set_tag(int tag) { tag_ = tag; }
+
+  int tag() const { return tag_; }
+
   template <typename T>
   T* Data() { return (T*) buffer_->data(); }
 
@@ -75,6 +79,7 @@ class Array {
   DataType data_type_;
   size_t num_elements_;
   std::shared_ptr<Buffer> buffer_;
+  int tag_;
 };
 
 using ArrayPtr = std::shared_ptr<Array>;

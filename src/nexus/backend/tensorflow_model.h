@@ -15,46 +15,41 @@ namespace backend {
 
 class TensorflowModel : public ModelInstance {
  public:
-  TensorflowModel(int gpu_id, const std::string& model_name, uint32_t version, 
-                  const std::string& type, uint32_t batch, uint32_t max_batch,
-                  BlockPriorityQueue<Task>& task_queue, const YAML::Node& info);
+  TensorflowModel(int gpu_id, const ModelInstanceConfig& config,
+                  const YAML::Node& info);
 
   ~TensorflowModel();
 
-  std::string framework() const final { return "tensorflow"; }
+  ArrayPtr CreateInputGpuArray() final;
 
-  std::string profile_id() const final;
+  std::unordered_map<std::string, size_t> OutputSizes() const final;
+
+  void Preprocess(std::shared_ptr<Task> task) final;
+
+  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+
+  void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
-  void InitBatchInputArray() final;
-
-  void PreprocessImpl(std::shared_ptr<Task> task,
-                      std::vector<ArrayPtr>* input_arrays) final;
-
-  void ForwardImpl(BatchInput* batch_input, BatchOutput* batch_output) final;
-
-  void PostprocessImpl(std::shared_ptr<Task> task, Output* output) final;
-
-  void LoadClassnames(const std::string& filepath);
-
-  void MarshalClassificationResult(
-      const QueryProto& query, const float* prob, size_t nprobs,
-      float threshold, QueryResultProto* result);
+  tf::Tensor* NewInputTensor();
   
- private:
+  void LoadClassnames(const std::string& filepath);
+  
   tf::SessionOptions gpu_option_;
   tf::SessionOptions cpu_option_;
   std::unique_ptr<tf::Session> session_;
   int image_height_;
   int image_width_;
   size_t input_size_;
+  size_t output_size_;
   std::string input_layer_;
   std::string output_layer_;
   std::vector<float> input_mean_;
   std::vector<float> input_std_;
   std::vector<std::string> classnames_;
   tf::Allocator* gpu_allocator_;
-  std::unique_ptr<tf::Tensor> input_tensor_;
+  std::vector<std::unique_ptr<tf::Tensor> > input_tensors_;
+  bool first_input_array_;
 };
 
 } // namespace backend

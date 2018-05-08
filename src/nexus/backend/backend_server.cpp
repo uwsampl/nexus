@@ -31,21 +31,22 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
   auto channel = grpc::CreateChannel(sch_addr,
                                      grpc::InsecureChannelCredentials());
   sch_stub_ = SchedulerCtrl::NewStub(channel);
-  // Start workers
+  // Init GPU executor
+  if (FLAGS_multi_batch) {
+    LOG(INFO) << "Multi-batching is enabled";
+    gpu_executor_.reset(new GpuExecutorMultiBatching(gpu_id, task_queue_));
+  } else {
+    LOG(INFO) << "Multi-batching is disabled";
+    gpu_executor_.reset(new GpuExecutorNoMultiBatching(gpu_id, task_queue_));
+  }
+  gpu_executor_->Start();
+  // Init workers
   for (size_t i = 0; i < num_workers; ++i) {
-    std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_));
+    std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_,
+                                              gpu_executor_.get()));
     worker->Start();
     workers_.push_back(std::move(worker));
   }
-  // Start GPU executor
-  if (FLAGS_multi_batch) {
-    LOG(INFO) << "Multi-batching is enabled";
-    gpu_executor_.reset(new GpuExecutorMultiBatching(gpu_id));
-  } else {
-    LOG(INFO) << "Multi-batching is disabled";
-    gpu_executor_.reset(new GpuExecutorNoMultiBatching(gpu_id));
-  }
-  gpu_executor_->Start();
   // Init node id and register backend to global scheduler
   Register();
 }
@@ -141,7 +142,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
         reply->set_status(MODEL_NOT_FOUND);
         return;
       }
-      auto model = CreateModelInstance(gpu_id_, config, *info, task_queue_);
+      auto model = CreateModelInstance(gpu_id_, config, *info);
       model_table_.emplace(session_id, model);
       gpu_executor_->AddModel(session_id, model);
       LOG(INFO) << "Load model instance " << session_id <<

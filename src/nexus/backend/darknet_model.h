@@ -17,45 +17,37 @@ namespace backend {
 
 class DarknetModel : public ModelInstance {
  public:
-  DarknetModel(int gpu_id, const std::string& model_name, uint32_t version,
-               const std::string& type, uint32_t batch, uint32_t max_batch,
-               BlockPriorityQueue<Task>& task_queue, const YAML::Node& info);
+  DarknetModel(int gpu_id, const ModelInstanceConfig& config,
+               const YAML::Node& model_info);
 
   ~DarknetModel();
 
-  std::string framework() const final { return "darknet"; }
+  ArrayPtr CreateInputGpuArray() final;
 
-  std::string profile_id() const final;
+  std::unordered_map<std::string, size_t> OutputSizes() const final;
 
- protected:
-  void InitBatchInputArray() final;
+  void Preprocess(std::shared_ptr<Task> task) final;
 
-  void PreprocessImpl(std::shared_ptr<Task> task,
-                      std::vector<ArrayPtr>* input_arrays) final;
+  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
 
-  void ForwardImpl(BatchInput* batch_input, BatchOutput* batch_output) final;
+  void Postprocess(std::shared_ptr<Task> task) final;
 
-  void PostprocessImpl(std::shared_ptr<Task> task, Output* output) final;
-
+ private:
   void LoadClassnames(const std::string& filepath);
 
   void MarshalDetectionResult(
       const QueryProto& query, const float* probs, size_t nprobs,
       const int* boxes, size_t nboxes, QueryResultProto* result);
 
-  void MarshalClassificationResult(
-      const QueryProto& query, const float* prob, size_t nprobs,
-      float threshold, QueryResultProto* result);
-
- private:
   network* net_;
-  bool resizable_;
   int image_height_;
   int image_width_;
-  size_t output_layer_id_;
   size_t input_size_;
   size_t output_size_;
+  size_t output_layer_id_;
+  std::string output_name_;
   std::vector<std::string> classnames_;
+  bool first_input_array_;
 };
 
 } // namespace backend

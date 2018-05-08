@@ -6,6 +6,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "nexus/backend/model_ins.h"
+
 // Caffe headers
 // avoid redefined keywords from darknet
 #ifdef GPU
@@ -24,33 +25,22 @@ namespace backend {
 
 class CaffeModel : public ModelInstance {
  public:
-  CaffeModel(int gpu_id, const std::string& model_name, uint32_t version,
-             const std::string& type, uint32_t batch, uint32_t max_batch,
-             BlockPriorityQueue<Task>& task_queue, const YAML::Node& info);
+  CaffeModel(int gpu_id, const ModelInstanceConfig& config,
+             const YAML::Node& info);
 
-  ~CaffeModel() {}
+  ArrayPtr CreateInputGpuArray() final;
 
-  std::string framework() const final { return "caffe"; }
+  std::unordered_map<std::string, size_t> OutputSizes() const final;
 
-  std::string profile_id() const final;
+  void Preprocess(std::shared_ptr<Task> task) final;
+
+  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+
+  void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
-  void InitBatchInputArray() final;
-
-  void PreprocessImpl(std::shared_ptr<Task> task,
-                      std::vector<ArrayPtr>* input_arrays) final;
-
-  void ForwardImpl(BatchInput* batch_input, BatchOutput* batch_output) final;
-
-  void PostprocessImpl(std::shared_ptr<Task> task, Output* output) final;
-
   void LoadClassnames(const std::string& filename);
 
-  void MarshalClassificationResult(
-      const QueryProto& query, const float* probs, size_t nprobs,
-      float threshold, QueryResultProto* result);
-
- private:
   // Caffe neural network for serving
   std::unique_ptr<caffe::ServeNet<float> > net_;
   // input shape of neural network
@@ -60,14 +50,16 @@ class CaffeModel : public ModelInstance {
   // size of input in a single batch
   size_t input_size_;
   // size of output in a single batch
+  std::string output_blob_name_;
   size_t output_size_;
   // resized image dim
-  int image_dim_;
+  int image_height_;
+  int image_width_;
   std::vector<std::string> classnames_;
   // transformer for input
   std::unique_ptr<caffe::DataTransformer<float> > transformer_;
-  caffe::Blob<float>* input_blob_;
-  std::vector<int> input_blob_indices_;
+  int input_blob_idx_;
+  std::vector<boost::shared_ptr<caffe::Blob<float> > > input_blobs_;
   std::string prefix_layer_;
   int prefix_index_;
 };

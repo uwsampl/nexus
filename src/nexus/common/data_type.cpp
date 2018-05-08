@@ -2,11 +2,12 @@
 
 namespace nexus {
 
-Array::Array() : buffer_(nullptr) {}
+Array::Array() : buffer_(nullptr), tag_(-1) {}
 
 Array::Array(DataType type, size_t num_elements, Device* device) :
     data_type_(type),
-    num_elements_(num_elements) {
+    num_elements_(num_elements),
+    tag_(-1) {
   size_t nbytes = num_elements * type_size(type);
   buffer_ = std::make_shared<Buffer>(nbytes, device);
 }
@@ -14,7 +15,8 @@ Array::Array(DataType type, size_t num_elements, Device* device) :
 Array::Array(DataType type, size_t num_elements, std::shared_ptr<Buffer> buf) :
     data_type_(type),
     num_elements_(num_elements),
-    buffer_(buf) {
+    buffer_(buf),
+    tag_(-1) {
   CHECK(buf != nullptr) << "buf must not be nullptr";
   size_t nbytes = num_elements * type_size(type);
   CHECK_LE(nbytes, buf->nbytes()) << "Buffer size is not large enough (" <<

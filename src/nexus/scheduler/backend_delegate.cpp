@@ -184,11 +184,9 @@ void BackendDelegate::UnloadModel(const std::string& model_sess_id) {
 float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
                                              float workload) {
   InstanceInfo* inst_info = &model_instances_.at(model_sess_id);
-  uint32_t prev_throughput = inst_info->throughput;
+  float prev_throughput = inst_info->throughput;
   ComputeBatchSize(inst_info, workload);
-  if (prev_throughput == inst_info->throughput) {
-    LOG(INFO) << "No change";
-  } else {
+  if (std::abs(prev_throughput - inst_info->throughput) > 1e-3) {
     UpdateCycle();
     LOG(INFO) << "Backend " << node_id_ << " updates " << model_sess_id <<
         ", batch " << inst_info->batch << ", max batch " <<

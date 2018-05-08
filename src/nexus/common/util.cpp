@@ -22,7 +22,7 @@ void SplitString(const std::string& str, char delim,
 
 void Memcpy(void* dst, const Device* dst_device, const void* src,
             const Device* src_device, size_t nbytes) {
-  if (dst == src && *dst_device == *src_device) {
+  if (dst == src && dst_device == src_device) {
     return;
   }
   DeviceType dst_type = dst_device->type();

@@ -1,6 +1,7 @@
 #ifdef USE_CAFFE
 
 #include <boost/filesystem.hpp>
+#include <boost/make_shared.hpp>
 #include <fstream>
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
@@ -18,14 +19,9 @@ namespace backend {
 namespace fs = boost::filesystem;
 
 CaffeDenseCapModel::CaffeDenseCapModel(int gpu_id,
-                                       const std::string& model_name,
-                                       uint32_t version,
-                                       const std::string& type,
-                                       uint32_t batch, uint32_t max_batch,
-                                       BlockPriorityQueue<Task>& task_queue,
+                                       const ModelInstanceConfig& config,
                                        const YAML::Node& info) :
-    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
-                  task_queue) {
+    ModelInstance(gpu_id, config, info) {
   CHECK(info["feature_prototxt"]) << "Missing feature_prototxt in the config";
   CHECK(info["rnn_prototxt"]) << "Missing rnn_prototxt in the config";
   CHECK(info["embed_prototxt"]) << "Missing embed_prototxt in the config";
@@ -60,19 +56,19 @@ CaffeDenseCapModel::CaffeDenseCapModel(int gpu_id,
                             as<std::string>();
   fs::path model_file = model_dir / info["model_file"].as<std::string>();
   feature_net_.reset(new caffe::ServeNet<float>(
-      feature_prototxt.string(), max_batch));
+      feature_prototxt.string(), max_batch_));
   rnn_net_.reset(new caffe::ServeNet<float>(
-      rnn_prototxt.string(), max_batch * max_boxes_, 1));
+      rnn_prototxt.string(), max_batch_ * max_boxes_, 1));
   embed_net_.reset(new caffe::ServeNet<float>(
-      embed_prototxt.string(), max_batch * max_boxes_, 1));
+      embed_prototxt.string(), max_batch_ * max_boxes_, 1));
   caffe::NetParameter caffemodel;
   caffe::ReadNetParamsFromBinaryFileOrDie(model_file.string(), &caffemodel);
   feature_net_->CopyTrainedLayersFrom(caffemodel);
   rnn_net_->CopyTrainedLayersFrom(caffemodel);
   embed_net_->CopyTrainedLayersFrom(caffemodel);
   // set up input and output size
-  image_height_ = info["image_height"].as<int>();
-  image_width_ = info["image_width"].as<int>();
+  image_height_ = model_session_.image_height();
+  image_width_ = model_session_.image_width();
   /*
   int target_size = info["target_size"].as<int>();
   int max_size = info["max_size"].as<int>();
@@ -88,10 +84,11 @@ CaffeDenseCapModel::CaffeDenseCapModel(int gpu_id,
   }*/
   LOG(INFO) << "input shape: " << image_height_ << " x " << image_width_;
   input_size_ = 3 * image_height_ * image_width_;
-  input_shape_.push_back(max_batch);
+  input_shape_.push_back(max_batch_);
   input_shape_.push_back(3);
   input_shape_.push_back(image_height_);
   input_shape_.push_back(image_width_);
+  feature_net_input_idx_ = feature_net_->input_blob_indices()[0];
   // Reshape the input blob and feature_net according to our input size
   feature_net_->input_blobs()[0]->Reshape(input_shape_);
   feature_net_->Reshape();
@@ -101,28 +98,36 @@ CaffeDenseCapModel::CaffeDenseCapModel(int gpu_id,
   // set helper buffer
   multiplier_.reset(new caffe::Blob<float>({max_boxes_}));
   caffe::caffe_gpu_set(max_boxes_, (float) 1., multiplier_->mutable_gpu_data());
-  best_words_.resize(max_batch * max_boxes_);
+  best_words_.resize(max_batch_ * max_boxes_);
+
+  output_sizes_.emplace("rois", max_boxes_ * 5);
+  output_sizes_.emplace("bbox_offsets", max_boxes_ * 4);
+  output_sizes_.emplace("captions", max_boxes_ * max_timestep_);
+  output_sizes_.emplace("scores", max_boxes_ * 2);
 }
 
-std::string CaffeDenseCapModel::profile_id() const {
-  std::stringstream ss;
-  ss << "caffe:" << model_name_ << ":" << version_ << ":" <<
-      image_height_ << "x" << image_width_;
-  return ss.str();
+ArrayPtr CaffeDenseCapModel::CreateInputGpuArray() {
+  boost::shared_ptr<caffe::Blob<float> > blob;
+  if (input_blobs_.empty()) {
+    blob = feature_net_->blobs()[feature_net_input_idx_];
+  } else {
+    blob = boost::make_shared<caffe::Blob<float> >(input_shape_);
+  }
+  auto buf = std::make_shared<Buffer>(blob->mutable_gpu_data(),
+                                      blob->count() * sizeof(float),
+                                      gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, blob->count(), buf);
+  arr->set_tag(input_blobs_.size());
+  input_blobs_.push_back(blob);
+  return arr;
 }
 
-void CaffeDenseCapModel::InitBatchInputArray() {
-  input_blob_ = feature_net_->input_blobs()[0];
-  auto buf = std::make_shared<Buffer>(
-      input_blob_->mutable_gpu_data(), input_blob_->count() * sizeof(float),
-      gpu_device_);
-  batch_input_array_ = std::make_shared<Array>(
-      DT_FLOAT, input_blob_->count(), buf);
-  caffe::Caffe::set_release_memory(false);
+std::unordered_map<std::string, size_t> CaffeDenseCapModel::OutputSizes()
+    const {
+  return output_sizes_;
 }
 
-void CaffeDenseCapModel::PreprocessImpl(std::shared_ptr<Task> task,
-                                        std::vector<ArrayPtr>* input_arrays) {
+void CaffeDenseCapModel::Preprocess(std::shared_ptr<Task> task) {
   const auto& query = task->query;
   const auto& input_data = query.input();
   if (input_data.data_type() != DT_IMAGE) {
@@ -163,18 +168,27 @@ void CaffeDenseCapModel::PreprocessImpl(std::shared_ptr<Task> task,
       }
     }
   }
-  input_arrays->push_back(in_arr);
+  task->AppendInput(in_arr);
 }
 
-void CaffeDenseCapModel::ForwardImpl(BatchInput* batch_input,
-                                     BatchOutput* batch_output) {
+void CaffeDenseCapModel::Forward(BatchInput* batch_input,
+                                 BatchOutput* batch_output) {
+  // Get all output arrays
+  auto rois_arr = batch_output->GetArray("rois");
+  auto bbox_offsets_arr = batch_output->GetArray("bbox_offsets");
+  auto captions_arr = batch_output->GetArray("captions_arr");
+  auto scores_arr = batch_output->GetArray("scores");
+  
   auto t1 = std::chrono::high_resolution_clock::now();
+  // Prepare image blob
+  auto blob = input_blobs_[batch_input->array()->tag()];
   int batch = batch_input->batch_size();
-  // reshape input blob to current batch size
-  std::vector<int> input_shape = input_shape_;
+  std::vector<int> input_shape(input_shape_);
   input_shape[0] = batch;
-  input_blob_->Reshape(input_shape);
-  // set im info blob
+  blob->Reshape(input_shape);
+  feature_net_->set_blob(feature_net_input_idx_, blob);
+  
+  // Prepare im_info blob
   auto im_info_blob = feature_net_->input_blobs()[1];
   float* im_info = im_info_blob->mutable_cpu_data();
   im_info[0] = input_shape_[2];  // input image height
@@ -197,21 +211,17 @@ void CaffeDenseCapModel::ForwardImpl(BatchInput* batch_input,
   auto scores_blob = feature_net_->blob_by_name("cls_probs");
   int total_proposals = scores_blob->shape(0);
 
-  // allocate output in the CPU memory and copy from GPU
-  auto num_proposals_arr = std::make_shared<Array>(DT_FLOAT, batch, cpu_device_);
-  auto rois_arr = std::make_shared<Array>(
-      DT_FLOAT, total_proposals * 5, cpu_device_);
-  auto scores_arr = std::make_shared<Array>(
-      DT_FLOAT, total_proposals * 2, cpu_device_);
-  float* num_proposals = num_proposals_arr->Data<float>();
+  // Copy outputs of feature_net from GPU to CPU
+  float* num_proposals = new float[batch];
   float* rois = rois_arr->Data<float>();
   float* scores = scores_arr->Data<float>();
   Memcpy(num_proposals, cpu_device_, num_proposals_blob->gpu_data(),
          gpu_device_, batch * sizeof(float));
   // add offset batch is because [0 - batch-1] rois are global rois
-  Memcpy(rois, cpu_device_, rois_blob->gpu_data() + rois_blob->offset(batch),
-         gpu_device_, total_proposals * 5 * sizeof(float));
-  Memcpy(scores, cpu_device_, scores_blob->gpu_data(), gpu_device_,
+  Memcpy(rois, rois_arr->device(),
+         rois_blob->gpu_data() + rois_blob->offset(batch), gpu_device_,
+         total_proposals * 5 * sizeof(float));
+  Memcpy(scores, scores_arr->device(), scores_blob->gpu_data(), gpu_device_,
          total_proposals * 2 * sizeof(float));
   auto t2 = std::chrono::high_resolution_clock::now();
   //LOG(INFO) << *num_proposals;
@@ -267,14 +277,9 @@ void CaffeDenseCapModel::ForwardImpl(BatchInput* batch_input,
   rnn_net_->set_blob("input_features", embedded_sentence_blob);
   rnn_net_->set_blob("global_features", embedded_sentence_blob);
   
-  // create the output buffers
-  // float* bbox_offsets = new float[total_proposals * 4];
-  // float* captions = new float[total_proposals * max_timestep_];
-  auto bbox_offsets_arr = std::make_shared<Array>(
-      DT_FLOAT, total_proposals * 4, cpu_device_);
-  auto captions_arr = std::make_shared<Array>(
-      DT_FLOAT, total_proposals * max_timestep_, cpu_device_);
+  // Get the output buffers
   float* bbox_offsets = bbox_offsets_arr->Data<float>();
+  // TODO: current assume captions array allocated in CPU only
   float* captions = captions_arr->Data<float>();
 
   // forward rnn_net_
@@ -299,7 +304,8 @@ void CaffeDenseCapModel::ForwardImpl(BatchInput* batch_input,
         }
         best_words_[i] = max_idx;
         captions[i * max_timestep_ + step] = max_idx;
-        memcpy(bbox_offsets + i * 4, bbox_pred_blob->cpu_data() + i * 4,
+        Memcpy(bbox_offsets + i * 4, bbox_offsets_arr->device(),
+               bbox_pred_blob->gpu_data() + i * 4, gpu_device_,
                4 * sizeof(float));
       } else {
         ++finished;
@@ -324,20 +330,18 @@ void CaffeDenseCapModel::ForwardImpl(BatchInput* batch_input,
   LOG(INFO) << "feature latency: " << feature_lat.count() << " ms, caption " <<
       " latency: " << caption_lat.count() << " ms";
 
-  // Set output
-  std::vector<ArrayPtr> outputs = {
-    rois_arr, bbox_offsets_arr, captions_arr, scores_arr};
-  std::vector<Slice> slices = {
-    Slice(batch, num_proposals, 5),
-    Slice(batch, num_proposals, 4),
-    Slice(batch, num_proposals, max_timestep_),
-    Slice(batch, num_proposals, 2),
+  // Slice output
+  std::unordered_map<std::string, Slice> slices{
+    {"rois", Slice(batch, num_proposals, 5)},
+    {"bbox_offsets", Slice(batch, num_proposals, 4)},
+    {"captions", Slice(batch, num_proposals, max_timestep_)},
+    {"scores", Slice(batch, num_proposals, 2)},
   };
-  batch_output->SetOutputBatch(outputs, slices);
+  batch_output->SliceBatch(slices);
+  delete[] num_proposals;
 }
 
-void CaffeDenseCapModel::PostprocessImpl(std::shared_ptr<Task> task,
-                                         Output* output) {
+void CaffeDenseCapModel::Postprocess(std::shared_ptr<Task> task) {
   const QueryProto& query = task->query;
   QueryResultProto* result = &task->result;
   std::vector<std::string> output_fields(query.output_field().begin(),
@@ -347,13 +351,13 @@ void CaffeDenseCapModel::PostprocessImpl(std::shared_ptr<Task> task,
     output_fields.push_back("caption");
   }
   
-  std::vector<ArrayPtr> out_arrays = output->GetOutputs();
-  int nboxes = out_arrays[0]->num_elements() / 5;
-  float* rois = out_arrays[0]->Data<float>();
+  auto& output = task->outputs[0];
+  int nboxes = output->GetArray("rois")->num_elements() / 5;
+  float* rois = output->GetArray("rois")->Data<float>();
   float* boxes = rois;
-  float* bbox_offsets = out_arrays[1]->Data<float>();
-  float* captions = out_arrays[2]->Data<float>();
-  float* scores = out_arrays[3]->Data<float>();
+  float* bbox_offsets = output->GetArray("bbox_offsets")->Data<float>();
+  float* captions = output->GetArray("captions")->Data<float>();
+  float* scores = output->GetArray("scores")->Data<float>();
   // get attributes
   int im_height = task->attrs["im_height"].as<int>();
   int im_width = task->attrs["im_width"].as<int>();

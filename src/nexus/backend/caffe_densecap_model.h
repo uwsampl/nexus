@@ -3,6 +3,8 @@
 
 #ifdef USE_CAFFE
 
+#include <boost/shared_ptr.hpp>
+
 #include "nexus/backend/model_ins.h"
 
 // Caffe headers
@@ -20,34 +22,25 @@ namespace backend {
 
 class CaffeDenseCapModel : public ModelInstance {
  public:
-  CaffeDenseCapModel(int gpu_id, const std::string& model_name,
-                     uint32_t version, const std::string& type,
-                     uint32_t batch, uint32_t max_batch,
-                     BlockPriorityQueue<Task>& task_queue,
+  CaffeDenseCapModel(int gpu_id, const ModelInstanceConfig& config,
                      const YAML::Node& info);
 
-  ~CaffeDenseCapModel() {}
+  ArrayPtr CreateInputGpuArray() final;
 
-  std::string framework() const final { return "caffe"; }
+  std::unordered_map<std::string, size_t> OutputSizes() const final;
 
-  std::string profile_id() const final;
+  void Preprocess(std::shared_ptr<Task> task) final;
+
+  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+
+  void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
-  void InitBatchInputArray() final;
-
-  void PreprocessImpl(std::shared_ptr<Task> task,
-                      std::vector<ArrayPtr>* input_arrays) final;
-
-  void ForwardImpl(BatchInput* batch_input, BatchOutput* batch_output) final;
-
-  void PostprocessImpl(std::shared_ptr<Task> task, Output* output) final;
-
   void LoadVocabulary(const std::string& filename);
 
   void TransformBbox(int im_height, int im_width, float scale, int nboxes,
                      const float* rois, const float* bbox_deltas, float* out);
 
- private:
   // parameters
   int max_timestep_;
   int max_boxes_;
@@ -66,8 +59,10 @@ class CaffeDenseCapModel : public ModelInstance {
   int image_width_;
   size_t input_size_;
   std::vector<int> input_shape_;
-  std::vector<size_t> output_sizes_;
-  caffe::Blob<float>* input_blob_;
+  std::unordered_map<std::string, size_t> output_sizes_;
+  //caffe::Blob<float>* input_blob_;
+  int feature_net_input_idx_;
+  std::vector<boost::shared_ptr<caffe::Blob<float> > > input_blobs_;
   // temporary buffer
   std::vector<float> best_words_;
   std::unique_ptr<caffe::Blob<float> > multiplier_;

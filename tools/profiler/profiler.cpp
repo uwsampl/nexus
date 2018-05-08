@@ -15,6 +15,7 @@
 #include "nexus/common/device.h"
 #include "nexus/common/block_queue.h"
 #include "nexus/common/model_db.h"
+#include "nexus/backend/model_exec.h"
 #include "nexus/backend/model_ins.h"
 #include "nexus/proto/nnquery.pb.h"
 
@@ -88,12 +89,11 @@ class ModelProfiler {
     BlockPriorityQueue<Task> task_queue;
 
     // preprocess
-    std::vector<std::shared_ptr<Task> > tasks;
-    std::vector<std::vector<ArrayPtr> > batch_inputs;
+    std::vector<std::shared_ptr<Task> > preproc_tasks;
     {
       config.set_batch(1);
       config.set_max_batch(1);
-      auto model = CreateModelInstance(gpu_, config, *model_info_, task_queue);
+      auto model = CreateModelInstance(gpu_, config, *model_info_);
       // prepare the input
       int num_inputs = max_batch * (repeat + 1);
       if (num_inputs > 1000) {
@@ -105,7 +105,6 @@ class ModelProfiler {
         std::string im;
         ReadImage(test_images_[idx], &im);
         auto task = std::make_shared<Task>();
-        task->SetDeadline(std::chrono::milliseconds(10000000));
         auto input = task->query.mutable_input();
         input->set_data_type(DT_IMAGE);
         auto image = input->mutable_image();
@@ -114,10 +113,9 @@ class ModelProfiler {
         image->set_color(true);
         std::vector<ArrayPtr> input_arrays;
         auto beg = std::chrono::high_resolution_clock::now();
-        model->PreprocessImpl(task, &input_arrays);
+        model->Preprocess(task);
         auto end = std::chrono::high_resolution_clock::now();
-        batch_inputs.push_back(input_arrays);
-        tasks.push_back(task);
+        preproc_tasks.push_back(task);
         if (i > 0) {
           preprocess_lats.push_back(
               std::chrono::duration_cast<duration>(end - beg).count());
@@ -125,27 +123,30 @@ class ModelProfiler {
       }
     }
     std::this_thread::sleep_for(std::chrono::microseconds(200));
+    LOG(INFO) << "Preprocess finished";
 
     // forward and postprocess
     for (int batch = min_batch; batch <= max_batch; ++batch) {
       config.set_batch(batch);
       config.set_max_batch(batch);
-      auto model = CreateModelInstance(gpu_, config, *model_info_, task_queue);
-      // latencies
+      auto model = CreateModelInstance(gpu_, config, *model_info_);
+      ModelExecutor model_exec(model, task_queue);
       std::vector<uint64_t> forward_lats;
       for (int i = 0; i < batch * (repeat + 1); ++i) {
-        int idx = i % batch_inputs.size();
+        int idx = i % preproc_tasks.size();
         auto task = std::make_shared<Task>();
+        task->SetDeadline(std::chrono::milliseconds(1000000));
         task->query.set_query_id(i);
-        task->attrs = tasks[idx]->attrs;
-        model->AppendInputs(task, batch_inputs[idx]);
+        task->attrs = preproc_tasks[idx]->attrs;
+        task->AppendInput(preproc_tasks[idx]->inputs[0]->array);
+        model_exec.AddInput(task);
       }
       // dry run
-      model->Forward();
+      model_exec.Execute();
       // start meansuring forward latency
       for (int i = 0; i < repeat; ++i) {
         auto beg = std::chrono::high_resolution_clock::now();
-        model->Forward();
+        model_exec.Execute();
         auto end = std::chrono::high_resolution_clock::now();
         forward_lats.push_back(
             std::chrono::duration_cast<duration>(end - beg).count());

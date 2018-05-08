@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "nexus/backend/caffe2_model.h"
+#include "nexus/backend/postprocess.h"
 #include "nexus/backend/slice.h"
 #include "nexus/common/image.h"
 #include "nexus/common/util.h"
@@ -20,13 +21,10 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace backend {
 
-Caffe2Model::Caffe2Model(int gpu_id, const std::string& model_name,
-                         uint32_t version, const std::string& type,
-                         uint32_t batch, uint32_t max_batch,
-                         BlockPriorityQueue<Task>& task_queue,
+Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
                          const YAML::Node& info) :
-    ModelInstance(gpu_id, model_name, version, type, batch, max_batch,
-                  task_queue) {
+    ModelInstance(gpu_id, config, info),
+    first_input_array_(true) {
   CHECK(info["init_net"]) << "Missing cfg_file in the model info";
   CHECK(info["predict_net"]) << "Missing weight_file in the model info";
   CHECK(info["mean_file"] || info["mean_value"])
@@ -64,32 +62,37 @@ Caffe2Model::Caffe2Model(int gpu_id, const std::string& model_name,
   
   input_blob_name_ = info["input_blob"].as<std::string>();
   output_blob_name_ = info["output_blob"].as<std::string>();
-  image_height_ = info["image_height"].as<int>();
-  image_width_ = info["image_width"].as<int>();
+  if (model_session_.image_height() > 0) {
+    image_height_ = model_session_.image_height();
+    image_width_ = model_session_.image_width();
+  } else {
+    image_height_ = info["image_height"].as<int>();
+    image_width_ = info["image_width"].as<int>();
+  }
 
   input_shape_.resize(4);
-  input_shape_[0] = max_batch;
+  input_shape_[0] = max_batch_;
   input_shape_[1] = 3;
   input_shape_[2] = image_height_;
   input_shape_[3] = image_width_;
 
-  input_tensor_ = workspace_->CreateBlob(input_blob_name_)->
-                  GetMutable<caffe2::TensorCUDA>();
-  input_tensor_->Resize(input_shape_);
-  input_tensor_->mutable_data<float>();
-  input_tensor_->Reserve(input_shape_, gpu_ctx_.get());
+  std::string blob_name;
+  caffe2::Blob* input_blob;
+  std::tie(blob_name, input_blob) = NewInputBlob();
+  auto input_tensor = input_blob->Get<caffe2::TensorCUDA>();
   // input size of a single input
-  input_size_ = input_tensor_->size_from_dim(1);
+  input_size_ = input_tensor.size_from_dim(1);
 
-  // Dry run to get output tensor and size
+  // Dry run network to get output tensor and size
+  workspace_->RenameBlob(blob_name, input_blob_name_);
   CAFFE_ENFORCE(workspace_->RunNet(net_name_));
+  workspace_->RenameBlob(input_blob_name_, blob_name);
   output_tensor_ = &workspace_->GetBlob(output_blob_name_)->
                    Get<caffe2::TensorCUDA>();
   output_size_ = output_tensor_->size_from_dim(1);
 
-  LOG(INFO) << "caffe2 model " << net_name_ << " input tensor: " <<
-      input_tensor_->DebugString() << ", output tensor: " <<
-      output_tensor_->DebugString();
+  LOG(INFO) << model_session_id_ << " input size: " << input_size_ <<
+      ", output size: " << output_size_;
   
   // Load scale factor and mean value
   if (info["scale"]) {
@@ -135,21 +138,28 @@ Caffe2Model::Caffe2Model(int gpu_id, const std::string& model_name,
   }
 }
 
-std::string Caffe2Model::profile_id() const {
-  std::stringstream ss;
-  ss << "caffe2:" << model_name_ << ":" << version_;
-  return ss.str();
+ArrayPtr Caffe2Model::CreateInputGpuArray() {
+  caffe2::Blob* blob;
+  if (first_input_array_) {
+    blob = input_blobs_[0].second;
+    first_input_array_ = false;
+  } else {
+    std::string name;
+    std::tie(name, blob) = NewInputBlob();
+  }
+  auto tensor = blob->Get<caffe2::TensorCUDA>();
+  auto buf = std::make_shared<Buffer>(tensor.mutable_data<float>(),
+                                      tensor.nbytes(), gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, tensor.size(), buf);
+  arr->set_tag(input_blobs_.size() - 1);
+  return arr;
 }
 
-void Caffe2Model::InitBatchInputArray() {
-  auto buf = std::make_shared<Buffer>(input_tensor_->mutable_data<float>(),
-                                      input_tensor_->nbytes(), gpu_device_);
-  batch_input_array_ = std::make_shared<Array>(DT_FLOAT, input_tensor_->size(),
-                                               buf);
+std::unordered_map<std::string, size_t> Caffe2Model::OutputSizes() const {
+  return {{output_blob_name_, output_size_}};
 }
 
-void Caffe2Model::PreprocessImpl(std::shared_ptr<Task> task,
-                                 std::vector<ArrayPtr>* input_arrays) {
+void Caffe2Model::Preprocess(std::shared_ptr<Task> task) {
   auto prepare_image = [&](cv::Mat& image) {
     auto in_arr = std::make_shared<Array>(DT_FLOAT, input_size_, cpu_device_);
     cv::Mat resized_img;
@@ -171,7 +181,7 @@ void Caffe2Model::PreprocessImpl(std::shared_ptr<Task> task,
         }
       }
     }
-    input_arrays->push_back(in_arr);
+    task->AppendInput(in_arr);
   };
 
   const auto& query = task->query;
@@ -200,37 +210,70 @@ void Caffe2Model::PreprocessImpl(std::shared_ptr<Task> task,
   }
 }
 
-void Caffe2Model::ForwardImpl(BatchInput* batch_input,
-                              BatchOutput* batch_output) {
-  // reshape input blob to current batch size
+void Caffe2Model::Forward(BatchInput* batch_input, BatchOutput* batch_output) {
+  // Get corresponding input blob
+  std::string blob_name;
+  caffe2::Blob* blob;
+  std::tie(blob_name, blob) = input_blobs_[batch_input->array()->tag()];
+  
+  // Reshape input blob to current batch size
   size_t batch = batch_input->batch_size();
   std::vector<int> input_shape(input_shape_);
   input_shape[0] = batch;
-  input_tensor_->Resize(input_shape);
+  blob->GetMutable<caffe2::TensorCUDA>()->Resize(input_shape);
+  
+  // Run the net
+  workspace_->RenameBlob(blob_name, input_blob_name_);
   CAFFE_ENFORCE(workspace_->RunNet(net_name_));
-  auto out_arr = std::make_shared<Array>(DT_FLOAT, batch * output_size_,
-                                         cpu_device_);
-  Memcpy(out_arr->Data<void>(), cpu_device_, output_tensor_->data<float>(),
-         gpu_device_, batch * output_size_ * sizeof(float));
-  batch_output->SetOutputBatch({out_arr}, {Slice(batch, output_size_)});
+  workspace_->RenameBlob(input_blob_name_, blob_name);
+
+  // Copy to output
+  auto out_arr = batch_output->GetArray(output_blob_name_);
+  Memcpy(out_arr->Data<void>(), out_arr->device(),
+         output_tensor_->data<float>(), gpu_device_,
+         batch * output_size_ * sizeof(float));
+  batch_output->SliceBatch({{output_blob_name_, Slice(batch, output_size_)}});
 }
 
-void Caffe2Model::PostprocessImpl(std::shared_ptr<Task> task, Output* output) {
+void Caffe2Model::Postprocess(std::shared_ptr<Task> task) {
   const QueryProto& query = task->query;
   QueryResultProto* result = &task->result;
-  auto out_arr = output->GetOutputs()[0];
-  float* out_data = out_arr->Data<float>();
-  if (type_ == "classification") {
-    result->set_status(CTRL_OK);
-    float threshold = 0.;
-    MarshalClassificationResult(query, out_data, output_size_, threshold,
-                                &task->result);
-  } else {
-    result->set_status(MODEL_TYPE_NOT_SUPPORT);
-    std::ostringstream oss;
-    oss << "Unsupported model type " << type() << " for " << framework();
-    result->set_error_message(oss.str());
+  result->set_status(CTRL_OK);
+  for (auto& output : task->outputs) {
+    auto out_arr = output->GetArray(output_blob_name_);
+    float* out_data = out_arr->Data<float>();
+    if (type_ == "classification") {
+      if (classnames_.empty()) {
+        PostprocessClassification(query, out_data, output_size_, result);
+      } else {
+        PostprocessClassification(query, out_data, output_size_, result,
+                                  &classnames_);
+      }
+    } else {
+      std::ostringstream oss;
+      oss << "Unsupported model type " << type() << " for " << framework();
+      result->set_status(MODEL_TYPE_NOT_SUPPORT);
+      result->set_error_message(oss.str());
+      break;
+    }
   }
+}
+
+std::pair<std::string, caffe2::Blob*> Caffe2Model::NewInputBlob() {
+  std::string blob_name = input_blob_name_ + "-" +
+                          std::to_string(input_blobs_.size());
+  caffe2::Blob* blob;
+  if (input_blobs_.empty()) {
+    blob = workspace_->RenameBlob(input_blob_name_, blob_name);
+  } else {
+    blob = workspace_->CreateBlob(blob_name);
+  }
+  auto tensor = blob->GetMutable<caffe2::TensorCUDA>();
+  tensor->Resize(input_shape_);
+  tensor->mutable_data<float>();
+  tensor->Reserve(input_shape_, gpu_ctx_.get());
+  input_blobs_.emplace_back(blob_name, blob);
+  return std::make_pair(blob_name, blob);
 }
 
 void Caffe2Model::LoadClassnames(const std::string& filepath) {
@@ -241,50 +284,6 @@ void Caffe2Model::LoadClassnames(const std::string& filepath) {
     classnames_.push_back(line);
   }
   infile.close();
-}
-
-void Caffe2Model::MarshalClassificationResult(
-    const QueryProto& query, const float* prob, size_t nprobs, float threshold,
-    QueryResultProto* result) {
-  std::vector<std::string> output_fields(query.output_field().begin(),
-                                         query.output_field().end());
-  if (output_fields.size() == 0) {
-    output_fields.push_back("class_name");
-  }
-  float max_prob = 0.;
-  int max_idx = -1;
-  for (int i = 0; i < (int) nprobs; ++i) {
-    float p = prob[i];
-    if (p >= threshold) {
-      if (p > max_prob) {
-        max_prob = p;
-        max_idx = i;
-      }
-    }
-  }
-  if (max_idx > -1) {
-    auto record = result->add_output();
-    for (auto field : output_fields) {
-      if (field == "class_id") {
-        auto value = record->add_named_value();
-        value->set_name("class_id");
-        value->set_data_type(DT_INT);
-        value->set_i(max_idx);
-      } else if (field == "class_prob") {
-        auto value = record->add_named_value();
-        value->set_name("class_prob");
-        value->set_data_type(DT_FLOAT);
-        value->set_f(max_prob);
-      } else if (field == "class_name") {
-        auto value = record->add_named_value();
-        value->set_name("class_name");
-        value->set_data_type(DT_STRING);
-        if (classnames_.size() > max_idx) {
-          value->set_s(classnames_.at(max_idx));
-        }
-      }
-    }
-  }
 }
 
 } // namespace backend

@@ -29,13 +29,15 @@ enum Stage {
   kPostprocess,
 };
 
-class Task : public DeadlineItem {
+class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
  public:
   Task();
 
   Task(std::shared_ptr<Connection> conn);
 
   void DecodeQuery(std::shared_ptr<Message> message);
+  
+  void AppendInput(std::shared_ptr<Array> array);
   /*!
    * \brief Add output at index location
    * \param index Index of the output
@@ -57,10 +59,11 @@ class Task : public DeadlineItem {
   std::shared_ptr<ModelInstance> model;
   /*! \brief Current task processing stage */
   volatile Stage stage;
+  std::vector<std::shared_ptr<Input> > inputs;
   /*! \brief Outputs of the context */
-  std::vector<std::unique_ptr<Output> > outputs;
+  std::vector<std::shared_ptr<Output> > outputs;
   /*! \brief Number of outputs that has been filled in */
-  uint32_t filled_outputs;
+  std::atomic<uint32_t> filled_outputs;
   /*! \brief Attributes that needs to be kept during the task */
   YAML::Node attrs;
   /*! \brief Timer that counts the time spent in each stage */

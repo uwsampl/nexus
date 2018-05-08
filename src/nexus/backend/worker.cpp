@@ -9,12 +9,13 @@ namespace nexus {
 namespace backend {
 
 Worker::Worker(int index, BackendServer* server,
-               BlockPriorityQueue<Task>& task_queue) :
+               BlockPriorityQueue<Task>& task_queue,
+               GpuExecutor* gpu_executor) :
     index_(index),
     server_(server),
     task_queue_(task_queue),
-    running_(false) {
-}
+    gpu_executor_(gpu_executor),
+    running_(false) {}
 
 void Worker::Start() {
   running_ = true;
@@ -59,8 +60,11 @@ void Worker::Process(std::shared_ptr<Task> task) {
         task->model->counter()->Increase(1);
       }
       // Preprocess task
-      if (!task->model->Preprocess(task)) {
+      task->model->Preprocess(task);
+      if (task->result.status() != CTRL_OK) {
         SendReply(std::move(task));
+      } else {
+        gpu_executor_->AddTask(std::move(task));
       }
       break;
     }

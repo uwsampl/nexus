@@ -3,14 +3,17 @@
 #include <thread>
 
 #include "nexus/backend/backend_server.h"
+#include "nexus/backend/caffe_model.h"
 #include "nexus/backend/gpu_executor.h"
 #include "nexus/common/device.h"
 
 namespace nexus {
 namespace backend {
 
-GpuExecutorMultiBatching::GpuExecutorMultiBatching(int gpu_id) :
+GpuExecutorMultiBatching::GpuExecutorMultiBatching(
+    int gpu_id, BlockPriorityQueue<Task>& cpu_task_queue) : 
     gpu_id_(gpu_id),
+    cpu_task_queue_(cpu_task_queue),
     running_(false) {
 }
 
@@ -26,16 +29,20 @@ void GpuExecutorMultiBatching::Stop() {
   }
 }
 
-
 void GpuExecutorMultiBatching::AddModel(const std::string& model_sess_id,
                                         std::shared_ptr<ModelInstance> model) {
-  std::lock_guard<std::mutex> lock(mu_);
-  models_.emplace(model_sess_id, model);
+  std::lock_guard<std::mutex> lock(models_mu_);
+  models_.emplace(model_sess_id, std::make_shared<ModelExecutor>(
+      model, cpu_task_queue_));
 }
 
 void GpuExecutorMultiBatching::RemoveModel(const std::string& model_sess_id) {
-  std::lock_guard<std::mutex> lock(mu_);
+  std::lock_guard<std::mutex> lock(models_mu_);
   models_.erase(model_sess_id);
+}
+
+void GpuExecutorMultiBatching::AddTask(std::shared_ptr<Task> task) {
+  models_.at(task->query.model_session_id())->AddInput(task);
 }
 
 void GpuExecutorMultiBatching::Run() {
@@ -50,14 +57,14 @@ void GpuExecutorMultiBatching::Run() {
   LOG(INFO) << "GpuExecutor started";
   while (running_) {
     auto cycle_start = std::chrono::high_resolution_clock::now();
-    std::unordered_map<std::string, std::shared_ptr<ModelInstance> > models;
+    std::unordered_map<std::string, std::shared_ptr<ModelExecutor> > models;
     {
       // Take a snapshot
-      std::lock_guard<std::mutex> lock(mu_);
+      std::lock_guard<std::mutex> lock(models_mu_);
       models = models_;
     }
     for (auto iter : models) {
-      iter.second->Forward();
+      iter.second->Execute();
     }
     auto cycle_end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -71,9 +78,10 @@ void GpuExecutorMultiBatching::Run() {
   LOG(INFO) << "GpuExecutor stopped";
 }
 
-
-GpuExecutorNoMultiBatching::GpuExecutorNoMultiBatching(int gpu_id) :
-    gpu_id_(gpu_id) {}
+GpuExecutorNoMultiBatching::GpuExecutorNoMultiBatching(
+    int gpu_id, BlockPriorityQueue<Task>& cpu_task_queue) :
+    gpu_id_(gpu_id),
+    cpu_task_queue_(cpu_task_queue) {}
 
 void GpuExecutorNoMultiBatching::Start() {}
 
@@ -87,15 +95,21 @@ void GpuExecutorNoMultiBatching::Stop() {
 void GpuExecutorNoMultiBatching::AddModel(
     const std::string& model_sess_id, std::shared_ptr<ModelInstance> model) {
   std::lock_guard<std::mutex> lock(mu_);
-  threads_.emplace(model_sess_id,
-                   std::make_shared<ModelThread>(gpu_id_, model_sess_id,
-                                                 model));
+  std::unique_ptr<GpuExecutorMultiBatching> exec(
+      new GpuExecutorMultiBatching(gpu_id_, cpu_task_queue_));
+  exec->AddModel(model_sess_id, model);
+  exec->Start();
+  threads_.emplace(model_sess_id, std::move(exec));
 }
 
 void GpuExecutorNoMultiBatching::RemoveModel(const std::string& model_sess_id) {
   std::lock_guard<std::mutex> lock(mu_);
   threads_.at(model_sess_id)->Stop();
   threads_.erase(model_sess_id);
+}
+
+void GpuExecutorNoMultiBatching::AddTask(std::shared_ptr<Task> task) {
+  threads_.at(task->query.model_session_id())->AddTask(task);
 }
 
 } // namespace backend

@@ -1,5 +1,9 @@
 FROM nexus/base
 
 RUN cd / && git clone --recursive https://github.com/uwsaml/nexus.git
-RUN cd /nexus && git submodule update --init --recursive && make -j$(nproc) backend
+RUN cd /nexus && make -j$(nproc) caffe2
+RUN cd /nexus && make -j$(nproc) caffe
+RUN cd /nexus && make tensorflow
+RUN cd /nexus && make -j$(nproc) darknet
+RUN cd /nexus && make -j$(nproc) backend
 ENV PATH /nexus/build/bin:$PATH
