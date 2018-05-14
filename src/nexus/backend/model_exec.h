@@ -22,7 +22,7 @@ class ModelExecutor {
   void Execute();
 
  private:
-  std::unique_ptr<BatchInput> GetBatchInput();
+  void GetBatchInput(std::shared_ptr<BatchTask> batch_task);
   
   std::shared_ptr<ModelInstance> model_;
   BlockPriorityQueue<Task>& task_queue_;

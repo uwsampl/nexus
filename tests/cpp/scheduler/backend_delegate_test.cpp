@@ -18,7 +18,7 @@ class BackendDelegateTest : public ::testing::Test {
   virtual void SetUp() {
     ModelDatabase::Singleton().Init(FLAGS_model_db);
     gpu_device_ = "TITAN_X_(Pascal)";
-    gpu_available_memory_ = 100;
+    gpu_available_memory_ = 12L * 1024L * 1024L * 1024L;
     backend_.reset(new BackendDelegate(
         1, "127.0.0.1:8001", "127.0.0.1:8002", gpu_device_,
         gpu_available_memory_, 1, EPOCH_INTERVAL_SEC));
@@ -44,59 +44,58 @@ TEST_F(BackendDelegateTest, PrepareLoadModel) {
 
   // Residue workload
   for (float workload : {50., 100., 150., 200., 250.}) {
-    ModelInstanceConfig config;
+    InstanceInfo info;
     float occupancy;
-    bool ret = backend_->PrepareLoadModel(vgg16_sess, workload, &config,
+    bool ret = backend_->PrepareLoadModel(vgg16_sess, workload, &info,
                                           &occupancy);
     ASSERT_TRUE(ret);
-    ASSERT_GE(config.throughput(), workload);
-    ASSERT_GT(config.batch(), 0);
+    ASSERT_GE(info.throughput, workload);
+    ASSERT_GT(info.batch, 0);
     ASSERT_LE(occupancy, 1.);
   }
 
   // Saturate entire gpu when workload > 298
   for (float workload : {300., 400., 500.}) {
-    ModelInstanceConfig config;
+    InstanceInfo info;
     float occupancy;
-    bool ret = backend_->PrepareLoadModel(vgg16_sess, workload, &config,
+    bool ret = backend_->PrepareLoadModel(vgg16_sess, workload, &info,
                                           &occupancy);
     ASSERT_TRUE(ret);
-    ASSERT_GT(config.batch(), 0);
+    ASSERT_GT(info.batch, 0);
     ASSERT_EQ(occupancy, 1.);
   }
 
-  ModelInstanceConfig vgg16_cfg;
+  InstanceInfo vgg16_info;
   float occupancy;
-  backend_->PrepareLoadModel(vgg16_sess, 150., &vgg16_cfg, &occupancy);
-  backend_->LoadModel(vgg16_cfg);
+  backend_->PrepareLoadModel(vgg16_sess, 150., &vgg16_info, &occupancy);
+  backend_->LoadModel(vgg16_info);
   ASSERT_NEAR(backend_->Occupancy(), occupancy, 1e-3);
 
   // Try load second model
   for (float workload : {50, 100, 125}) {
-    ModelInstanceConfig config;
+    InstanceInfo info;
     float occupancy;
-    bool ret = backend_->PrepareLoadModel(vgg_face_sess, workload, &config,
+    bool ret = backend_->PrepareLoadModel(vgg_face_sess, workload, &info,
                                           &occupancy);
-    LOG(INFO) << config.DebugString();
     LOG(INFO) << occupancy;
     ASSERT_TRUE(ret);
-    ASSERT_GE(config.throughput(), workload);
-    ASSERT_GT(config.batch(), 0);
+    ASSERT_GE(info.throughput, workload);
+    ASSERT_GT(info.batch, 0);
     ASSERT_LE(occupancy, 1.);
   }
 
   for (float workload : {150, 200, 250}) {
-    ModelInstanceConfig config;
+    InstanceInfo info;
     float occupancy;
-    bool ret = backend_->PrepareLoadModel(vgg_face_sess, workload, &config,
+    bool ret = backend_->PrepareLoadModel(vgg_face_sess, workload, &info,
                                           &occupancy);
     ASSERT_FALSE(ret);
   }
   
-  ModelInstanceConfig vgg_face_cfg;
-  backend_->PrepareLoadModel(vgg_face_sess, 125., &vgg_face_cfg, &occupancy);
+  InstanceInfo vgg_face_info;
+  backend_->PrepareLoadModel(vgg_face_sess, 125., &vgg_face_info, &occupancy);
   
-  backend_->LoadModel(vgg_face_cfg);
+  backend_->LoadModel(vgg_face_info);
   ASSERT_NEAR(backend_->Occupancy(), occupancy, 1e-3);
 }
 

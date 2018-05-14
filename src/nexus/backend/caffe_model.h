@@ -25,16 +25,19 @@ namespace backend {
 
 class CaffeModel : public ModelInstance {
  public:
-  CaffeModel(int gpu_id, const ModelInstanceConfig& config,
-             const YAML::Node& info);
+  CaffeModel(int gpu_id, const ModelInstanceConfig& config);
+
+  Shape InputShape() const final;
+
+  std::unordered_map<std::string, Shape> OutputShapes() const final;
 
   ArrayPtr CreateInputGpuArray() final;
 
-  std::unordered_map<std::string, size_t> OutputSizes() const final;
+  std::unordered_map<std::string, ArrayPtr> GetOutputGpuArrays() final;
 
   void Preprocess(std::shared_ptr<Task> task) final;
 
-  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+  void Forward(std::shared_ptr<BatchTask> batch_task) final;
 
   void Postprocess(std::shared_ptr<Task> task) final;
 
@@ -43,22 +46,22 @@ class CaffeModel : public ModelInstance {
 
   // Caffe neural network for serving
   std::unique_ptr<caffe::ServeNet<float> > net_;
+  // image size
+  int image_height_;
+  int image_width_;
   // input shape of neural network
-  std::vector<int> input_shape_;
+  Shape input_shape_;
   // output shape of neural network
-  std::vector<int> output_shape_;
+  Shape output_shape_;
   // size of input in a single batch
   size_t input_size_;
   // size of output in a single batch
-  std::string output_blob_name_;
   size_t output_size_;
-  // resized image dim
-  int image_height_;
-  int image_width_;
+  int input_blob_idx_;
+  std::string output_blob_name_;
   std::vector<std::string> classnames_;
   // transformer for input
   std::unique_ptr<caffe::DataTransformer<float> > transformer_;
-  int input_blob_idx_;
   std::vector<boost::shared_ptr<caffe::Blob<float> > > input_blobs_;
   std::string prefix_layer_;
   int prefix_index_;

@@ -13,20 +13,27 @@ namespace backend {
 
 class Caffe2Model : public ModelInstance {
  public:
-  Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
-              const YAML::Node& info);
+  Caffe2Model(int gpu_id, const ModelInstanceConfig& config);
+
+  Shape InputShape() const final;
+
+  std::unordered_map<std::string, Shape> OutputShapes() const final;
 
   ArrayPtr CreateInputGpuArray() final;
 
-  std::unordered_map<std::string, size_t> OutputSizes() const final;
+  std::unordered_map<std::string, ArrayPtr> GetOutputGpuArrays() final;
 
   void Preprocess(std::shared_ptr<Task> task) final;
 
-  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+  void Forward(std::shared_ptr<BatchTask> batch_task) final;
 
   void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
+  void LoadModel(const std::string& init_path, const std::string& predict_path,
+                 const ModelInstanceConfig& config, caffe2::NetDef* init_net,
+                 caffe2::NetDef* predict_net);
+
   std::pair<std::string, caffe2::Blob*> NewInputBlob();
 
   void LoadClassnames(const std::string& filename);
@@ -40,9 +47,9 @@ class Caffe2Model : public ModelInstance {
   int image_height_;
   int image_width_;
   // input shape of neural network
-  std::vector<int> input_shape_;
+  Shape input_shape_;
   // output shape of neural network
-  std::vector<int> output_shape_;
+  Shape output_shape_;
   // size of input in a single input
   size_t input_size_;
   // size of output in a single batch
@@ -51,7 +58,7 @@ class Caffe2Model : public ModelInstance {
   std::vector<std::pair<std::string, caffe2::Blob*> > input_blobs_;
   bool first_input_array_;
   // Output tensor
-  const caffe2::TensorCUDA* output_tensor_;
+  caffe2::TensorCUDA* output_tensor_;
 
   std::vector<std::string> classnames_;
   bool has_mean_file_;

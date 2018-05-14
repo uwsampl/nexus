@@ -130,30 +130,28 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
   SpinlockGuard lock(model_table_lock_);
   std::unordered_set<std::string> new_model_list;
   for (auto config : request.model_instance_config()) {
-    auto model_sess = config.model_session();
-    std::string session_id = ModelSessionToString(model_sess);
-    new_model_list.insert(session_id);
-    auto model_iter = model_table_.find(session_id);
-    if (model_iter == model_table_.end()) {
-      // Load new model instance
-      auto model_id = ModelSessionToModelID(model_sess);
-      auto info = ModelDatabase::Singleton().GetModelInfo(model_id);
-      if (info == nullptr) {
-        reply->set_status(MODEL_NOT_FOUND);
-        return;
-      }
-      auto model = CreateModelInstance(gpu_id_, config, *info);
-      model_table_.emplace(session_id, model);
-      gpu_executor_->AddModel(session_id, model);
-      LOG(INFO) << "Load model instance " << session_id <<
-          ", batch: " << config.batch();
+    if (config.model_session_size() > 1) {
+      // TODO: prefix model
     } else {
-      auto model = model_iter->second;
-      if (model->batch() != config.batch()) {
-        // Update the batch size
-        LOG(INFO) << "Update model instance " << session_id << ", batch: " <<
-            model->batch() << " -> " << config.batch();
-        model->set_batch(config.batch());
+      auto model_sess = config.model_session(0);
+      std::string session_id = ModelSessionToString(model_sess);
+      new_model_list.insert(session_id);
+      auto model_iter = model_table_.find(session_id);
+      if (model_iter == model_table_.end()) {
+        // Load new model instance
+        auto model = CreateModelInstance(gpu_id_, config);
+        model_table_.emplace(session_id, model);
+        gpu_executor_->AddModel(session_id, model);
+        LOG(INFO) << "Load model instance " << session_id <<
+            ", batch: " << config.batch();
+      } else {
+        auto model = model_iter->second;
+        if (model->batch() != config.batch()) {
+          // Update the batch size
+          LOG(INFO) << "Update model instance " << session_id << ", batch: " <<
+              model->batch() << " -> " << config.batch();
+          model->set_batch(config.batch());
+        }
       }
     }
   }

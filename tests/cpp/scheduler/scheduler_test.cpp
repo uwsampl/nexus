@@ -11,6 +11,8 @@
 #include "nexus/scheduler/scheduler.h"
 
 DECLARE_string(model_db);
+DECLARE_int32(beacon);
+DECLARE_int32(epoch);
 
 namespace nexus {
 namespace scheduler {
@@ -20,13 +22,13 @@ class SchedulerTest : public ::testing::Test {
   virtual void SetUp() {
     gpu_device_ = "TITAN_X_(Pascal)";
     gpu_available_memory_ = 12L * 1024L * 1024L * 1024L;
-    beacon_sec_ = 1;
-    epoch_sec_ = 5;
-    scheduler_.reset(new Scheduler("10001", 1, FLAGS_model_db, 1, 5));
+    FLAGS_beacon = 1;
+    FLAGS_epoch = 5;
+    scheduler_.reset(new Scheduler("10001", 1, FLAGS_model_db));
     for (int i = 0; i < 5; ++i) {
       auto backend = std::make_shared<BackendDelegate>(
           i + 1, "127.0.0.1:8001", "127.0.0.1:8002", gpu_device_,
-          gpu_available_memory_, beacon_sec_, epoch_sec_);
+          gpu_available_memory_, FLAGS_beacon, FLAGS_epoch);
       RegisterReply reply;
       scheduler_->RegisterBackend(backend, &reply);
       ASSERT_EQ(reply.status(), CTRL_OK);
@@ -34,7 +36,7 @@ class SchedulerTest : public ::testing::Test {
     }
     for (int i = 0; i < 3; ++i) {
       auto frontend = std::make_shared<FrontendDelegate>(
-          i + 1, "127.0.0.1:9001", "127.0.0.1:9002", beacon_sec_);
+          i + 1, "127.0.0.1:9001", "127.0.0.1:9002", FLAGS_beacon);
       RegisterReply reply;
       scheduler_->RegisterFrontend(frontend, &reply);
       ASSERT_EQ(reply.status(), CTRL_OK);
@@ -91,8 +93,6 @@ class SchedulerTest : public ::testing::Test {
     }
   }
 
-  uint32_t beacon_sec_;
-  uint32_t epoch_sec_;
   std::string gpu_device_;
   size_t gpu_available_memory_;
   std::unique_ptr<Scheduler> scheduler_;

@@ -26,11 +26,70 @@ Array::Array(DataType type, size_t num_elements, std::shared_ptr<Buffer> buf) :
 std::shared_ptr<Array> Array::Slice(size_t offset, size_t num_elements) {
   size_t offset_bytes = offset * type_size(data_type_);
   size_t nbytes = num_elements * type_size(data_type_);
-  CHECK_LE(offset_bytes + nbytes, buffer_->nbytes()) <<
-      "Slice exceeds buffer boundary";
-  auto slice_buf = std::make_shared<Buffer>(
-      (char*) buffer_->data() + offset_bytes, nbytes, buffer_->device());
+  auto slice_buf = buffer_->Slice(offset_bytes, nbytes);
   return std::make_shared<Array>(data_type_, num_elements, slice_buf);
+}
+
+Shape::Shape() {}
+
+Shape::Shape(const std::vector<int>& dims) :
+    dims_(dims) {}
+
+Shape::Shape(std::initializer_list<int> list) :
+    dims_(list) {}
+
+Shape::Shape(const Shape& other) :
+    dims_(other.dims_) {}
+
+int Shape::dim(int axis) const {
+  CHECK_LT(axis, dims_.size());
+  return dims_[axis];
+}
+
+size_t Shape::ndims() const {
+  return dims_.size();
+}
+
+const std::vector<int>& Shape::dims() const {
+  return dims_;
+}
+
+void Shape::set_dims(const std::vector<int>& dims) {
+  dims_.clear();
+  dims_ = dims;
+}
+
+void Shape::set_dims(const std::vector<long int>& dims) {
+  dims_.clear();
+  dims_.resize(dims.size());
+  for (uint i = 0; i < dims.size(); ++i) {
+    dims_[i] = dims[i];
+  }
+}
+
+void Shape::set_dims(std::initializer_list<int> list) {
+  dims_.clear();
+  dims_ = list;
+}
+
+size_t Shape::NumElements(int axis) const {
+  CHECK_LT(axis, dims_.size());
+  size_t size = 1;
+  for (uint i = axis; i < dims_.size(); ++i) {
+    size *= dims_[i];
+  }
+  return size;
+}
+
+std::ostream& operator<<(std::ostream& out, const Shape& shape) {
+  if (shape.dims_.empty()) {
+    return out;
+  }
+  out << shape.dims_[0];
+  for (uint i = 1; i < shape.dims_.size(); ++i) {
+    out << "x" << shape.dims_[i];
+  }
+  return out;
 }
 
 Value::Value(const ValueProto& value) :

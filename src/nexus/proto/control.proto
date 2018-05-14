@@ -120,10 +120,18 @@ message LoadModelReply {
 }
 
 message ModelInstanceConfig {
-  ModelSession model_session = 1;
+  repeated ModelSession model_session = 1;
   uint32 batch = 2;
   uint32 max_batch = 3;
   uint64 memory_usage = 4;
+
+  // The following fields are used for prefix batching and split batching.
+  // Model segment is from start_index (inclusive) to end_index (exclusive).
+  // input_name and input_shape are needed when start_index is not 0.
+  int32 start_index = 10;
+  int32 end_index = 11;
+  string input_name = 12;
+  repeated int32 input_shape = 13;
 }
 
 message ModelTableConfig {

@@ -1,7 +1,20 @@
 #include "nexus/backend/task.h"
+#include "nexus/common/model_def.h"
 
 namespace nexus {
 namespace backend {
+
+Input::Input(ArrayPtr arr, std::shared_ptr<Task> task, int idx) :
+    DeadlineItem(task->deadline()),
+    array(arr),
+    task(task),
+    index_in_task(idx) {}
+
+Output::Output(const std::unordered_map<std::string, ArrayPtr>& arrs,
+               std::shared_ptr<Task> task, int idx) :
+    arrays(arrs),
+    task(task),
+    index_in_task(idx) {}
 
 Task::Task() : Task(nullptr) {}
 
@@ -21,16 +34,16 @@ void Task::DecodeQuery(std::shared_ptr<Message> message) {
   SetDeadline(std::chrono::milliseconds(sess.latency_sla()));
 }
 
-void Task::AppendInput(std::shared_ptr<Array> array) {
-  auto input = std::make_shared<Input>(shared_from_this(), array,
+void Task::AppendInput(ArrayPtr arr) {
+  auto input = std::make_shared<Input>(arr, shared_from_this(),
                                        inputs.size());
   inputs.push_back(input);
   // Put a placeholder in the outputs
   outputs.push_back(nullptr);
 }
 
-bool Task::AddOutput(int index, std::unique_ptr<Output> output) {
-  outputs[index] = std::move(output);
+bool Task::AddOutput(std::shared_ptr<Output> output) {
+  outputs[output->index_in_task] = output;
   uint32_t filled = ++filled_outputs;
   if (filled == outputs.size()) {
     return true;

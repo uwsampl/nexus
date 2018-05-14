@@ -39,16 +39,16 @@ image cvmat_to_image(const cv::Mat& cv_img_rgb) {
 
 }
 
-DarknetModel::DarknetModel(int gpu_id, const ModelInstanceConfig& config,
-                           const YAML::Node& info) : 
-    ModelInstance(gpu_id, config, info),
+DarknetModel::DarknetModel(int gpu_id, const ModelInstanceConfig& config) :
+    ModelInstance(gpu_id, config),
     first_input_array_(true) {
   // load darknet model
-  CHECK(info["cfg_file"]) << "Missing cfg_file in the model info";
-  CHECK(info["weight_file"]) << "Missing weight_file in the model info";
-  fs::path model_dir = fs::path(info["model_dir"].as<std::string>());
-  fs::path cfg_path = model_dir / info["cfg_file"].as<std::string>();
-  fs::path weight_path = model_dir / info["weight_file"].as<std::string>();
+  CHECK(model_info_["cfg_file"]) << "Missing cfg_file in the model info";
+  CHECK(model_info_["weight_file"]) << "Missing weight_file in the model info";
+  fs::path model_dir = fs::path(model_info_["model_dir"].as<std::string>());
+  fs::path cfg_path = model_dir / model_info_["cfg_file"].as<std::string>();
+  fs::path weight_path = model_dir / model_info_["weight_file"].
+                         as<std::string>();
   CHECK(fs::exists(cfg_path)) << "Config file " << cfg_path <<
       " doesn't exist";
   CHECK(fs::exists(weight_path)) << "Weight file " << weight_path <<
@@ -72,11 +72,18 @@ DarknetModel::DarknetModel(int gpu_id, const ModelInstanceConfig& config,
   load_weights(net_, const_cast<char*>(weight_path.string().c_str()));
   fs::current_path(curr_dir);
 
-  // set input and output size
-  input_size_ = net_->layers[0].inputs;
-  output_size_ = get_network_output_layer(net_).outputs;
-  LOG(INFO) << "Model " << model_session_id_ << ": input size " <<
-      input_size_ << ", output size " << output_size_;
+  // Get input and output's shape and size
+  auto input_layer = net_->layers[0];
+  input_shape_.set_dims({max_batch_, input_layer.c, input_layer.h,
+          input_layer.w});
+  input_size_ = input_shape_.NumElements(1);
+  auto output_layer = get_network_output_layer(net_);
+  output_shape_.set_dims({max_batch_, output_layer.out_c, output_layer.out_h,
+          output_layer.out_w});
+  output_size_ = output_shape_.NumElements(1);
+  LOG(INFO) << "Model " << model_session_id_ << ": input shape " <<
+      input_shape_ << " (" << input_size_ << "), output shape " <<
+      output_shape_ << " (" << output_size_ << ")";
   // find the output layer id
   for (int i = net_->n - 1; i > 0; --i) {
     if (net_->layers[i].type != COST) {
@@ -87,8 +94,9 @@ DarknetModel::DarknetModel(int gpu_id, const ModelInstanceConfig& config,
   // Darknet doesn't have name for layers, so hardcode name as "output"
   output_name_ = "output"; 
   // load classnames
-  if (info["class_names"]) {
-    fs::path cns_path = model_dir / info["class_names"].as<std::string>();
+  if (model_info_["class_names"]) {
+    fs::path cns_path = model_dir / model_info_["class_names"].
+                        as<std::string>();
     LoadClassnames(cns_path.string());
   }
 }
@@ -97,23 +105,35 @@ DarknetModel::~DarknetModel() {
   free_network(net_);
 }
 
+Shape DarknetModel::InputShape() const {
+  return input_shape_;
+}
+
+std::unordered_map<std::string, Shape> DarknetModel::OutputShapes() const {
+  return {{ output_name_, output_shape_ }};
+}
+
 ArrayPtr DarknetModel::CreateInputGpuArray() {
   std::shared_ptr<Array> arr;
   if (first_input_array_) {
     auto buf = std::make_shared<Buffer>(
-        net_->input_gpu, input_size_ * max_batch_ * sizeof(float),
+        net_->input_gpu, max_batch_ * input_size_ * sizeof(float),
         gpu_device_);
-    arr = std::make_shared<Array>(DT_FLOAT, input_size_ * max_batch_, buf);
+    arr = std::make_shared<Array>(DT_FLOAT, max_batch_ * input_size_, buf);
     first_input_array_ = false;
   } else {
-    arr = std::make_shared<Array>(DT_FLOAT, input_size_ * max_batch_,
+    arr = std::make_shared<Array>(DT_FLOAT, max_batch_ * input_size_,
                                   gpu_device_);
   }
   return arr;
 }
 
-std::unordered_map<std::string, size_t> DarknetModel::OutputSizes() const {
-  return {{output_name_, output_size_}};
+std::unordered_map<std::string, ArrayPtr> DarknetModel::GetOutputGpuArrays() {
+  auto buf = std::make_shared<Buffer>(net_->layers[output_layer_id_].output_gpu,
+                                      max_batch_ * output_size_ * sizeof(float),
+                                      gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, max_batch_ * output_size_, buf);
+  return {{ output_name_, arr }};
 }
 
 void DarknetModel::Preprocess(std::shared_ptr<Task> task) {
@@ -165,16 +185,17 @@ void DarknetModel::Preprocess(std::shared_ptr<Task> task) {
   }
 }
 
-void DarknetModel::Forward(BatchInput* batch_input, BatchOutput* batch_output) {
-  size_t batch_size = batch_input->batch_size();
-  net_->input_gpu = batch_input->array()->Data<float>();
+void DarknetModel::Forward(std::shared_ptr<BatchTask> batch_task) {
+  size_t batch_size = batch_task->batch_size();
+  net_->input_gpu = batch_task->GetInputArray()->Data<float>();
   set_batch_network_lightweight(net_, batch_size);
   network_predict_gpu_nocopy(net_);
   layer l = net_->layers[output_layer_id_];
-  auto out_arr = batch_output->GetArray(output_name_);
+  auto out_arr = batch_task->GetOutputArray(output_name_);
   Memcpy(out_arr->Data<void>(), cpu_device_, l.output_gpu, gpu_device_,
          batch_size * output_size_ * sizeof(float));
-  batch_output->SliceBatch({{output_name_, Slice(batch_size, output_size_)}});
+  batch_task->SliceOutputBatch({{
+        output_name_, Slice(batch_size, output_size_) }});
 }
 
 void DarknetModel::Postprocess(std::shared_ptr<Task> task) {
@@ -182,10 +203,10 @@ void DarknetModel::Postprocess(std::shared_ptr<Task> task) {
   auto* result = &task->result;
   result->set_status(CTRL_OK);
   for (auto& output : task->outputs) {
-    auto out_arr = output->GetArray(output_name_);
+    auto out_arr = output->arrays.at(output_name_);
     float* out_data = out_arr->Data<float>();
     // TODO: check predicates in the query
-    if (type_ == "detection") {
+    if (type() == "detection") {
       layer l = net_->layers[net_->n - 1];
       size_t nboxes = l.w * l.h * l.n;
       size_t nprobs = nboxes * (l.classes + 1);
@@ -205,7 +226,7 @@ void DarknetModel::Postprocess(std::shared_ptr<Task> task) {
       MarshalDetectionResult(query, probs, nprobs, boxes, nboxes, result);
       delete[] boxes;
       delete[] probs;
-    } else if (type_ == "classification") {
+    } else if (type() == "classification") {
       if (classnames_.empty()) {
         PostprocessClassification(query, out_data, output_size_, result);
       } else {

@@ -56,8 +56,6 @@ class ModelProfile {
 
 class ModelDatabase {
  public:
-  using ProfileTable = std::unordered_map<std::string, ModelProfile>;
-  
   static ModelDatabase& Singleton();
 
   void Init(const std::string& model_root);
@@ -79,6 +77,9 @@ class ModelDatabase {
                              const std::string& profile_id,
                              uint32_t batch) const;
 
+  int GetSharePrefixLength(const std::string& model_id1,
+                           const std::string& model_id2) const;
+
  private:
   ModelDatabase() {}
 
@@ -87,6 +88,9 @@ class ModelDatabase {
   void LoadModelProfiles(const std::string& profile_dir);
 
  private:
+  using ProfileTable = std::unordered_map<std::string, ModelProfile>;
+  using PrefixMap = std::unordered_map<std::string, uint32_t>;
+
   /*! \brief Model database root directory */
   std::string db_root_dir_;
   /*! \brief Model store directory */
@@ -95,6 +99,8 @@ class ModelDatabase {
   std::unordered_map<std::string, YAML::Node> model_info_table_;
   /*! \brief Map from device name to profile table */
   std::unordered_map<std::string, ProfileTable> device_profile_table_;
+
+  std::unordered_map<std::string, PrefixMap> share_prefix_models_;
 };
 
 } // namespace nexus

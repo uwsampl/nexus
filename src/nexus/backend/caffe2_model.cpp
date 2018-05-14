@@ -21,18 +21,19 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace backend {
 
-Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
-                         const YAML::Node& info) :
-    ModelInstance(gpu_id, config, info),
+Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
+    ModelInstance(gpu_id, config),
     first_input_array_(true) {
-  CHECK(info["init_net"]) << "Missing cfg_file in the model info";
-  CHECK(info["predict_net"]) << "Missing weight_file in the model info";
-  CHECK(info["mean_file"] || info["mean_value"])
+  CHECK(model_info_["init_net"]) << "Missing cfg_file in the model info";
+  CHECK(model_info_["predict_net"]) << "Missing weight_file in the model info";
+  CHECK(model_info_["mean_file"] || model_info_["mean_value"])
       << "Missing mean_file or mean_value in the model info";
   // load caffe model
-  fs::path model_dir = fs::path(info["model_dir"].as<std::string>());
-  fs::path init_net_path = model_dir / info["init_net"].as<std::string>();
-  fs::path predict_net_path = model_dir / info["predict_net"].as<std::string>();
+  fs::path model_dir = fs::path(model_info_["model_dir"].as<std::string>());
+  fs::path init_net_path = model_dir / model_info_["init_net"].
+                           as<std::string>();
+  fs::path predict_net_path = model_dir / model_info_["predict_net"].
+                              as<std::string>();
   CHECK(fs::exists(init_net_path)) << "init_net file " << init_net_path <<
       " doesn't exist";
   CHECK(fs::exists(predict_net_path)) << "predict_net file " <<
@@ -46,9 +47,8 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
 
   // Load network from protobuf
   caffe2::NetDef init_net, predict_net;
-  CAFFE_ENFORCE(caffe2::ReadProtoFromFile(init_net_path.string(), &init_net));
-  CAFFE_ENFORCE(caffe2::ReadProtoFromFile(predict_net_path.string(),
-                                          &predict_net));
+  LoadModel(init_net_path.string(), predict_net_path.string(), config,
+            &init_net, &predict_net);
   init_net.mutable_device_option()->CopyFrom(option);
   predict_net.mutable_device_option()->CopyFrom(option);
   net_name_ = predict_net.name();
@@ -60,49 +60,34 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
   // Create predict network
   CAFFE_ENFORCE(workspace_->CreateNet(predict_net));
   
-  input_blob_name_ = info["input_blob"].as<std::string>();
-  output_blob_name_ = info["output_blob"].as<std::string>();
-  if (model_session_.image_height() > 0) {
-    image_height_ = model_session_.image_height();
-    image_width_ = model_session_.image_width();
-  } else {
-    image_height_ = info["image_height"].as<int>();
-    image_width_ = info["image_width"].as<int>();
-  }
-
-  input_shape_.resize(4);
-  input_shape_[0] = max_batch_;
-  input_shape_[1] = 3;
-  input_shape_[2] = image_height_;
-  input_shape_[3] = image_width_;
-
+  // Get input size of a single input
+  input_size_ = input_shape_.NumElements(1);
+  // Dry run network to get output tensor, shape, and size
   std::string blob_name;
   caffe2::Blob* input_blob;
   std::tie(blob_name, input_blob) = NewInputBlob();
-  auto input_tensor = input_blob->Get<caffe2::TensorCUDA>();
-  // input size of a single input
-  input_size_ = input_tensor.size_from_dim(1);
-
-  // Dry run network to get output tensor and size
   workspace_->RenameBlob(blob_name, input_blob_name_);
   CAFFE_ENFORCE(workspace_->RunNet(net_name_));
   workspace_->RenameBlob(input_blob_name_, blob_name);
-  output_tensor_ = &workspace_->GetBlob(output_blob_name_)->
-                   Get<caffe2::TensorCUDA>();
-  output_size_ = output_tensor_->size_from_dim(1);
+  output_tensor_ = workspace_->GetBlob(output_blob_name_)->
+                   GetMutable<caffe2::TensorCUDA>();
+  output_shape_.set_dims(output_tensor_->dims());
+  output_size_ = output_shape_.NumElements(1);
 
-  LOG(INFO) << model_session_id_ << " input size: " << input_size_ <<
-      ", output size: " << output_size_;
+  LOG(INFO) << "Model " << model_session_id_ << ", input " <<
+      input_blob_name_ << ": " << input_shape_ << " (" << input_size_ <<
+      "), output " << output_blob_name_ << ": " << output_shape_ <<
+      " (" << output_size_ << ")";
   
-  // Load scale factor and mean value
-  if (info["scale"]) {
-    scale_ = info["scale"].as<float>();
+  // Get preprocessing parameters
+  if (model_info_["scale"]) {
+    scale_ = model_info_["scale"].as<float>();
   } else {
     scale_ = 1.;
   }
-  if (info["mean_file"]) {
+  if (model_info_["mean_file"]) {
     has_mean_file_ = true;
-    fs::path mean_file = model_dir / info["mean_file"].as<std::string>();
+    fs::path mean_file = model_dir / model_info_["mean_file"].as<std::string>();
     caffe::BlobProto mean_proto;
     caffe2::ReadProtoFromBinaryFile(mean_file.string().c_str(), &mean_proto);
     size_t mean_size = 1;
@@ -122,7 +107,7 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
     }
   } else {
     has_mean_file_ = false;
-    const YAML::Node& mean_values = info["mean_value"];
+    const YAML::Node& mean_values = model_info_["mean_value"];
     CHECK(mean_values.IsSequence()) << "mean_value in the config is " <<
         "not sequence";
     CHECK_EQ(mean_values.size(), 3) << "mean_value must have 3 values";
@@ -132,10 +117,19 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config,
   }
   
   // Load classnames
-  if (info["class_names"]) {
-    fs::path cns_path = model_dir / info["class_names"].as<std::string>();
+  if (model_info_["class_names"]) {
+    fs::path cns_path = model_dir / model_info_["class_names"].
+                        as<std::string>();
     LoadClassnames(cns_path.string());
   }
+}
+
+Shape Caffe2Model::InputShape() const {
+  return input_shape_;
+}
+
+std::unordered_map<std::string, Shape> Caffe2Model::OutputShapes() const {
+  return {{ output_blob_name_, output_shape_ }};
 }
 
 ArrayPtr Caffe2Model::CreateInputGpuArray() {
@@ -147,16 +141,21 @@ ArrayPtr Caffe2Model::CreateInputGpuArray() {
     std::string name;
     std::tie(name, blob) = NewInputBlob();
   }
+  size_t nfloats = max_batch_ * input_size_;
   auto tensor = blob->Get<caffe2::TensorCUDA>();
   auto buf = std::make_shared<Buffer>(tensor.mutable_data<float>(),
-                                      tensor.nbytes(), gpu_device_);
-  auto arr = std::make_shared<Array>(DT_FLOAT, tensor.size(), buf);
+                                      nfloats * sizeof(float), gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, nfloats, buf);
   arr->set_tag(input_blobs_.size() - 1);
   return arr;
 }
 
-std::unordered_map<std::string, size_t> Caffe2Model::OutputSizes() const {
-  return {{output_blob_name_, output_size_}};
+std::unordered_map<std::string, ArrayPtr> Caffe2Model::GetOutputGpuArrays() {
+  size_t nfloats = max_batch_ * output_size_;
+  auto buf = std::make_shared<Buffer>(output_tensor_->mutable_data<float>(),
+                                      nfloats * sizeof(float), gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, nfloats, buf);
+  return {{ output_blob_name_, arr }};
 }
 
 void Caffe2Model::Preprocess(std::shared_ptr<Task> task) {
@@ -210,15 +209,15 @@ void Caffe2Model::Preprocess(std::shared_ptr<Task> task) {
   }
 }
 
-void Caffe2Model::Forward(BatchInput* batch_input, BatchOutput* batch_output) {
+void Caffe2Model::Forward(std::shared_ptr<BatchTask> batch_task) {
   // Get corresponding input blob
   std::string blob_name;
   caffe2::Blob* blob;
-  std::tie(blob_name, blob) = input_blobs_[batch_input->array()->tag()];
+  std::tie(blob_name, blob) = input_blobs_[batch_task->GetInputArray()->tag()];
   
   // Reshape input blob to current batch size
-  size_t batch = batch_input->batch_size();
-  std::vector<int> input_shape(input_shape_);
+  size_t batch = batch_task->batch_size();
+  std::vector<int> input_shape = input_shape_.dims();
   input_shape[0] = batch;
   blob->GetMutable<caffe2::TensorCUDA>()->Resize(input_shape);
   
@@ -228,11 +227,12 @@ void Caffe2Model::Forward(BatchInput* batch_input, BatchOutput* batch_output) {
   workspace_->RenameBlob(input_blob_name_, blob_name);
 
   // Copy to output
-  auto out_arr = batch_output->GetArray(output_blob_name_);
+  auto out_arr = batch_task->GetOutputArray(output_blob_name_);
   Memcpy(out_arr->Data<void>(), out_arr->device(),
          output_tensor_->data<float>(), gpu_device_,
          batch * output_size_ * sizeof(float));
-  batch_output->SliceBatch({{output_blob_name_, Slice(batch, output_size_)}});
+  batch_task->SliceOutputBatch({{
+        output_blob_name_, Slice(batch, output_size_)}});
 }
 
 void Caffe2Model::Postprocess(std::shared_ptr<Task> task) {
@@ -240,9 +240,9 @@ void Caffe2Model::Postprocess(std::shared_ptr<Task> task) {
   QueryResultProto* result = &task->result;
   result->set_status(CTRL_OK);
   for (auto& output : task->outputs) {
-    auto out_arr = output->GetArray(output_blob_name_);
+    auto out_arr = output->arrays.at(output_blob_name_);
     float* out_data = out_arr->Data<float>();
-    if (type_ == "classification") {
+    if (type() == "classification") {
       if (classnames_.empty()) {
         PostprocessClassification(query, out_data, output_size_, result);
       } else {
@@ -259,6 +259,94 @@ void Caffe2Model::Postprocess(std::shared_ptr<Task> task) {
   }
 }
 
+void Caffe2Model::LoadModel(const std::string& init_path,
+                            const std::string& predict_path,
+                            const ModelInstanceConfig& config,
+                            caffe2::NetDef* init_net,
+                            caffe2::NetDef* predict_net) {
+  std::unordered_set<std::string> external_inputs;
+  std::unordered_set<std::string> external_outputs;
+  if (config.start_index() == 0 && config.end_index() == 0) {
+    CAFFE_ENFORCE(caffe2::ReadProtoFromFile(init_path, init_net));
+    CAFFE_ENFORCE(caffe2::ReadProtoFromFile(predict_path, predict_net));
+  } else {
+    caffe2::NetDef full_init_net, full_predict_net;
+    CAFFE_ENFORCE(caffe2::ReadProtoFromFile(init_path, &full_init_net));
+    CAFFE_ENFORCE(caffe2::ReadProtoFromFile(predict_path, &full_predict_net));
+    int num_ops = full_predict_net.op_size();
+    int start_index = config.start_index();
+    int end_index = config.end_index() == 0 ? num_ops : config.end_index();
+    int op_idx = 0;
+    //LOG(INFO) << full_predict_net.DebugString();
+    predict_net->set_name(full_predict_net.name());
+    for (int i = start_index; i < end_index; ++i) {
+      auto const& op = full_predict_net.op(i);
+      predict_net->add_op()->CopyFrom(op);
+      for (auto& input : op.input()) {
+        auto iter = external_outputs.find(input);
+        if (iter == external_outputs.end()) {
+          external_inputs.insert(input);
+        } else {
+          external_outputs.erase(iter);
+        }
+      }
+      for (auto& output : op.output()) {
+        if (output[0] != '_') {
+          external_outputs.insert(output);
+        }
+      }
+    }
+    for (auto input : external_inputs) {
+      predict_net->add_external_input(input);
+    }
+    for (auto output : external_outputs) {
+      predict_net->add_external_output(output);
+    }
+    //LOG(INFO) << predict_net->DebugString();
+    for (int i = 0; i < full_init_net.op_size(); ++i) {
+      auto const& op = full_init_net.op(i);
+      if (external_inputs.find(op.output(0)) != external_inputs.end()) {
+        init_net->add_op()->CopyFrom(op);
+      }
+    }
+    CHECK_EQ(external_outputs.size(), 1) << "Number of outputs must be 1";
+  }
+  if (config.start_index() == 0) {
+    input_blob_name_ = model_info_["input_blob"].as<std::string>();
+    if (model_session_.image_height() > 0) {
+      image_height_ = model_session_.image_height();
+      image_width_ = model_session_.image_width();
+    } else {
+      image_height_ = model_info_["image_height"].as<int>();
+      image_width_ = model_info_["image_width"].as<int>();
+    }
+    input_shape_.set_dims({max_batch_, 3, image_height_, image_width_});
+  } else {
+    // Add input placeholder
+    input_blob_name_ = config.input_name();
+    auto placeholder = init_net->add_op();
+    placeholder->add_output(input_blob_name_);
+    placeholder->set_type("ConstantFill");
+    auto arg = placeholder->add_arg();
+    arg->set_name("shape");
+    arg->add_ints(1);
+
+    std::vector<int> shape;
+    shape.push_back(max_batch_);
+    for (auto dim : config.input_shape()) {
+      shape.push_back(dim);
+    }
+    input_shape_.set_dims(shape);
+  }
+  if (config.end_index() == 0) {
+    output_blob_name_ = model_info_["output_blob"].as<std::string>();
+  } else {
+    for (auto iter : external_outputs) {
+      output_blob_name_ = iter;
+    }
+  }
+}
+
 std::pair<std::string, caffe2::Blob*> Caffe2Model::NewInputBlob() {
   std::string blob_name = input_blob_name_ + "-" +
                           std::to_string(input_blobs_.size());
@@ -269,9 +357,9 @@ std::pair<std::string, caffe2::Blob*> Caffe2Model::NewInputBlob() {
     blob = workspace_->CreateBlob(blob_name);
   }
   auto tensor = blob->GetMutable<caffe2::TensorCUDA>();
-  tensor->Resize(input_shape_);
+  tensor->Resize(input_shape_.dims());
   tensor->mutable_data<float>();
-  tensor->Reserve(input_shape_, gpu_ctx_.get());
+  tensor->Reserve(input_shape_.dims(), gpu_ctx_.get());
   input_blobs_.emplace_back(blob_name, blob);
   return std::make_pair(blob_name, blob);
 }

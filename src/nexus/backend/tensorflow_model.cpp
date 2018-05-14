@@ -18,15 +18,16 @@ namespace fs = boost::filesystem;
 namespace nexus {
 namespace backend {
 
-TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config,
-                                 const YAML::Node& info) :
-    ModelInstance(gpu_id, config, info),
+TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
+    ModelInstance(gpu_id, config),
     first_input_array_(true) {
-  CHECK(info["model_file"]) << "Missing model_file in the model info";
-  CHECK(info["input_mean"]) << "Missing input_mean in the model info";
-  CHECK_EQ(info["input_mean"].size(), 3) << "input_mean must have 3 values";
-  CHECK(info["input_std"]) << "Missing input_std in the model info";
-  CHECK_EQ(info["input_std"].size(), 3) << "input_std must have 3 values";
+  CHECK(model_info_["model_file"]) << "Missing model_file in the model info";
+  CHECK(model_info_["input_mean"]) << "Missing input_mean in the model info";
+  CHECK_EQ(model_info_["input_mean"].size(), 3) << "input_mean must have " <<
+      "3 values";
+  CHECK(model_info_["input_std"]) << "Missing input_std in the model info";
+  CHECK_EQ(model_info_["input_std"].size(), 3) << "input_std must have " <<
+      "3 values";
 
   // Init session options
   auto gpu_opt = gpu_option_.config.mutable_gpu_options();
@@ -50,8 +51,8 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config,
   
   // Init session and load model
   session_.reset(tf::NewSession(gpu_option_));
-  fs::path model_dir = fs::path(info["model_dir"].as<std::string>());
-  fs::path model_file = model_dir / info["model_file"].as<std::string>();
+  fs::path model_dir = fs::path(model_info_["model_dir"].as<std::string>());
+  fs::path model_file = model_dir / model_info_["model_file"].as<std::string>();
   CHECK(fs::exists(model_file)) << "model file " << model_file <<
       " doesn't exist";
   tf::GraphDef graph_def;
@@ -75,13 +76,16 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config,
     image_height_ = model_session_.image_height();
     image_width_ = model_session_.image_width();
   } else {
-    image_height_ = info["image_height"].as<int>();
-    image_width_ = info["image_width"].as<int>();
+    image_height_ = model_info_["image_height"].as<int>();
+    image_width_ = model_info_["image_width"].as<int>();
   }
-  input_size_ = image_height_ * image_width_ * 3;
-  input_layer_ = info["input_layer"].as<std::string>();
-  output_layer_ = info["output_layer"].as<std::string>();
-  
+  // Tensorflow uses NHWC by default. More details see
+  // https://www.tensorflow.org/versions/master/performance/performance_guide
+  input_shape_.set_dims({max_batch_, image_height_, image_width_, 3});
+  input_size_ = input_shape_.NumElements(1);
+  input_layer_ = model_info_["input_layer"].as<std::string>();
+  output_layer_ = model_info_["output_layer"].as<std::string>();
+
   // Dry run the model to get the outpue size
   tf::Tensor* in_tensor = NewInputTensor();
   std::vector<tf::Tensor> out_tensors;
@@ -91,24 +95,44 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config,
     LOG(FATAL) << "Failed to run " << model_session_id_ << ": " <<
         status.ToString();
   }
-  output_size_ = out_tensors[0].NumElements() / max_batch_;
-  
-  // Load configs
-  for (uint i = 0; i < info["input_mean"].size(); ++i) {
-    input_mean_.push_back(info["input_mean"][i].as<float>());
+  tf::TensorShape tf_shape = out_tensors[0].shape();
+  std::vector<int> shape;
+  for (int i = 0; i < tf_shape.dims(); ++i) {
+    shape.push_back(tf_shape.dim_size(i));
   }
-  for (uint i = 0; i < info["input_std"].size(); ++i) {
-    input_std_.push_back(info["input_std"][i].as<float>());
+  output_shape_.set_dims(shape);
+  output_size_ = output_shape_.NumElements(1);
+
+  LOG(INFO) << "Model " << model_session_id_ << ", input " <<
+      input_layer_ << ": " << input_shape_ << " (" << input_size_ <<
+      "), output " << output_layer_ << ": " << output_shape_ <<
+      " (" << output_size_ << ")";
+
+  // Load preprocessing configs
+  for (uint i = 0; i < model_info_["input_mean"].size(); ++i) {
+    input_mean_.push_back(model_info_["input_mean"][i].as<float>());
+  }
+  for (uint i = 0; i < model_info_["input_std"].size(); ++i) {
+    input_std_.push_back(model_info_["input_std"][i].as<float>());
   }
   // Load class names
-  if (info["class_names"]) {
-    fs::path cns_path = model_dir / info["class_names"].as<std::string>();
+  if (model_info_["class_names"]) {
+    fs::path cns_path = model_dir / model_info_["class_names"].
+                        as<std::string>();
     LoadClassnames(cns_path.string());
   }
 }
 
 TensorflowModel::~TensorflowModel() {
   session_->Close();
+}
+
+Shape TensorflowModel::InputShape() const {
+  return input_shape_;
+}
+
+std::unordered_map<std::string, Shape> TensorflowModel::OutputShapes() const {
+  return {{output_layer_, output_shape_}};
 }
 
 ArrayPtr TensorflowModel::CreateInputGpuArray() {
@@ -127,8 +151,10 @@ ArrayPtr TensorflowModel::CreateInputGpuArray() {
   return arr;
 }
 
-std::unordered_map<std::string, size_t> TensorflowModel::OutputSizes() const {
-  return {{output_layer_, output_size_}};
+std::unordered_map<std::string, ArrayPtr> TensorflowModel::GetOutputGpuArrays(){
+  // Because TF always returns output in CPU memory, doesn't support in-place
+  // output in GPU memory
+  return {};
 }
 
 void TensorflowModel::Preprocess(std::shared_ptr<Task> task) {
@@ -176,10 +202,9 @@ void TensorflowModel::Preprocess(std::shared_ptr<Task> task) {
   }
 }
 
-void TensorflowModel::Forward(BatchInput* batch_input,
-                              BatchOutput* batch_output) {
-  size_t batch_size = batch_input->batch_size();
-  auto in_tensor = input_tensors_[batch_input->array()->tag()]->Slice(
+void TensorflowModel::Forward(std::shared_ptr<BatchTask> batch_task) {
+  size_t batch_size = batch_task->batch_size();
+  auto in_tensor = input_tensors_[batch_task->GetInputArray()->tag()]->Slice(
       0, batch_size);
   // auto in_tensor = input_tensors_[batch_input->array()->tag()]->Slice(
   //     0, batch_);
@@ -192,22 +217,23 @@ void TensorflowModel::Forward(BatchInput* batch_input,
   }
   const char* tensor_data = out_tensors[0].tensor_data().data();
   size_t nfloats = out_tensors[0].NumElements();
-  auto out_arr = batch_output->GetArray(output_layer_);
+  auto out_arr = batch_task->GetOutputArray(output_layer_);
   float* out_data = out_arr->Data<float>();
   Memcpy(out_data, cpu_device_, tensor_data, gpu_device_,
          nfloats * sizeof(float));
-  batch_output->SliceBatch({{output_layer_, Slice(batch_size, output_size_)}});
+  batch_task->SliceOutputBatch({{
+        output_layer_, Slice(batch_size, output_size_) }});
 }
 
 void TensorflowModel::Postprocess(std::shared_ptr<Task> task) {
   const QueryProto& query = task->query;
   QueryResultProto* result = &task->result;
   result->set_status(CTRL_OK);
-  for (auto& output : task->outputs) {
-    auto out_arr = output->GetArray(output_layer_);
+  for (auto output : task->outputs) {
+    auto out_arr = output->arrays.at(output_layer_);
     float* out_data = out_arr->Data<float>();
     size_t count = out_arr->num_elements();
-    if (type_ == "classification") {
+    if (type() == "classification") {
       if (classnames_.empty()) {
         PostprocessClassification(query, out_data, output_size_, result);
       } else {
@@ -225,9 +251,11 @@ void TensorflowModel::Postprocess(std::shared_ptr<Task> task) {
 }
 
 tf::Tensor* TensorflowModel::NewInputTensor() {
-  tf::Tensor* tensor = new tf::Tensor(
-      gpu_allocator_, tf::DT_FLOAT,
-      {max_batch_, image_height_, image_width_, 3});
+  tf::TensorShape shape;
+  for (auto dim : input_shape_.dims()) {
+    shape.AddDim(dim);
+  }
+  tf::Tensor* tensor = new tf::Tensor(gpu_allocator_, tf::DT_FLOAT, shape);
   input_tensors_.emplace_back(tensor);
   return tensor;
 }

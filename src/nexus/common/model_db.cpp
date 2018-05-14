@@ -199,6 +199,18 @@ size_t ModelDatabase::GetModelMemoryUsage(const std::string& gpu_device,
   return profile->GetMemoryUsage(batch);
 }
 
+int ModelDatabase::GetSharePrefixLength(const std::string& model_id1,
+                                        const std::string& model_id2) const {
+  if (share_prefix_models_.find(model_id1) == share_prefix_models_.end()) {
+    return 0;
+  }
+  auto const& shares = share_prefix_models_.at(model_id1);
+  if (shares.find(model_id2) == shares.end()) {
+    return 0;
+  }
+  return shares.at(model_id2);
+}
+
 void ModelDatabase::LoadModelInfo(const std::string& db_file) {
   VLOG(1) << "Load model DB from " << db_file;
   YAML::Node db = YAML::LoadFile(db_file);
@@ -223,6 +235,32 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
     uint32_t version = model_info["version"].as<uint32_t>();
     std::string model_id = ModelID(framework, model_name, version);
     model_info_table_[model_id] = model_info;
+  }
+  const YAML::Node& shares = db["share_prefix"];
+  for (uint i = 0; i < shares.size(); ++i) {
+    auto const& share = shares[i];
+    int prefix_length = share["prefix_length"].as<int>();
+    LOG(INFO) << "prefix length: " << prefix_length;
+    std::vector<std::string> share_models;
+    for (uint j = 0; j < share["models"].size(); ++j) {
+      auto const& model = share["models"][j];
+      std::string model_id = ModelID(model["framework"].as<std::string>(),
+                                     model["model_name"].as<std::string>(),
+                                     model["version"].as<int>());
+      share_models.push_back(model_id);
+      if (share_prefix_models_.find(model_id) == share_prefix_models_.end()) {
+        share_prefix_models_.emplace(model_id, PrefixMap());
+      }
+      LOG(INFO) << " - " << model_id;
+    }
+    for (uint j = 0; j < share_models.size(); ++j) {
+      for (uint k = j + 1; k < share_models.size(); ++k) {
+        share_prefix_models_[share_models[j]].emplace(share_models[k],
+                                                      prefix_length);
+        share_prefix_models_[share_models[k]].emplace(share_models[j],
+                                                      prefix_length);
+      }
+    }
   }
 }
 

@@ -22,8 +22,6 @@
 namespace nexus {
 namespace scheduler {
 
-DECLARE_bool(epoch_schedule);
-
 using AsyncService = nexus::SchedulerCtrl::AsyncService;
 using BackendDelegatePtr = std::shared_ptr<BackendDelegate>;
 using FrontendDelegatePtr = std::shared_ptr<FrontendDelegate>;

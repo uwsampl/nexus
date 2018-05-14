@@ -17,18 +17,21 @@ namespace backend {
 
 class DarknetModel : public ModelInstance {
  public:
-  DarknetModel(int gpu_id, const ModelInstanceConfig& config,
-               const YAML::Node& model_info);
+  DarknetModel(int gpu_id, const ModelInstanceConfig& config);
 
   ~DarknetModel();
 
+  Shape InputShape() const final;
+  
+  std::unordered_map<std::string, Shape> OutputShapes() const final;
+
   ArrayPtr CreateInputGpuArray() final;
 
-  std::unordered_map<std::string, size_t> OutputSizes() const final;
+  std::unordered_map<std::string, ArrayPtr> GetOutputGpuArrays() final;
 
   void Preprocess(std::shared_ptr<Task> task) final;
 
-  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+  void Forward(std::shared_ptr<BatchTask> batch_task) final;
 
   void Postprocess(std::shared_ptr<Task> task) final;
 
@@ -42,6 +45,8 @@ class DarknetModel : public ModelInstance {
   network* net_;
   int image_height_;
   int image_width_;
+  Shape input_shape_;
+  Shape output_shape_;
   size_t input_size_;
   size_t output_size_;
   size_t output_layer_id_;

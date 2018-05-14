@@ -84,6 +84,36 @@ class Array {
 
 using ArrayPtr = std::shared_ptr<Array>;
 
+class Shape {
+ public:
+  Shape();
+
+  Shape(const std::vector<int>& dims);
+
+  Shape(std::initializer_list<int> list);
+
+  Shape(const Shape& other);
+
+  int dim(int axis) const;
+
+  const std::vector<int>& dims() const;
+
+  void set_dims(const std::vector<int>& dims);
+
+  void set_dims(const std::vector<long int>& dims);
+
+  void set_dims(std::initializer_list<int> list);
+
+  size_t ndims() const;
+
+  size_t NumElements(int axis = 0) const;
+
+  friend std::ostream& operator<<(std::ostream& out, const Shape& shape);
+
+ private:
+  std::vector<int> dims_;
+};
+
 class Value {
  public:
   Value(const ValueProto& value);

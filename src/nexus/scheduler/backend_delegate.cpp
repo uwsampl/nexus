@@ -242,7 +242,7 @@ CtrlStatus BackendDelegate::UpdateModelTableRpc() {
   for (auto iter : model_instances_) {
     auto const& inst_info = iter.second;
     auto cfg = request.add_model_instance_config();
-    cfg->mutable_model_session()->CopyFrom(inst_info.model_session);
+    cfg->add_model_session()->CopyFrom(inst_info.model_session);
     cfg->set_batch(inst_info.batch);
     cfg->set_max_batch(inst_info.max_batch);
     cfg->set_memory_usage(inst_info.memory_usage);

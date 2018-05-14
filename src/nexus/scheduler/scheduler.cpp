@@ -8,12 +8,12 @@
 
 namespace fs = boost::filesystem;
 
-namespace nexus {
-namespace scheduler {
-
 DEFINE_bool(epoch_schedule, true, "Enable epoch scheduling");
 DEFINE_int32(beacon, 2, "beacon interval in seconds");
 DEFINE_int32(epoch, 10, "epoch scheduling interval in seconds");
+
+namespace nexus {
+namespace scheduler {
 
 INSTANTIATE_RPC_CALL(AsyncService, Register, RegisterRequest, RegisterReply);
 INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);

@@ -22,16 +22,19 @@ namespace backend {
 
 class CaffeDenseCapModel : public ModelInstance {
  public:
-  CaffeDenseCapModel(int gpu_id, const ModelInstanceConfig& config,
-                     const YAML::Node& info);
+  CaffeDenseCapModel(int gpu_id, const ModelInstanceConfig& config);
+
+  Shape InputShape() const final;
+
+  std::unordered_map<std::string, Shape> OutputShapes() const final;
 
   ArrayPtr CreateInputGpuArray() final;
 
-  std::unordered_map<std::string, size_t> OutputSizes() const final;
+  std::unordered_map<std::string, ArrayPtr> GetOutputGpuArrays() final;
 
   void Preprocess(std::shared_ptr<Task> task) final;
 
-  void Forward(BatchInput* batch_input, BatchOutput* batch_output) final;
+  void Forward(std::shared_ptr<BatchTask> batch_task) final;
 
   void Postprocess(std::shared_ptr<Task> task) final;
 
@@ -58,8 +61,8 @@ class CaffeDenseCapModel : public ModelInstance {
   int image_height_;
   int image_width_;
   size_t input_size_;
-  std::vector<int> input_shape_;
-  std::unordered_map<std::string, size_t> output_sizes_;
+  Shape input_shape_;
+  std::unordered_map<std::string, Shape> output_shapes_;
   //caffe::Blob<float>* input_blob_;
   int feature_net_input_idx_;
   std::vector<boost::shared_ptr<caffe::Blob<float> > > input_blobs_;
