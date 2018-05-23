@@ -60,6 +60,8 @@ class EWMA {
 
   void AddSample(uint64_t count);
 
+  EWMA& operator=(const EWMA& other);
+
  private:
   uint32_t sample_interval_sec_;
   uint32_t avg_interval_sec_;

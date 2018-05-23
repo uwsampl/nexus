@@ -106,12 +106,11 @@ CaffeDenseCapModel::CaffeDenseCapModel(int gpu_id,
   output_shapes_.emplace("scores", Shape({max_batch_, max_boxes_, 2}));
 }
 
-Shape CaffeDenseCapModel::InputShape() const {
+Shape CaffeDenseCapModel::InputShape() {
   return input_shape_;
 }
 
-std::unordered_map<std::string, Shape> CaffeDenseCapModel::OutputShapes()
-    const {
+std::unordered_map<std::string, Shape> CaffeDenseCapModel::OutputShapes() {
   return output_shapes_;
 }
 

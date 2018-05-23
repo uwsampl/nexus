@@ -10,7 +10,7 @@
 #include "nexus/backend/caffe2_model.h"
 #include "nexus/backend/darknet_model.h"
 #include "nexus/backend/model_ins.h"
-#include "nexus/backend/prefix_model.h"
+#include "nexus/backend/share_prefix_model.h"
 #include "nexus/backend/tensorflow_model.h"
 
 DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
@@ -49,7 +49,7 @@ std::shared_ptr<ModelInstance> CreateModelInstance(
     int gpu_id, const ModelInstanceConfig& config) {
   std::shared_ptr<ModelInstance> model;
   if (config.model_session_size() > 1) {
-    model = std::make_shared<PrefixModel>(gpu_id, config);
+    model = std::make_shared<SharePrefixModel>(gpu_id, config);
     return model;
   }
 

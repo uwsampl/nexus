@@ -101,11 +101,11 @@ CaffeModel::CaffeModel(int gpu_id, const ModelInstanceConfig& config) :
   }
 }
 
-Shape CaffeModel::InputShape() const {
+Shape CaffeModel::InputShape() {
   return input_shape_;
 }
 
-std::unordered_map<std::string, Shape> CaffeModel::OutputShapes() const {
+std::unordered_map<std::string, Shape> CaffeModel::OutputShapes() {
   return {{ output_blob_name_, output_shape_ }};
 }
 

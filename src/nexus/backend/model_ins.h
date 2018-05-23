@@ -37,7 +37,7 @@ class ModelInstance {
   
   uint32_t batch() const { return batch_.load(); }
 
-  void set_batch(size_t batch);
+  virtual void set_batch(size_t batch);
 
   uint32_t max_batch() const { return max_batch_; }
       
@@ -47,12 +47,12 @@ class ModelInstance {
 
   std::shared_ptr<IntervalCounter> counter() const { return counter_; }
   
-  virtual Shape InputShape() const = 0;
+  virtual Shape InputShape() = 0;
   /*!
    * \brief
    * \return
    */
-  virtual std::unordered_map<std::string, Shape> OutputShapes() const = 0;
+  virtual std::unordered_map<std::string, Shape> OutputShapes() = 0;
   /*!
    * \brief Create input array in GPU memory that can hold input data up to
    * max batch size. This function can be called multiple times for double

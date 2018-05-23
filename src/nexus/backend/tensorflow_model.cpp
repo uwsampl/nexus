@@ -127,11 +127,11 @@ TensorflowModel::~TensorflowModel() {
   session_->Close();
 }
 
-Shape TensorflowModel::InputShape() const {
+Shape TensorflowModel::InputShape() {
   return input_shape_;
 }
 
-std::unordered_map<std::string, Shape> TensorflowModel::OutputShapes() const {
+std::unordered_map<std::string, Shape> TensorflowModel::OutputShapes() {
   return {{output_layer_, output_shape_}};
 }
 

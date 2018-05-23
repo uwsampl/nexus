@@ -27,9 +27,9 @@ class CaffeModel : public ModelInstance {
  public:
   CaffeModel(int gpu_id, const ModelInstanceConfig& config);
 
-  Shape InputShape() const final;
+  Shape InputShape() final;
 
-  std::unordered_map<std::string, Shape> OutputShapes() const final;
+  std::unordered_map<std::string, Shape> OutputShapes() final;
 
   ArrayPtr CreateInputGpuArray() final;
 

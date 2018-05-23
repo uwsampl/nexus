@@ -12,22 +12,14 @@
 #include "nexus/common/model_db.h"
 #include "nexus/common/model_def.h"
 #include "nexus/proto/control.grpc.pb.h"
+#include "nexus/scheduler/sch_info.h"
 
 namespace nexus {
 namespace scheduler {
 
 class Scheduler;
 
-struct InstanceInfo {
-  ModelSession model_session;
-  uint32_t batch;
-  uint32_t max_batch;
-  const ModelProfile* profile;
-  float fwd_latency_us;
-  float max_duty_cycle_us;
-  float throughput;
-  uint64_t memory_usage;
-};
+using InstanceInfoPtr = std::shared_ptr<InstanceInfo>;
 
 class BackendDelegate {
  public:
@@ -68,6 +60,9 @@ class BackendDelegate {
   
   void LoadModel(const YAML::Node& model_info);
 
+  void LoadPrefixModel(const ModelSession& model_session,
+                       const ModelSession& shared_session);
+
   void UnloadModel(const std::string& model_sess_id);
   /*!
    * \brief Update model throughput given model session id and throughput.
@@ -79,7 +74,7 @@ class BackendDelegate {
   float UpdateModelThroughput(const std::string& model_sess_id,
                               float throughput);
 
-  void SpillOutWorkload(std::vector<std::pair<std::string, float> >* spillout);
+  void SpillOutWorkload(std::vector<std::pair<SessionGroup, float> >* spillout);
 
   CtrlStatus UpdateModelTableRpc();
 
@@ -112,10 +107,19 @@ class BackendDelegate {
   long timeout_ms_;
   int workload_id_;
   std::unique_ptr<BackendCtrl::Stub> stub_;
-  /*! \brief Mapping from model session id to instance config */
-  std::unordered_map<std::string, InstanceInfo> model_instances_;
-  /*! \brief Mapping from model session id to incoming request rate */
-  std::unordered_map<std::string, EWMA> model_rps_;
+
+  std::vector<InstanceInfoPtr> model_instances_;
+  /*!
+   * \brief Mapping from model session id to instance information.
+   * It's possible that multiple model session ids mapping to same instance
+   * info due to prefix batching.
+   */
+  std::unordered_map<std::string, InstanceInfoPtr> session_instance_map_;
+  /*!
+   * \brief Mapping from model session id to incoming request rate.
+   * Mapping could be multiple to one.
+   */
+  std::unordered_map<std::string, std::shared_ptr<EWMA> > model_rps_;
   float exec_cycle_us_;
   float duty_cycle_us_;
   bool overload_;

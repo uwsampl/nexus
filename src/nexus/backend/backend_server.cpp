@@ -5,6 +5,7 @@
 #include "nexus/common/config.h"
 #include "nexus/common/model_db.h"
 #include "nexus/backend/backend_server.h"
+#include "nexus/backend/share_prefix_model.h"
 
 namespace nexus {
 namespace backend {
@@ -128,20 +129,68 @@ void BackendServer::HandleError(std::shared_ptr<Connection> conn,
 void BackendServer::UpdateModelTable(const ModelTableConfig& request,
                                      RpcReply* reply) {
   SpinlockGuard lock(model_table_lock_);
-  std::unordered_set<std::string> new_model_list;
+  std::unordered_set<std::string> new_sessions;
   for (auto config : request.model_instance_config()) {
     if (config.model_session_size() > 1) {
       // TODO: prefix model
+      std::shared_ptr<SharePrefixModel> prefix_model = nullptr;
+      for (auto model_sess : config.model_session()) {
+        std::string session_id = ModelSessionToString(model_sess);
+        auto find = model_table_.find(session_id);
+        if (find != model_table_.end()) {
+          auto model = find->second;
+          prefix_model = std::dynamic_pointer_cast<SharePrefixModel>(model);
+          if (prefix_model != nullptr) {
+            break;
+          } else {
+            // Remove its original model
+            gpu_executor_->RemoveModel(model);
+            model_table_.erase(session_id);
+          }
+        }
+      }
+      if (prefix_model == nullptr) {
+        // Create a new prefix model
+        LOG(INFO) << "Load prefix model instance " <<
+            ModelSessionToString(config.model_session(0)) << ", batch: " <<
+            config.batch();
+        auto model = CreateModelInstance(gpu_id_, config);
+        gpu_executor_->AddModel(model);
+        for (auto model_sess : config.model_session()) {
+          std::string session_id = ModelSessionToString(model_sess);
+          new_sessions.insert(session_id);
+          model_table_.emplace(session_id, model);
+        }
+      } else {
+        // Prefix model already exists
+        // Need to update batch size, and add new model sessions sharing prefix
+        if (prefix_model->batch() != config.batch()) {
+          LOG(INFO) << "Update prefix model instance " <<
+              prefix_model->model_session_id() << ", batch: " <<
+              prefix_model->batch() << " -> " << config.batch();
+          prefix_model->set_batch(config.batch());
+        }
+        for (auto model_sess : config.model_session()) {
+          std::string session_id = ModelSessionToString(model_sess);
+          new_sessions.insert(session_id);
+          if (!prefix_model->HasModelSession(session_id)) {
+            LOG(INFO) << "Add model session " << session_id <<
+                " to prefix model " << prefix_model->model_session_id();
+            prefix_model->AddModelSession(model_sess);
+            model_table_.emplace(session_id, prefix_model);
+          }
+        }
+      }
     } else {
       auto model_sess = config.model_session(0);
       std::string session_id = ModelSessionToString(model_sess);
-      new_model_list.insert(session_id);
+      new_sessions.insert(session_id);
       auto model_iter = model_table_.find(session_id);
       if (model_iter == model_table_.end()) {
         // Load new model instance
         auto model = CreateModelInstance(gpu_id_, config);
         model_table_.emplace(session_id, model);
-        gpu_executor_->AddModel(session_id, model);
+        gpu_executor_->AddModel(model);
         LOG(INFO) << "Load model instance " << session_id <<
             ", batch: " << config.batch();
       } else {
@@ -157,14 +206,26 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
   }
   std::vector<std::string> to_remove;
   for (auto iter : model_table_) {
-    if (new_model_list.find(iter.first) == new_model_list.end()) {
+    if (new_sessions.find(iter.first) == new_sessions.end()) {
       to_remove.push_back(iter.first);
     }
   }
   for (auto session_id : to_remove) {
-    LOG(INFO) << "Unload model instance " << session_id;
-    gpu_executor_->RemoveModel(session_id);
+    auto model = model_table_.at(session_id);
     model_table_.erase(session_id);
+    auto prefix_model = std::dynamic_pointer_cast<SharePrefixModel>(model);
+    if (prefix_model == nullptr) {
+      LOG(INFO) << "Remove model instance " << session_id;
+      gpu_executor_->RemoveModel(model);
+    } else {
+      LOG(INFO) << "Remove model session " << session_id <<
+          " from prefix model " << prefix_model->model_session_id();
+      prefix_model->RemoveModelSession(session_id);
+      if (prefix_model->num_model_sessions() == 0) {
+        LOG(INFO) << "Remove prefix model instance " << session_id;
+        gpu_executor_->RemoveModel(model);
+      }
+    }
   }
   reply->set_status(CTRL_OK);
 }

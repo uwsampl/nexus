@@ -17,6 +17,10 @@ class ModelExecutor {
   ModelExecutor(std::shared_ptr<ModelInstance> model,
                 BlockPriorityQueue<Task>& task_queue);
 
+  std::shared_ptr<ModelInstance> model_instance() const {
+    return model_;
+  }
+
   void AddInput(std::shared_ptr<Task> task);
 
   void Execute();
@@ -31,7 +35,6 @@ class ModelExecutor {
                       std::vector<std::shared_ptr<Input> >,
                       CompareDeadlineItem> input_queue_;
   std::shared_ptr<Array> input_array_;
-  std::unordered_map<std::string, size_t> output_sizes_;
   std::atomic<uint64_t> batch_id_;
   std::mutex mu_;
 };

@@ -29,20 +29,20 @@ void GpuExecutorMultiBatching::Stop() {
   }
 }
 
-void GpuExecutorMultiBatching::AddModel(const std::string& model_sess_id,
-                                        std::shared_ptr<ModelInstance> model) {
+void GpuExecutorMultiBatching::AddModel(std::shared_ptr<ModelInstance> model) {
   std::lock_guard<std::mutex> lock(models_mu_);
-  models_.emplace(model_sess_id, std::make_shared<ModelExecutor>(
+  models_.emplace(model->model_session_id(), std::make_shared<ModelExecutor>(
       model, cpu_task_queue_));
 }
 
-void GpuExecutorMultiBatching::RemoveModel(const std::string& model_sess_id) {
+void GpuExecutorMultiBatching::RemoveModel(
+    std::shared_ptr<ModelInstance> model) {
   std::lock_guard<std::mutex> lock(models_mu_);
-  models_.erase(model_sess_id);
+  models_.erase(model->model_session_id());
 }
 
 void GpuExecutorMultiBatching::AddTask(std::shared_ptr<Task> task) {
-  models_.at(task->query.model_session_id())->AddInput(task);
+  models_.at(task->model->model_session_id())->AddInput(task);
 }
 
 void GpuExecutorMultiBatching::Run() {
@@ -93,23 +93,24 @@ void GpuExecutorNoMultiBatching::Stop() {
 }
 
 void GpuExecutorNoMultiBatching::AddModel(
-    const std::string& model_sess_id, std::shared_ptr<ModelInstance> model) {
+    std::shared_ptr<ModelInstance> model) {
   std::lock_guard<std::mutex> lock(mu_);
   std::unique_ptr<GpuExecutorMultiBatching> exec(
       new GpuExecutorMultiBatching(gpu_id_, cpu_task_queue_));
-  exec->AddModel(model_sess_id, model);
+  exec->AddModel(model);
   exec->Start();
-  threads_.emplace(model_sess_id, std::move(exec));
+  threads_.emplace(model->model_session_id(), std::move(exec));
 }
 
-void GpuExecutorNoMultiBatching::RemoveModel(const std::string& model_sess_id) {
+void GpuExecutorNoMultiBatching::RemoveModel(
+    std::shared_ptr<ModelInstance> model) {
   std::lock_guard<std::mutex> lock(mu_);
-  threads_.at(model_sess_id)->Stop();
-  threads_.erase(model_sess_id);
+  threads_.at(model->model_session_id())->Stop();
+  threads_.erase(model->model_session_id());
 }
 
 void GpuExecutorNoMultiBatching::AddTask(std::shared_ptr<Task> task) {
-  threads_.at(task->query.model_session_id())->AddTask(task);
+  threads_.at(task->model->model_session_id())->AddTask(task);
 }
 
 } // namespace backend

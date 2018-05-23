@@ -201,14 +201,29 @@ size_t ModelDatabase::GetModelMemoryUsage(const std::string& gpu_device,
 
 int ModelDatabase::GetSharePrefixLength(const std::string& model_id1,
                                         const std::string& model_id2) const {
-  if (share_prefix_models_.find(model_id1) == share_prefix_models_.end()) {
+  auto iter = share_prefix_models_.find(model_id1);
+  if (iter == share_prefix_models_.end()) {
     return 0;
   }
-  auto const& shares = share_prefix_models_.at(model_id1);
+  auto const& shares = iter->second;
   if (shares.find(model_id2) == shares.end()) {
     return 0;
   }
   return shares.at(model_id2);
+}
+
+std::vector<std::string> ModelDatabase::GetPrefixShareModels(
+    const std::string& model_id) const {
+  auto find = share_prefix_models_.find(model_id);
+  if (find == share_prefix_models_.end()) {
+    return {};
+  }
+  auto const& shares = find->second;
+  std::vector<std::string> models;
+  for (auto iter : shares) {
+    models.push_back(iter.first);
+  }
+  return models;
 }
 
 void ModelDatabase::LoadModelInfo(const std::string& db_file) {

@@ -17,9 +17,8 @@ class GpuExecutor {
  public:
   virtual void Start() = 0;
   virtual void Stop() = 0;
-  virtual void AddModel(const std::string& model_sess_id,
-                        std::shared_ptr<ModelInstance> model) = 0;
-  virtual void RemoveModel(const std::string& model_sess_id) = 0;
+  virtual void AddModel(std::shared_ptr<ModelInstance> model) = 0;
+  virtual void RemoveModel(std::shared_ptr<ModelInstance> model) = 0;
   virtual void AddTask(std::shared_ptr<Task> task) = 0;
 };
 
@@ -34,14 +33,11 @@ class GpuExecutorMultiBatching : public GpuExecutor {
 
   void Stop() final;
 
-  void AddModel(const std::string& model_sess_id,
-                std::shared_ptr<ModelInstance> model) final;
+  void AddModel(std::shared_ptr<ModelInstance> model) final;
 
-  void RemoveModel(const std::string& model_sess_id) final;
+  void RemoveModel(std::shared_ptr<ModelInstance> model) final;
 
   void AddTask(std::shared_ptr<Task> task) final;
-
-  void RemoveTask(std::shared_ptr<Task> task);
 
  private:
   void Run();
@@ -65,10 +61,9 @@ class GpuExecutorNoMultiBatching : public GpuExecutor {
 
   void Stop();
 
-  void AddModel(const std::string& model_sess_id,
-                std::shared_ptr<ModelInstance> model) final;
+  void AddModel(std::shared_ptr<ModelInstance> model) final;
 
-  void RemoveModel(const std::string& model_sess_id) final;
+  void RemoveModel(std::shared_ptr<ModelInstance> model) final;
 
   void AddTask(std::shared_ptr<Task> task) final;
 

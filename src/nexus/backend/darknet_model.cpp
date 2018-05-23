@@ -105,11 +105,11 @@ DarknetModel::~DarknetModel() {
   free_network(net_);
 }
 
-Shape DarknetModel::InputShape() const {
+Shape DarknetModel::InputShape() {
   return input_shape_;
 }
 
-std::unordered_map<std::string, Shape> DarknetModel::OutputShapes() const {
+std::unordered_map<std::string, Shape> DarknetModel::OutputShapes() {
   return {{ output_name_, output_shape_ }};
 }
 

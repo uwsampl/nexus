@@ -47,7 +47,7 @@ void IntervalCounter::TickImpl() {
 EWMA::EWMA(uint32_t sample_interval_sec, uint32_t avg_interval_sec) :
     sample_interval_sec_(sample_interval_sec),
     avg_interval_sec_(avg_interval_sec),
-    rate_(-1) {
+    rate_() {
   alpha_ = 1 - exp(-1. * sample_interval_sec_ / avg_interval_sec_);
 }
 
@@ -64,6 +64,16 @@ void EWMA::AddSample(uint64_t count) {
   } else {
     rate_ += (current_rate - rate_) * alpha_;
   }
+}
+
+EWMA& EWMA::operator=(const EWMA& other) {
+  if (this != &other) {
+    sample_interval_sec_ = other.sample_interval_sec_;
+    avg_interval_sec_ = other.avg_interval_sec_;
+    rate_ = other.rate_;
+    alpha_ = other.alpha_;
+  }
+  return *this;
 }
 
 MetricRegistry& MetricRegistry::Singleton() {

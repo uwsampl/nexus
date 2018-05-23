@@ -9,12 +9,9 @@ ModelExecutor::ModelExecutor(std::shared_ptr<ModelInstance> model,
     task_queue_(task_queue),
     batch_id_(0) {
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(model->gpu_id());
-  profile_ = ModelDatabase::Singleton().GetModelProfile(gpu_device->name(),
-                                                        model->profile_id());
+  profile_ = ModelDatabase::Singleton().GetModelProfile(
+      gpu_device->device_name(), model->profile_id());
   input_array_ = model->CreateInputGpuArray();
-  for (auto iter : model->OutputShapes()) {
-    output_sizes_.emplace(iter.first, iter.second.NumElements(1));
-  }
 }
 
 void ModelExecutor::AddInput(std::shared_ptr<Task> task) {
@@ -40,7 +37,12 @@ void ModelExecutor::Execute() {
   }
   
   auto t3 = std::chrono::high_resolution_clock::now();
-  batch_task->CreateOutputArrays(output_sizes_,
+  // Each time recompute output sizes because it might change for prefix model
+  std::unordered_map<std::string, size_t> output_sizes;
+  for (auto iter : model_->OutputShapes()) {
+    output_sizes.emplace(iter.first, iter.second.NumElements(1));
+  }
+  batch_task->CreateOutputArrays(output_sizes,
                                  DeviceManager::Singleton().GetCPUDevice());
   model_->Forward(batch_task);
   auto t4 = std::chrono::high_resolution_clock::now();

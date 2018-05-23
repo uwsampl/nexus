@@ -18,6 +18,7 @@
 #include "nexus/proto/control.grpc.pb.h"
 #include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/frontend_delegate.h"
+#include "nexus/scheduler/sch_info.h"
 
 namespace nexus {
 namespace scheduler {
@@ -25,24 +26,8 @@ namespace scheduler {
 using AsyncService = nexus::SchedulerCtrl::AsyncService;
 using BackendDelegatePtr = std::shared_ptr<BackendDelegate>;
 using FrontendDelegatePtr = std::shared_ptr<FrontendDelegate>;
+using SessionInfoPtr = std::shared_ptr<SessionInfo>;
 using ServerList = std::unordered_set<uint32_t>;
-
-struct ModelInfo {
-  std::unordered_map<uint32_t, double> backend_throughputs;
-  std::unordered_set<uint32_t> subscribers;
-  std::deque<double> rps_history;
-  float unassigned_workload;
-
-  ModelInfo() : unassigned_workload(0) {}
-
-  double total_throughput() const {
-    double total = 0.;
-    for (auto iter : backend_throughputs) {
-      total += iter.second;
-    }
-    return total;
-  }
-};
 
 /*! \brief Scheduler acts as a global centralized scheduler server. */
 class Scheduler : public AsyncRpcServiceBase<AsyncService> {
@@ -247,7 +232,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \param changed_backends Output backends that loads new workloads.
    */
   void AllocateUnassignedWorkloads(
-      std::unordered_set<std::string>* changed_routes,
+      std::unordered_set<SessionInfoPtr>* changed_sessions,
       std::unordered_set<BackendDelegatePtr>* changed_backends = nullptr);
   /*!
    * \brief Update model routing tables to subscribed frontends
@@ -256,7 +241,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    *
    * \param model_sessions Model Sessions of which routing table changed.
    */
-  void UpdateModelRoutes(std::unordered_set<std::string> model_sessions);
+  void UpdateModelRoutes(std::unordered_set<SessionInfoPtr> sessions);
   /*!
    * \brief Print out model table for debugging.
    *
@@ -275,8 +260,10 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   uint32_t min_history_len_;
   /*! \brief History length to keep in the model stats */
   uint32_t history_len_;
-  /*! \brief Flag for turning on/off epoch scheduling */
+  /*! \brief Flag for enabling epoch scheduling */
   bool enable_epoch_schedule_;
+  /*1 \brief Flag for enabling prefix batching */
+  bool enable_prefix_batch_;
   /*! \brief Static workload configuration */
   std::vector<std::vector<YAML::Node> > static_workloads_;
   /*! \brief Mapping from static workload id to backend node id */
@@ -285,14 +272,15 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<uint32_t, FrontendDelegatePtr> frontends_;
   /*! \brief Mapping from backend node id to backend client */
   std::unordered_map<uint32_t, BackendDelegatePtr> backends_;
-  /*! \brief Mapping from model session ID to model information */
-  std::unordered_map<std::string, ModelInfo> model_table_;
+  /*! \brief Mapping from model session ID to session information */
+  std::unordered_map<std::string, SessionInfoPtr> session_table_;
+  /*! \brief Frontend subscribers */
+  std::unordered_map<std::string, ServerList> session_subscribers_;
   /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
 };
 
 } // namespace scheduler
 } // namespace nexus
-
 
 #endif // NEXUS_SCHEDULER_SCHEDULER_H_

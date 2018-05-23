@@ -80,6 +80,9 @@ class ModelDatabase {
   int GetSharePrefixLength(const std::string& model_id1,
                            const std::string& model_id2) const;
 
+  std::vector<std::string> GetPrefixShareModels(const std::string& model_id)
+      const;
+
  private:
   ModelDatabase() {}
 

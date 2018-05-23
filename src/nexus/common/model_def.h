@@ -20,6 +20,15 @@ inline std::string ModelID(const std::string& framework,
   return ss.str();
 }
 
+inline void ParseModelID(const std::string model_id,
+                         ModelSession* model_session) {
+  std::vector<std::string> tokens;
+  SplitString(model_id, ':', &tokens);
+  model_session->set_framework(tokens[0]);
+  model_session->set_model_name(tokens[1]);
+  model_session->set_version(std::stoi(tokens[2]));
+}
+
 inline std::string ModelSessionToModelID(const ModelSession& model_session) {
   std::stringstream ss;
   ss << model_session.framework() << ":" << model_session.model_name() << ":"

@@ -58,6 +58,7 @@ bool BackendDelegate::Assign(const BackendDelegate& other) {
     workload_id_ = other.workload_id_;
     model_rps_ = other.model_rps_;
     model_instances_ = other.model_instances_;
+    session_instance_map_ = other.session_instance_map_;
     exec_cycle_us_ = other.exec_cycle_us_;
     duty_cycle_us_ = other.exec_cycle_us_;
     dirty_model_table_ = true;
@@ -76,7 +77,7 @@ bool BackendDelegate::PrepareLoadModel(
     return false;
   }
   std::string model_sess_id = ModelSessionToString(model_sess);
-  if (model_instances_.find(model_sess_id) != model_instances_.end()) {
+  if (session_instance_map_.count(model_sess_id) > 0) {
     // Already load this model session
     return false;
   }
@@ -87,7 +88,7 @@ bool BackendDelegate::PrepareLoadModel(
     // Cannot find model profile for this GPU
     return false;
   }
-  inst_info->model_session.CopyFrom(model_sess);
+  inst_info->model_sessions.push_back(model_sess);
   inst_info->profile = profile;
   // Compute the best batch size for the workload
   ComputeBatchSize(inst_info, workload);
@@ -99,10 +100,9 @@ bool BackendDelegate::PrepareLoadModel(
   if (duty_cycle_us_ == 0 || inst_info->max_duty_cycle_us < duty_cycle_us_) {
     new_duty_cycle = inst_info->max_duty_cycle_us;
     new_exec_cycle = 0.;
-    for (auto iter : model_instances_) {
-      auto& info = iter.second;
-      uint32_t new_b = std::ceil(new_duty_cycle * info.throughput / 1e6);
-      new_exec_cycle += info.profile->GetForwardLatency(new_b);
+    for (auto info : model_instances_) {
+      uint32_t new_b = std::ceil(new_duty_cycle * info->throughput / 1e6);
+      new_exec_cycle += info->profile->GetForwardLatency(new_b);
     }
     new_exec_cycle += inst_info->fwd_latency_us;
   } else { // max_duty_cycle >= duty_cycle_us_
@@ -121,53 +121,109 @@ bool BackendDelegate::PrepareLoadModel(
 }
 
 void BackendDelegate::LoadModel(const InstanceInfo& inst_info) {
-  auto model_sess_id = ModelSessionToString(inst_info.model_session);
-  model_instances_.emplace(model_sess_id, inst_info);
-  model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
+  auto model_session_id = ModelSessionToString(inst_info.model_sessions[0]);
+  CHECK_EQ(session_instance_map_.count(model_session_id), 0) <<
+      "Model session " << model_session_id << " already exists.";
+  auto info = std::make_shared<InstanceInfo>(inst_info);
+  model_instances_.push_back(info);
+  session_instance_map_.emplace(model_session_id, info);
+  model_rps_.emplace(model_session_id, std::make_shared<EWMA>(1, epoch_sec_));
   UpdateCycle();
-  auto const& info = model_instances_.at(model_sess_id);
-  LOG(INFO) << "Backend " << node_id_ << " loads " << model_sess_id <<
-      ", batch " << info.batch << ", max batch " << info.max_batch <<
-      ", max duty cycle " << info.max_duty_cycle_us << " us, " <<
-      "throughput " << info.throughput << " req/s. Backend exec cycle " <<
+  LOG(INFO) << "Backend " << node_id_ << " loads " << model_session_id <<
+      ", batch " << info->batch << ", max batch " << info->max_batch <<
+      ", max duty cycle " << info->max_duty_cycle_us << " us, " <<
+      "throughput " << info->throughput << " req/s. Backend exec cycle " <<
       exec_cycle_us_ << " us, duty cycle: " << duty_cycle_us_ << " us";
 }
 
 void BackendDelegate::LoadModel(const YAML::Node& model_info) {
-  InstanceInfo inst_info;
-  ModelSession& sess = inst_info.model_session;
-  sess.set_framework(model_info["framework"].as<std::string>());
-  sess.set_model_name(model_info["model_name"].as<std::string>());
-  sess.set_version(model_info["version"].as<uint32_t>());
-  sess.set_latency_sla(model_info["latency_sla"].as<uint32_t>());
+  ModelSession sess;
+  if (model_info["share_prefix"]) {
+    auto base_model_info = model_info["share_prefix"][0];
+    sess.set_framework(base_model_info["framework"].as<std::string>());
+    sess.set_model_name(base_model_info["model_name"].as<std::string>());
+    sess.set_version(base_model_info["version"].as<uint32_t>());
+    sess.set_latency_sla(base_model_info["latency_sla"].as<uint32_t>());
+  } else {
+    sess.set_framework(model_info["framework"].as<std::string>());
+    sess.set_model_name(model_info["model_name"].as<std::string>());
+    sess.set_version(model_info["version"].as<uint32_t>());
+    sess.set_latency_sla(model_info["latency_sla"].as<uint32_t>());
+  }
   if (model_info["image_height"]) {
     sess.set_image_height(model_info["image_height"].as<uint32_t>());
     sess.set_image_width(model_info["image_width"].as<uint32_t>());
   }
-  std::string model_sess_id = ModelSessionToString(sess);
+  std::string model_session_id = ModelSessionToString(sess);
+  LOG(INFO) << model_session_id;
   std::string profile_id = ModelSessionToProfileID(sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
-  inst_info.batch = model_info["batch"].as<uint32_t>();
-  inst_info.max_batch = inst_info.batch;
-  //inst_info.max_batch = profile->GetMaxBatch(sess.latency_sla());
-  inst_info.fwd_latency_us = profile->GetForwardLatency(inst_info.batch);
-  inst_info.memory_usage = profile->GetMemoryUsage(inst_info.max_batch);
+  CHECK_EQ(session_instance_map_.count(model_session_id), 0) <<
+      "Model session " << model_session_id << " already exists.";
+
+  auto inst_info = std::make_shared<InstanceInfo>();
+  inst_info->model_sessions.push_back(sess);
+  inst_info->profile = profile;
+  inst_info->batch = model_info["batch"].as<uint32_t>();
+  inst_info->max_batch = inst_info->batch;
+  //inst_info->max_batch = profile->GetMaxBatch(sess.latency_sla());
+  inst_info->fwd_latency_us = profile->GetForwardLatency(inst_info->batch);
+  inst_info->memory_usage = profile->GetMemoryUsage(inst_info->max_batch);
+  model_instances_.push_back(inst_info);
+  session_instance_map_.emplace(model_session_id, inst_info);
+  auto rps = std::make_shared<EWMA>(1, epoch_sec_);
+  model_rps_.emplace(model_session_id, rps);
+
+  if (model_info["share_prefix"]) {
+    for (int i = 1; i < model_info["share_prefix"].size(); ++i) {
+      auto share_model_info = model_info["share_prefix"][i];
+      ModelSession share_sess;
+      share_sess.set_framework(share_model_info["framework"].as<std::string>());
+      share_sess.set_model_name(share_model_info["model_name"].
+                                as<std::string>());
+      share_sess.set_version(share_model_info["version"].as<uint32_t>());
+      share_sess.set_latency_sla(share_model_info["latency_sla"].
+                                 as<uint32_t>());
+      if (model_info["image_height"]) {
+        share_sess.set_image_height(model_info["image_height"].as<uint32_t>());
+        share_sess.set_image_width(model_info["image_width"].as<uint32_t>());
+      }
+      std::string share_sess_id = ModelSessionToString(share_sess);
+      LOG(INFO) << share_sess_id;
+      inst_info->model_sessions.push_back(share_sess);
+      session_instance_map_.emplace(share_sess_id, inst_info);
+      model_rps_.emplace(share_sess_id, rps);
+    }
+  }
 
   // update execution and batch cycles and throughput
-  model_instances_.emplace(model_sess_id, inst_info);
-  model_rps_.emplace(model_sess_id, EWMA(1, epoch_sec_));
-  exec_cycle_us_ += inst_info.fwd_latency_us;
-  duty_cycle_us_ += inst_info.fwd_latency_us;
-  for (auto& iter : model_instances_) {
-    auto& info = iter.second;
-    info.throughput = info.batch * 1e6 / duty_cycle_us_;
+  exec_cycle_us_ += inst_info->fwd_latency_us;
+  duty_cycle_us_ += inst_info->fwd_latency_us;
+  for (auto other_info : model_instances_) {
+    other_info->throughput = other_info->batch * 1e6 / duty_cycle_us_;
   }
   dirty_model_table_ = true;
 
-  LOG(INFO) << "Backend " << node_id_ << " loads " << model_sess_id <<
-      ", batch " << inst_info.batch << ", exec cycle " << exec_cycle_us_ <<
+  LOG(INFO) << "Backend " << node_id_ << " loads " << model_session_id <<
+      ", batch " << inst_info->batch << ", exec cycle " << exec_cycle_us_ <<
       " us, duty cycle: " << duty_cycle_us_ << " us";
+}
+
+void BackendDelegate::LoadPrefixModel(const ModelSession& model_session,
+                                      const ModelSession& shared_session) {
+  std::string model_session_id = ModelSessionToString(model_session);
+  std::string shared_session_id = ModelSessionToString(shared_session);
+  CHECK_EQ(session_instance_map_.count(model_session_id), 0) <<
+      "Model session " << model_session_id << " already exists.";
+  CHECK_GT(session_instance_map_.count(shared_session_id), 0) <<
+      "Model session " << shared_session_id << " doesn't exist.";
+  auto inst_info = session_instance_map_.at(shared_session_id);
+  inst_info->model_sessions.push_back(model_session);
+  session_instance_map_.emplace(model_session_id, inst_info);
+  auto rps = model_rps_.at(shared_session_id);
+  model_rps_.emplace(model_session_id, rps);
+  dirty_model_table_ = true;
 }
 
 void BackendDelegate::UnloadModel(const std::string& model_sess_id) {
@@ -175,17 +231,36 @@ void BackendDelegate::UnloadModel(const std::string& model_sess_id) {
     return;
   }
   LOG(INFO) << "Backend " << node_id_ << " unload model: " << model_sess_id;
-  auto config = model_instances_.at(model_sess_id);
-  model_instances_.erase(model_sess_id);
+  auto inst_info = session_instance_map_.at(model_sess_id);
+  session_instance_map_.erase(model_sess_id);
   model_rps_.erase(model_sess_id);
-  UpdateCycle();
+  // Remove model session from instance info
+  for (auto iter = inst_info->model_sessions.begin();
+       iter != inst_info->model_sessions.end(); ++iter) {
+    if (ModelSessionToString(*iter) == model_sess_id) {
+      inst_info->model_sessions.erase(iter);
+      break;
+    }
+  }
+  if (inst_info->model_sessions.empty()) {
+    for (auto iter = model_instances_.begin(); iter != model_instances_.end();
+         ++iter) {
+      if (*iter == inst_info) {
+        model_instances_.erase(iter);
+        break;
+      }
+    }
+    UpdateCycle();
+  }
+
+  dirty_model_table_ = true;
 }
 
 float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
                                              float workload) {
-  InstanceInfo* inst_info = &model_instances_.at(model_sess_id);
+  auto inst_info = session_instance_map_.at(model_sess_id);
   float prev_throughput = inst_info->throughput;
-  ComputeBatchSize(inst_info, workload);
+  ComputeBatchSize(inst_info.get(), workload);
   if (std::abs(prev_throughput - inst_info->throughput) > 1e-3) {
     UpdateCycle();
     LOG(INFO) << "Backend " << node_id_ << " updates " << model_sess_id <<
@@ -196,19 +271,19 @@ float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
 }
 
 void BackendDelegate::SpillOutWorkload(
-    std::vector<std::pair<std::string, float> >* spillout) {
+    std::vector<std::pair<SessionGroup, float> >* spillout) {
   if (!overload_ || workload_id_ >= 0) {
     return;
   }
-  std::vector<std::tuple<std::string, float, float> > workloads;
-  for (auto iter : model_instances_) {
-    workloads.emplace_back(iter.first, iter.second.fwd_latency_us,
-                           iter.second.throughput);
+  std::vector<std::tuple<SessionGroup, float, float> > workloads;
+  for (auto inst_info : model_instances_) {
+    workloads.emplace_back(inst_info->model_sessions, inst_info->fwd_latency_us,
+                           inst_info->throughput);
   }
   // Sort workload based on exec latency
   std::sort(workloads.begin(), workloads.end(),
-            [](std::tuple<std::string, float, float> a,
-               std::tuple<std::string, float, float> b) {
+            [](std::tuple<SessionGroup, float, float> a,
+               std::tuple<SessionGroup, float, float> b) {
               return std::get<1>(a) > std::get<1>(b);
             });
   // Recompute exec cycle and duty cycle
@@ -216,17 +291,18 @@ void BackendDelegate::SpillOutWorkload(
   exec_cycle_us_ = 0.;
   duty_cycle_us_ = 0.;
   for (auto iter : workloads) {
-    auto model_sess_id = std::get<0>(iter);
-    ModelSession model_sess;
-    ParseModelSession(model_sess_id, &model_sess);
+    SessionGroup sessions = std::get<0>(iter);
     float workload = std::get<2>(iter);
     InstanceInfo inst_info;
     float occupancy;
-    bool ret = PrepareLoadModel(model_sess, workload, &inst_info, &occupancy);
+    bool ret = PrepareLoadModel(sessions[0], workload, &inst_info, &occupancy);
     if (!ret) {
-      spillout->emplace_back(model_sess_id, workload);
+      spillout->emplace_back(sessions, workload);
     } else {
       LoadModel(inst_info);
+      for (int i = 1; i < sessions.size(); ++i) {
+        LoadPrefixModel(sessions[i], sessions[0]);
+      }
     }
   }
   CHECK_LE(exec_cycle_us_, duty_cycle_us_);
@@ -239,13 +315,14 @@ CtrlStatus BackendDelegate::UpdateModelTableRpc() {
   }
   ModelTableConfig request;
   RpcReply reply;
-  for (auto iter : model_instances_) {
-    auto const& inst_info = iter.second;
+  for (auto inst_info : model_instances_) {
     auto cfg = request.add_model_instance_config();
-    cfg->add_model_session()->CopyFrom(inst_info.model_session);
-    cfg->set_batch(inst_info.batch);
-    cfg->set_max_batch(inst_info.max_batch);
-    cfg->set_memory_usage(inst_info.memory_usage);
+    for (auto& model_sess : inst_info->model_sessions) {
+      cfg->add_model_session()->CopyFrom(model_sess);
+    }
+    cfg->set_batch(inst_info->batch);
+    cfg->set_max_batch(inst_info->max_batch);
+    cfg->set_memory_usage(inst_info->memory_usage);
   }
   
   // Invoke UpdateModelTable RPC
@@ -265,39 +342,39 @@ CtrlStatus BackendDelegate::UpdateModelTableRpc() {
 void BackendDelegate::UpdateStats(const BackendStatsProto& backend_stats) {
   last_time_ = std::chrono::system_clock::now();
   for (auto model_stats : backend_stats.model_stats()) {
-    auto& rps = model_rps_.at(model_stats.model_session_id());
+    auto rps = model_rps_.at(model_stats.model_session_id());
     for (auto num_requests : model_stats.num_requests()) {
-      if (rps.rate() < 0 && num_requests == 0) {
+      if (rps->rate() < 0 && num_requests == 0) {
         continue;
       }
-      rps.AddSample(num_requests);
+      rps->AddSample(num_requests);
     }
   }
 }
 
 void BackendDelegate::AllModelSessions(std::vector<std::string>* sessions)
     const {
-  for (auto iter : model_instances_) {
+  for (auto iter : session_instance_map_) {
     sessions->push_back(iter.first);
   }
 }
 
 const InstanceInfo* BackendDelegate::GetInstanceInfo(
     const std::string& model_sess_id) const {
-  auto iter = model_instances_.find(model_sess_id);
-  if (iter == model_instances_.end()) {
+  auto iter = session_instance_map_.find(model_sess_id);
+  if (iter == session_instance_map_.end()) {
     return nullptr;
   }
-  return &iter->second;
+  return iter->second.get();
 }
 
 float BackendDelegate::GetModelThroughput(const std::string& model_sess_id)
     const {
-  return model_instances_.at(model_sess_id).throughput;
+  return session_instance_map_.at(model_sess_id)->throughput;
 }
 
 float BackendDelegate::GetModelRps(const std::string& model_sess_id) const {
-  return std::max(0., model_rps_.at(model_sess_id).rate());
+  return std::max(0., model_rps_.at(model_sess_id)->rate());
 }
 
 bool BackendDelegate::IsAlive() {
@@ -332,7 +409,7 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
   uint32_t batch, max_batch;
   float max_throughput;
   max_batch = inst_info->profile->GetMaxBatch(
-      inst_info->model_session.latency_sla());
+      inst_info->model_sessions[0].latency_sla());
   max_throughput = max_batch * 1e6 / inst_info->profile->GetForwardLatency(
       max_batch);
   // std::tie(batch, max_throughput) = inst_info->profile->GetMaxThroughput(
@@ -349,7 +426,7 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
   }
 
   // 2. Compute the max batch for residue load
-  double latency_sla_us = inst_info->model_session.latency_sla() * 1000;
+  double latency_sla_us = inst_info->model_sessions[0].latency_sla() * 1000;
   float preprocess = inst_info->profile->GetPreprocessLatency();
   float postprocess = inst_info->profile->GetPostprocessLatency();
   batch = 1;
@@ -386,25 +463,23 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
 void BackendDelegate::UpdateCycle() {
   exec_cycle_us_ = 0.;
   duty_cycle_us_ = 0.;
-  for (auto iter : model_instances_) {
-    auto& inst_info = iter.second;
-    if (duty_cycle_us_ == 0 || inst_info.max_duty_cycle_us < duty_cycle_us_) {
-      duty_cycle_us_ = inst_info.max_duty_cycle_us;
+  for (auto inst_info : model_instances_) {
+    if (duty_cycle_us_ == 0 || inst_info->max_duty_cycle_us < duty_cycle_us_) {
+      duty_cycle_us_ = inst_info->max_duty_cycle_us;
     }
   }
-  for (auto& iter : model_instances_) {
-    auto& inst_info = iter.second;
-    inst_info.batch = std::ceil(duty_cycle_us_ * inst_info.throughput / 1e6);
-    if (inst_info.batch > inst_info.max_batch) {
+  for (auto inst_info : model_instances_) {
+    inst_info->batch = std::ceil(duty_cycle_us_ * inst_info->throughput / 1e6);
+    if (inst_info->batch > inst_info->max_batch) {
       overload_ = true;
-      inst_info.batch = 0;
-      inst_info.fwd_latency_us = inst_info.profile->GetForwardLatency(
-          inst_info.max_batch);
+      inst_info->batch = 0;
+      inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
+          inst_info->max_batch);
     } else {
-      inst_info.fwd_latency_us = inst_info.profile->GetForwardLatency(
-          inst_info.batch);
+      inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
+          inst_info->batch);
     }
-    exec_cycle_us_ += inst_info.fwd_latency_us;
+    exec_cycle_us_ += inst_info->fwd_latency_us;
   }
   dirty_model_table_ = true;
   if (exec_cycle_us_ > duty_cycle_us_) {
