@@ -255,7 +255,7 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
   for (uint i = 0; i < shares.size(); ++i) {
     auto const& share = shares[i];
     int prefix_length = share["prefix_length"].as<int>();
-    LOG(INFO) << "prefix length: " << prefix_length;
+    VLOG(1) << "prefix length: " << prefix_length;
     std::vector<std::string> share_models;
     for (uint j = 0; j < share["models"].size(); ++j) {
       auto const& model = share["models"][j];
@@ -266,7 +266,7 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
       if (share_prefix_models_.find(model_id) == share_prefix_models_.end()) {
         share_prefix_models_.emplace(model_id, PrefixMap());
       }
-      LOG(INFO) << " - " << model_id;
+      VLOG(1) << " - " << model_id;
     }
     for (uint j = 0; j < share_models.size(); ++j) {
       for (uint k = j + 1; k < share_models.size(); ++k) {

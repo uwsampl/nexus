@@ -129,11 +129,8 @@ class ModelProfiler {
     for (int batch = min_batch; batch <= max_batch; ++batch) {
       config.set_batch(batch);
       config.set_max_batch(batch);
-      LOG(INFO) << "1";
       auto model = CreateModelInstance(gpu_, config);
-      LOG(INFO) << "2";
       ModelExecutor model_exec(model, task_queue);
-      LOG(INFO) << "3";
       std::vector<uint64_t> forward_lats;
       for (int i = 0; i < batch * (repeat + 1); ++i) {
         int idx = i % preproc_tasks.size();
@@ -144,10 +141,8 @@ class ModelProfiler {
         task->AppendInput(preproc_tasks[idx]->inputs[0]->array);
         model_exec.AddInput(task);
       }
-      LOG(INFO) << "a";
       // dry run
       model_exec.Execute();
-      LOG(INFO) << "b";
       // start meansuring forward latency
       for (int i = 0; i < repeat; ++i) {
         auto beg = std::chrono::high_resolution_clock::now();

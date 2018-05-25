@@ -47,41 +47,49 @@ void ModelInstance::set_batch(size_t batch) {
 
 std::shared_ptr<ModelInstance> CreateModelInstance(
     int gpu_id, const ModelInstanceConfig& config) {
+  auto beg = Clock::now();
   std::shared_ptr<ModelInstance> model;
-  if (config.model_session_size() > 1) {
-    model = std::make_shared<SharePrefixModel>(gpu_id, config);
-    return model;
-  }
 
-  std::string framework = config.model_session(0).framework();
-  std::string model_name = config.model_session(0).model_name();
+  if (config.model_session_size() > 1) {
+    LOG(INFO) << "Create prefix model";
+    model = std::make_shared<SharePrefixModel>(gpu_id, config);
+  } else {
+    std::string framework = config.model_session(0).framework();
+    std::string model_name = config.model_session(0).model_name();
 #ifdef USE_DARKNET
-  if (framework == "darknet") {
-    model = std::make_shared<DarknetModel>(gpu_id, config);
-  } else
+    if (framework == "darknet") {
+      model = std::make_shared<DarknetModel>(gpu_id, config);
+    } else
 #endif
 #ifdef USE_CAFFE
-  if (framework == "caffe") {
-    if (model_name == "densecap") {
-      model = std::make_shared<CaffeDenseCapModel>(gpu_id, config);
-    } else {
-      model = std::make_shared<CaffeModel>(gpu_id, config);
-    }
-  } else
+    if (framework == "caffe") {
+      if (model_name == "densecap") {
+        model = std::make_shared<CaffeDenseCapModel>(gpu_id, config);
+      } else {
+        model = std::make_shared<CaffeModel>(gpu_id, config);
+      }
+    } else
 #endif
 #ifdef USE_CAFFE2
-  if (framework == "caffe2") {
-    model = std::make_shared<Caffe2Model>(gpu_id, config);
-  } else
+    if (framework == "caffe2") {
+      model = std::make_shared<Caffe2Model>(gpu_id, config);
+    } else
 #endif
 #ifdef USE_TENSORFLOW
-  if (framework == "tensorflow") {
+    if (framework == "tensorflow") {
       model = std::make_shared<TensorflowModel>(gpu_id, config);
-  } else
+    } else
 #endif
-  {
-    LOG(FATAL) << "Unknown framework " << framework;
+    {
+      LOG(FATAL) << "Unknown framework " << framework;
+    }
   }
+
+  auto end = Clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      end - beg);
+  LOG(INFO) << "Loading model time: " << duration.count() << "ms";
+
   return model;
 }
 
