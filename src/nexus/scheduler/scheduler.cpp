@@ -149,7 +149,11 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
     reply->set_status(CTRL_OK);
     GetModelRoute(model_sess_id, reply->mutable_model_route());
     frontend->SubscribeModel(model_sess_id);
-    session_subscribers_.at(model_sess_id).insert(request.node_id());
+    if (session_subscribers_.count(model_sess_id) == 0) {
+      session_subscribers_.emplace(model_sess_id, ServerList{request.node_id()});
+    } else {
+      session_subscribers_.at(model_sess_id).insert(request.node_id());
+    }
     return;
   }
   
