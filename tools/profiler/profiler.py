@@ -23,6 +23,8 @@ def find_max_batch(framework, model_name):
     global args
     cmd_base = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s' % (
         _profiler, args.model_dir, args.dataset, args.gpu, framework, model_name)
+    if args.height > 0 and args.width > 0:
+        cmd_base += ' -height %s -width %s' % (args.height, args.width)
     left = 1
     right = 64
     curr_tp = None
@@ -78,13 +80,22 @@ def find_max_batch(framework, model_name):
 
 def profile_model(framework, model_name):
     global args
-    print('Profile %s:%s' % (framework, model_name))
+    prof_id = '%s:%s:%s' % (framework, model_name, args.version)
+    if args.height > 0 and args.width > 0:
+        prof_id += ':%sx%s' % (args.height, args.width)
+    print('Profile %s' % prof_id)
+
     max_batch = find_max_batch(framework, model_name)
     print('Max batch: %s' % max_batch)
-    cmd = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -max_batch %s -output %s:%s:%s.txt' % (
+
+    output = prof_id + '.txt'
+    cmd = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -max_batch %s -output %s' % (
         _profiler, args.model_dir, args.dataset, args.gpu, framework, model_name,
-        max_batch, framework, model_name, args.version)
+        max_batch, output)
+    if args.height > 0 and args.width > 0:
+        cmd += ' -height %s -width %s' % (args.height, args.width)
     print(cmd)
+
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
     proc.communicate()
@@ -105,6 +116,8 @@ def main():
     parser.add_argument('--model_dir', type=str,
                         default='/home/haichen/nexus-models',
                         help='Model root directory')
+    parser.add_argument('--height', type=int, default=0, help='Image height')
+    parser.add_argument('--width', type=int, default=0, help='Image width')
     global args
     args = parser.parse_args()
 

@@ -189,8 +189,8 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
     LOG(ERROR) << "Load model error: " << CtrlStatus_Name(reply.status());
     return nullptr;
   }
-  auto model_handler = std::make_shared<ModelHandler>(req.model_session(),
-                                                      backend_pool_);
+  auto model_handler = std::make_shared<ModelHandler>(
+      reply.model_route().model_session_id(), backend_pool_);
   {
     std::lock_guard<std::mutex> lock(model_pool_mu_);
     model_pool_.emplace(model_handler->model_session_id(), model_handler);

@@ -138,6 +138,7 @@ std::unordered_map<std::string, ArrayPtr> DarknetModel::GetOutputGpuArrays() {
 
 void DarknetModel::Preprocess(std::shared_ptr<Task> task) {
   auto prepare_image = [&](cv::Mat& cv_img) {
+#if 0
     image img = cvmat_to_image(cv_img);
     //image resized = resize_image(img, net_->w, net_->h);
     image resized = letterbox_image(img, net_->w, net_->h);
@@ -145,14 +146,14 @@ void DarknetModel::Preprocess(std::shared_ptr<Task> task) {
     auto buf = std::make_shared<Buffer>(
         resized.data, nfloats * sizeof(float), cpu_device_, true);
     free_image(img);
-    /*
+#else
     cv::Mat resized_image;
     cv::resize(cv_img, resized_image, cv::Size(net_->w, net_->h));
     image input = cvmat_to_image(resized_image);
     size_t nfloats = net_->w * net_->h * 3;
     auto buf = std::make_shared<Buffer>(
         input.data, nfloats * sizeof(float), cpu_device_, true);
-    */
+#endif
     auto in_arr = std::make_shared<Array>(DT_FLOAT, nfloats, buf);
     task->AppendInput(in_arr);
   };

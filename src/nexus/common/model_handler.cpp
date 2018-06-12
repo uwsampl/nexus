@@ -79,14 +79,14 @@ void OutputFuture::WaitForReadyOrTimeout() {
   }
 }
 
-ModelHandler::ModelHandler(const ModelSession& model_session,
+ModelHandler::ModelHandler(const std::string& model_session_id,
                            BackendPool& pool) :
-    model_session_(model_session),
+    model_session_id_(model_session_id),
     backend_pool_(pool),
     query_id_(0),
     total_throughput_(0.),
     rand_gen_(rd_()) {
-  model_session_id_ = ModelSessionToString(model_session);
+  ParseModelSession(model_session_id, &model_session_);
 }
 
 std::shared_ptr<OutputFuture> ModelHandler::Execute(

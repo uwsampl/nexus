@@ -66,7 +66,7 @@ class OutputFuture {
 
 class ModelHandler {
  public:
-  ModelHandler(const ModelSession& model_session, BackendPool& pool);
+  ModelHandler(const std::string& model_session_id, BackendPool& pool);
 
   std::string model_session_id() const { return model_session_id_; }
 

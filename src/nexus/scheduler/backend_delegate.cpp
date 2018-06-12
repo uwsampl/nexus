@@ -155,7 +155,6 @@ void BackendDelegate::LoadModel(const YAML::Node& model_info) {
     sess.set_image_width(model_info["image_width"].as<uint32_t>());
   }
   std::string model_session_id = ModelSessionToString(sess);
-  LOG(INFO) << model_session_id;
   std::string profile_id = ModelSessionToProfileID(sess);
   auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
                                                             profile_id);
@@ -190,7 +189,6 @@ void BackendDelegate::LoadModel(const YAML::Node& model_info) {
         share_sess.set_image_width(model_info["image_width"].as<uint32_t>());
       }
       std::string share_sess_id = ModelSessionToString(share_sess);
-      LOG(INFO) << share_sess_id;
       inst_info->model_sessions.push_back(share_sess);
       session_instance_map_.emplace(share_sess_id, inst_info);
       model_rps_.emplace(share_sess_id, rps);
@@ -469,7 +467,12 @@ void BackendDelegate::UpdateCycle() {
     }
   }
   for (auto inst_info : model_instances_) {
-    inst_info->batch = std::ceil(duty_cycle_us_ * inst_info->throughput / 1e6);
+    float batch = duty_cycle_us_ * inst_info->throughput / 1e6;
+    if (batch - std::floor(batch) < 1e-3) {
+      inst_info->batch = std::floor(batch);
+    } else {
+      inst_info->batch = std::ceil(batch);
+    }
     if (inst_info->batch > inst_info->max_batch) {
       overload_ = true;
       inst_info->batch = 0;
