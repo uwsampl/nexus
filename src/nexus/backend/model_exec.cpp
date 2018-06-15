@@ -14,8 +14,9 @@ ModelExecutor::ModelExecutor(std::shared_ptr<ModelInstance> model,
   input_array_ = model->CreateInputGpuArray();
 }
 
-void ModelExecutor::AddInput(std::shared_ptr<Task> task) {
+void ModelExecutor::AddTask(std::shared_ptr<Task> task) {
   std::lock_guard<std::mutex> lock(mu_);
+  processing_tasks_.emplace(task->tid, task);
   for (auto input : task->inputs) {
     input_queue_.push(input);
   }
@@ -32,9 +33,9 @@ void ModelExecutor::Execute() {
   if (batch_task->batch_size() == 0) {
     return;
   }
-  for (auto input : batch_task->inputs()) {
-    input->task->timer.Record("batch");
-  }
+  // for (auto input : batch_task->inputs()) {
+  //   processing_tasks_.at(input->tid)->timer.Record("batch");
+  // }
   
   auto t3 = std::chrono::high_resolution_clock::now();
   // Each time recompute output sizes because it might change for prefix model
@@ -56,17 +57,18 @@ void ModelExecutor::Execute() {
       ", memcpy " << memcpy_lat << " ms, forward " << forward_lat << " ms";
 
   auto outputs = batch_task->outputs();
-  for (auto output : batch_task->outputs()) {
-    auto task = output->task;
+  auto tasks = batch_task->tasks();
+  for (int i = 0; i < outputs.size(); ++i) {
+    auto output = outputs[i];
+    auto task = tasks[i];
     if (task->AddOutput(output)) {
-      task->stage = kPostprocess;
-      task_queue_.push(task);
+      RemoveTask(task);
     }
   }
 }
 
 void ModelExecutor::GetBatchInput(std::shared_ptr<BatchTask> batch_task) {
-  std::lock_guard<std::mutex> lock(mu_);
+  std::unique_lock<std::mutex> lock(mu_);
   size_t batch_size = input_queue_.size();
   if (batch_size > model_->batch()) {
     batch_size = model_->batch();
@@ -79,17 +81,27 @@ void ModelExecutor::GetBatchInput(std::shared_ptr<BatchTask> batch_task) {
   while (batch_task->batch_size() < batch_size && !input_queue_.empty()) {
     auto input = std::move(input_queue_.top());
     input_queue_.pop();
-    if (profile_ != nullptr && input->task->deadline() < finish) {
-      if (input->task->AddVirtualOutput(input->index_in_task)) {
-        input->task->stage = kPostprocess;
-        task_queue_.push(input->task);
+    auto task = processing_tasks_.at(input->tid);
+    if (task->result.status() != CTRL_OK ||
+        (profile_ != nullptr && input->deadline() < finish)) {
+      if (task->AddVirtualOutput(input->index)) {
+        lock.unlock();
+        RemoveTask(task);
+        lock.lock();
       }
     } else {
-      batch_task->AppendInput(input);
+      batch_task->AppendInput(input, task);
     }
   }
+  lock.unlock();
 }
 
+void ModelExecutor::RemoveTask(std::shared_ptr<Task> task) {
+  std::lock_guard<std::mutex> lock(mu_);
+  task->stage = kPostprocess;
+  task_queue_.push(task);
+  processing_tasks_.erase(task->tid);
+}
 
 } // namespace backend
 } // namespace nexus

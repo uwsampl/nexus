@@ -75,6 +75,8 @@ class Array {
 
   std::shared_ptr<Array> Slice(size_t offset, size_t num_elements);
 
+  std::shared_ptr<Buffer> buffer() const { return buffer_; }
+
  private:
   DataType data_type_;
   size_t num_elements_;

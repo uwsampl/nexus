@@ -139,7 +139,7 @@ class ModelProfiler {
         task->query.set_query_id(i);
         task->attrs = preproc_tasks[idx]->attrs;
         task->AppendInput(preproc_tasks[idx]->inputs[0]->array);
-        model_exec.AddInput(task);
+        model_exec.AddTask(task);
       }
       // dry run
       model_exec.Execute();
@@ -174,6 +174,7 @@ class ModelProfiler {
     }
 
     LOG(INFO) << "Final free memory: " << gpu_device_->FreeMemory();
+    preproc_tasks.clear();
     
     // output to file
     std::ostream* fout;

@@ -42,7 +42,7 @@ void GpuExecutorMultiBatching::RemoveModel(
 }
 
 void GpuExecutorMultiBatching::AddTask(std::shared_ptr<Task> task) {
-  models_.at(task->model->model_session_id())->AddInput(task);
+  models_.at(task->model->model_session_id())->AddTask(task);
 }
 
 void GpuExecutorMultiBatching::Run() {

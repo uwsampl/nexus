@@ -47,13 +47,15 @@ ArrayPtr BatchTask::GetOutputArray(const std::string& name) const {
   return output_arrays_.at(name);
 }
 
-void BatchTask::AppendInput(std::shared_ptr<Input> input) {
+void BatchTask::AppendInput(std::shared_ptr<Input> input,
+                            std::shared_ptr<Task> task) {
   CHECK_EQ(input_array_->data_type(), input->array->data_type()) <<
       "Input data type is not float";
   CHECK_LT(inputs_.size(), max_batch_) << "Exceed max batch size";
   CHECK_LE(input_nfloats_ + input->array->num_elements(),
            input_array_->num_elements()) << "Exceeds input_array capacity";
   inputs_.push_back(input);
+  tasks_.push_back(task);
   auto in_arr = input->array;
   const float* src_data = in_arr->Data<float>();
   Memcpy(input_write_pt_, input_array_->device(), src_data, in_arr->device(),
@@ -74,8 +76,8 @@ void BatchTask::SliceOutputBatch(
       slice_arrays.emplace(iter.first, iter.second->Slice(
           slice.offset(i), slice.num_elements(i)));
     }
-    outputs_.push_back(std::make_shared<Output>(slice_arrays, input->task,
-                                                input->index_in_task));
+    outputs_.push_back(std::make_shared<Output>(input->tid, input->index,
+                                                slice_arrays));
   }
 }
 

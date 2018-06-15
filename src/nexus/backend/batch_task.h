@@ -62,7 +62,7 @@ class BatchTask {
    * \brief Append a new input into the batch input.
    * \param input A single input.
    */
-  void AppendInput(std::shared_ptr<Input> input);
+  void AppendInput(std::shared_ptr<Input> input, std::shared_ptr<Task> task);
   /*!
    * \brief Slice the batch output into individual outputs.
    * \param slices Slices for all arrays.
@@ -78,6 +78,10 @@ class BatchTask {
   }
   /*! \brief Set individual outputs. */
   void set_outputs(const std::vector<std::shared_ptr<Output> >& outputs);
+  /*! \brief Get all tasks in the batch. */
+  inline const std::vector<std::shared_ptr<Task> >& tasks() const {
+    return tasks_;
+  }
 
  private:
   /*! \brief Batch ID. */
@@ -92,6 +96,8 @@ class BatchTask {
   size_t input_nfloats_;
   /*! \brief Map from name to array. */
   std::unordered_map<std::string, ArrayPtr> output_arrays_;
+  /*! \brief Tasks in the batch */
+  std::vector<std::shared_ptr<Task> > tasks_;
   /*! \brief Individual inputs in the batch */
   std::vector<std::shared_ptr<Input> > inputs_;
   /*! \brief Individual outputs in the batch */

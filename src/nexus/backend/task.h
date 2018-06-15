@@ -31,13 +31,14 @@ class Input : public DeadlineItem {
    * \param arr Input array that contains the input data
    * \param idx Index in the inputs of task
    */
-  Input(ArrayPtr arr, std::shared_ptr<Task> task, int idx);
+  Input(TimePoint deadline, uint64_t tid, int idx, ArrayPtr arr);
+
+  /*! \brief Task id */
+  uint64_t tid;
+  /*! \brief Index in the input vector of task. */
+  int index;
   /*! \brief Input array that contains the data. */
   std::shared_ptr<Array> array;
-  /*! \brief Task that input belongs to. */
-  std::shared_ptr<Task> task;
-  /*! \brief Index in the input vector of task. */
-  int index_in_task;
 };
 
 /*!
@@ -50,14 +51,15 @@ class Output {
    * \param output_batch Pointer to the BatchOutput class.
    * \param arrays Map from name to arrays.
    */
-  Output(const std::unordered_map<std::string, ArrayPtr>& arrs,
-         std::shared_ptr<Task> task, int idx);
+  Output(uint64_t tid, int idx,
+         const std::unordered_map<std::string, ArrayPtr>& arrs);
+  
+  /*! \brief Task id */
+  uint64_t tid;
+  /*! \brief Index in the output vector of task. */
+  int index;
   /*! \brief Map from array name to array. */
   std::unordered_map<std::string, ArrayPtr> arrays;
-  /*! \brief Task that input belongs to. */
-  std::shared_ptr<Task> task;
-  /*! \brief Index in the output vector of task. */
-  int index_in_task;
 };
 
 /*! \brief Stage indicates the context processing stage */
@@ -72,12 +74,22 @@ enum Stage {
 
 class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
  public:
+  /*! \brief Construct a task without connection. */
   Task();
-
+  /*!
+   * \brief Construct a task with connection to frontend.
+   * \param conn Connection to frontend server
+   */
   Task(std::shared_ptr<Connection> conn);
-
+  /*!
+   * \brief Decode query from message.
+   * \param message Message received from frontend
+   */
   void DecodeQuery(std::shared_ptr<Message> message);
-  
+  /*!
+   * \brief Append preprocessed input array to task.
+   * \param arr Input array
+   */
   void AppendInput(ArrayPtr arr);
   /*!
    * \brief Add output at index location
@@ -93,8 +105,13 @@ class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
    */
   bool AddVirtualOutput(int index);
 
+  /*! \brief Task id */
+  uint64_t tid;
+  /*! \brief Connection to frontend. */
   std::shared_ptr<Connection> connection;
+  /*! \brief Query to process */
   QueryProto query;
+  /*! \brief Query result */
   QueryResultProto result;
   /*! \brief Model instance to execute for the task */
   std::shared_ptr<ModelInstance> model;
@@ -109,6 +126,10 @@ class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
   YAML::Node attrs;
   /*! \brief Timer that counts the time spent in each stage */
   Timer timer;
+
+ private:
+  /*! \brief Global task ID */
+  static std::atomic<uint64_t> global_tid_;
 };
 
 } // namespace backend

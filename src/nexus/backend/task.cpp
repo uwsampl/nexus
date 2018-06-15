@@ -4,17 +4,19 @@
 namespace nexus {
 namespace backend {
 
-Input::Input(ArrayPtr arr, std::shared_ptr<Task> task, int idx) :
-    DeadlineItem(task->deadline()),
-    array(arr),
-    task(task),
-    index_in_task(idx) {}
+Input::Input(TimePoint deadline, uint64_t tid, int idx, ArrayPtr arr) :
+    DeadlineItem(deadline),
+    tid(tid),
+    index(idx),
+    array(arr) {}
 
-Output::Output(const std::unordered_map<std::string, ArrayPtr>& arrs,
-               std::shared_ptr<Task> task, int idx) :
-    arrays(arrs),
-    task(task),
-    index_in_task(idx) {}
+Output::Output(uint64_t tid, int idx,
+               const std::unordered_map<std::string, ArrayPtr>& arrs) :
+    tid(tid),
+    index(idx),
+    arrays(arrs) {}
+
+std::atomic<uint64_t> Task::global_tid_(0);
 
 Task::Task() : Task(nullptr) {}
 
@@ -24,6 +26,7 @@ Task::Task(std::shared_ptr<Connection> conn) :
     model(nullptr),
     stage(kPreprocess),
     filled_outputs(0) {
+  tid = global_tid_.fetch_add(1, std::memory_order_relaxed);
   timer.Record("begin");
 }
 
@@ -35,15 +38,14 @@ void Task::DecodeQuery(std::shared_ptr<Message> message) {
 }
 
 void Task::AppendInput(ArrayPtr arr) {
-  auto input = std::make_shared<Input>(arr, shared_from_this(),
-                                       inputs.size());
+  auto input = std::make_shared<Input>(deadline(), tid, inputs.size(), arr);
   inputs.push_back(input);
   // Put a placeholder in the outputs
   outputs.push_back(nullptr);
 }
 
 bool Task::AddOutput(std::shared_ptr<Output> output) {
-  outputs[output->index_in_task] = output;
+  outputs[output->index] = output;
   uint32_t filled = ++filled_outputs;
   if (filled == outputs.size()) {
     return true;

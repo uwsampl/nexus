@@ -125,28 +125,34 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   // Append the outputs of prefix model to the input queue of corresponding
   // suffix model
   std::unordered_map<std::string, std::shared_ptr<BatchTask> > suffix_tasks;
-  for (auto prefix_output : batch_task->outputs()) {
-    auto task = prefix_output->task;
+  std::unordered_map<std::string, std::vector<int> > suffix_indices;
+  auto prefix_outputs = batch_task->outputs();
+  auto tasks = batch_task->tasks();
+  for (int i = 0; i < prefix_outputs.size(); ++i) {
+    auto prefix_output = prefix_outputs[i];
+    auto task = tasks[i];
     auto model_sess_id = task->query.model_session_id();
     auto suffix_input = std::make_shared<Input>(
-        prefix_output->arrays.at(prefix_output_name_), task,
-        prefix_output->index_in_task);
+        task->deadline(), task->tid, prefix_output->index,
+        prefix_output->arrays.at(prefix_output_name_));
     if (suffix_tasks.find(model_sess_id) == suffix_tasks.end()) {
       auto suffix_task = std::make_shared<BatchTask>(
           batch_id, suffix_models[model_sess_id]->max_batch());
       suffix_task->SetInputArray(suffix_input_arrays[model_sess_id]);
       suffix_tasks.emplace(model_sess_id, suffix_task);
+      suffix_indices.emplace(model_sess_id, std::vector<int>{});
     }
-    suffix_tasks.at(model_sess_id)->AppendInput(suffix_input);
+    suffix_tasks.at(model_sess_id)->AppendInput(suffix_input, task);
+    suffix_indices.at(model_sess_id).push_back(i);
   }
 
   // Slice the output array for each suffix model and forward suffix model
   size_t offset = 0;
-  std::vector<std::shared_ptr<Output> > suffix_outputs;
-  suffix_outputs.reserve(batch_task->batch_size());
+  std::vector<std::shared_ptr<Output> > batch_outputs(batch_task->batch_size());
   for (auto iter : suffix_tasks) {
     auto model_sess_id = iter.first;
     auto suffix_task = iter.second;
+    auto origin_indices = suffix_indices.at(model_sess_id);
     uint32_t batch = suffix_task->batch_size();
     size_t nfloats = batch * suffix_output_sizes.at(model_sess_id);
     auto out_arr = suffix_output_arr->Slice(offset, nfloats);
@@ -157,10 +163,13 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
         " with batch size " << suffix_task->batch_size();
     suffix_models.at(model_sess_id)->Forward(suffix_task);
     auto outputs = suffix_task->outputs();
-    suffix_outputs.insert(suffix_outputs.end(), outputs.begin(), outputs.end());
+    for (int i = 0; i < outputs.size(); ++i) {
+      batch_outputs[origin_indices[i]] = outputs[i];
+    }
+    //suffix_outputs.insert(suffix_outputs.end(), outputs.begin(), outputs.end());
   }
   // Set suffix outputs into the batch_task outputs
-  batch_task->set_outputs(suffix_outputs);
+  batch_task->set_outputs(batch_outputs);
 }
 
 void SharePrefixModel::Postprocess(std::shared_ptr<Task> task) {

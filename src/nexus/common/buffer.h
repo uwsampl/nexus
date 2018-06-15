@@ -25,7 +25,8 @@ class Buffer : public std::enable_shared_from_this<Buffer> {
       own_data_(true),
       shared_from_(nullptr) {
     data_ = device->Allocate(nbytes_);
-    //LOG(INFO) << "Allocate " << nbytes_ << " on " << device->name();
+    // LOG(INFO) << "Allocate " << nbytes_ << " on " << device->name() <<
+    //     ", own data " << own_data_;
   }
 
   explicit Buffer(void* data, size_t nbytes, Device* device,
@@ -37,9 +38,11 @@ class Buffer : public std::enable_shared_from_this<Buffer> {
       shared_from_(nullptr) {}
 
   ~Buffer() {
+    // LOG(INFO) << "Destroy buffer, size: " << nbytes_ << ", device: " <<
+    //     device_->name() << ", own data: " << own_data_;
     if (own_data_) {
       device_->Free(data_);
-      //LOG(INFO) << "Free " << nbytes_ << " on " << device_->name();
+      // LOG(INFO) << "Free " << nbytes_ << " on " << device_->name();
     }
   }
 
@@ -63,7 +66,10 @@ class Buffer : public std::enable_shared_from_this<Buffer> {
       nbytes_(nbytes),
       device_(origin->device_),
       own_data_(false),
-      shared_from_(origin) {}
+      shared_from_(origin) {
+    // LOG(INFO) << "Slice buffer, offset: " << offset << ", size: " << nbytes <<
+    //     ", own data: " << own_data_;
+  }
   
   void* data_;
   size_t nbytes_;

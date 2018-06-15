@@ -21,16 +21,19 @@ class ModelExecutor {
     return model_;
   }
 
-  void AddInput(std::shared_ptr<Task> task);
+  void AddTask(std::shared_ptr<Task> task);
 
   void Execute();
 
  private:
   void GetBatchInput(std::shared_ptr<BatchTask> batch_task);
-  
+
+  void RemoveTask(std::shared_ptr<Task> task);
+
   std::shared_ptr<ModelInstance> model_;
   BlockPriorityQueue<Task>& task_queue_;
   const ModelProfile* profile_;
+  std::unordered_map<uint64_t, std::shared_ptr<Task> > processing_tasks_;
   std::priority_queue<std::shared_ptr<Input>,
                       std::vector<std::shared_ptr<Input> >,
                       CompareDeadlineItem> input_queue_;
