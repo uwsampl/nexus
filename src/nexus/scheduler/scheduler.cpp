@@ -415,7 +415,12 @@ void Scheduler::RemoveBackend(BackendDelegatePtr backend) {
   std::vector<std::string> model_sessions;
   backend->AllModelSessions(&model_sessions);
   for (auto& model_sess_id : model_sessions) {
+    if (session_table_.count(model_sess_id) == 0) {
+      continue;
+    }
     auto session_info = session_table_.at(model_sess_id);
+    // Because shared prefix models could share the same session_info,
+    // it's necessary to check whether session_info is already in the changed list
     if (changed_sessions.count(session_info) == 0) {
       session_info->backend_throughputs.erase(backend->node_id());
       changed_sessions.insert(session_info);
@@ -455,7 +460,6 @@ void Scheduler::RemoveBackend(BackendDelegatePtr backend) {
       }
     }
   }
-
   // 4. Update changed routes;
   UpdateModelRoutes(changed_sessions);
 }
