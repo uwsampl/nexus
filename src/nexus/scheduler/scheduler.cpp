@@ -382,6 +382,7 @@ void Scheduler::AddBackend(BackendDelegatePtr backend) {
     for (auto& model_sess_id : model_sessions) {
       if (session_table_.find(model_sess_id) == session_table_.end()) {
         auto session_info = std::make_shared<SessionInfo>();
+        session_info->has_static_workload = true;
         ModelSession model_sess;
         ParseModelSession(model_sess_id, &model_sess);
         session_info->model_sessions.push_back(model_sess);
@@ -471,8 +472,11 @@ void Scheduler::RemoveFrontend(FrontendDelegatePtr frontend) {
     ServerList& subs = session_subscribers_.at(model_sess_id);
     subs.erase(frontend->node_id());
     if (subs.empty()) {
-      LOG(INFO) << "Remove model session: " << model_sess_id;
       auto session_info = session_table_.at(model_sess_id);
+      if (session_info->has_static_workload) {
+        continue;
+      }
+      LOG(INFO) << "Remove model session: " << model_sess_id;
       RemoveFromSessionGroup(&session_info->model_sessions, model_sess_id);
       for (auto iter : session_info->backend_throughputs) {
         auto backend = GetBackend(iter.first);

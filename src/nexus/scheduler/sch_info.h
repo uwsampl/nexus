@@ -29,8 +29,12 @@ struct SessionInfo {
   std::deque<double> rps_history;
   /*! \brief Gap between workload and throughput */
   float unassigned_workload;
+  /*! \brief Whether there is a static workload for this session */
+  bool has_static_workload;
 
-  SessionInfo() : unassigned_workload(0) {}
+  SessionInfo() :
+      unassigned_workload(0),
+      has_static_workload(false) {}
 
   double total_throughput() const {
     double total = 0.;

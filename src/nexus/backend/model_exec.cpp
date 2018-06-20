@@ -23,7 +23,7 @@ void ModelExecutor::AddTask(std::shared_ptr<Task> task) {
 }
 
 void ModelExecutor::Execute() {
-  uint64_t batch_id = batch_id_.fetch_add(1);
+  uint64_t batch_id = batch_id_.fetch_add(1, std::memory_order_relaxed);
   auto batch_task = std::make_shared<BatchTask>(batch_id, model_->max_batch());
   batch_task->SetInputArray(input_array_);
   
