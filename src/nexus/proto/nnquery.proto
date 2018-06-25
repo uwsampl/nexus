@@ -130,4 +130,7 @@ message QueryResultProto {
   string error_message = 4;
   // Output
   repeated RecordProto output = 5;
+  // Latency
+  uint64 latency_us = 20;
+  uint64 queuing_us = 21;
 }

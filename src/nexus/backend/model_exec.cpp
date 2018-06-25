@@ -33,9 +33,6 @@ void ModelExecutor::Execute() {
   if (batch_task->batch_size() == 0) {
     return;
   }
-  // for (auto input : batch_task->inputs()) {
-  //   processing_tasks_.at(input->tid)->timer.Record("batch");
-  // }
   
   auto t3 = std::chrono::high_resolution_clock::now();
   // Each time recompute output sizes because it might change for prefix model
@@ -82,6 +79,7 @@ void ModelExecutor::GetBatchInput(std::shared_ptr<BatchTask> batch_task) {
     auto input = std::move(input_queue_.top());
     input_queue_.pop();
     auto task = processing_tasks_.at(input->tid);
+    task->timer.Record("exec");
     if (task->result.status() != CTRL_OK ||
         (profile_ != nullptr && input->deadline() < finish)) {
       if (task->AddVirtualOutput(input->index)) {
