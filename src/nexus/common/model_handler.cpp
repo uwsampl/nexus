@@ -6,9 +6,12 @@
 
 namespace nexus {
 
-OutputFuture::OutputFuture(uint32_t timeout_ms) :
-    ready_(false),
-    timeout_(timeout_ms) {
+OutputFuture::OutputFuture(uint32_t qid, uint32_t timeout_ms,
+			   ModelHandler* handler) :
+    qid_(qid),
+    timeout_(timeout_ms),
+    handler_(handler),
+    ready_(false) {
 }
 
 uint32_t OutputFuture::status() {
@@ -72,8 +75,13 @@ void OutputFuture::SetResult(uint32_t status, const std::string& error_msg) {
 
 void OutputFuture::WaitForReadyOrTimeout() {
   std::unique_lock<std::mutex> lock(mutex_);
+  auto beg = std::chrono::high_resolution_clock::now();
   cv_.wait_for(lock, timeout_, [this](){ return ready_; });
   if (!ready_) {
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - beg);
+    //LOG(INFO) << "Query " << qid_ << " timeout, wait for " << duration.count() << "us";
+    handler_->RemoveOutput(qid_);
     status_ = TIMEOUT;
     error_message_ = "Timeout";
   }
@@ -92,13 +100,13 @@ ModelHandler::ModelHandler(const std::string& model_session_id,
 std::shared_ptr<OutputFuture> ModelHandler::Execute(
     const ValueProto& input, std::vector<std::string> output_fields,
     uint32_t topk, std::vector<RectProto> windows) {
-  auto output = std::make_shared<OutputFuture>(model_session_.latency_sla());
+  uint32_t qid = query_id_.fetch_add(1, std::memory_order_relaxed);
+  auto output = std::make_shared<OutputFuture>(qid, model_session_.latency_sla(), this);
   auto backend = GetBackend();
   if (backend == nullptr) {
     output->SetResult(SERVICE_UNAVAILABLE, "Service unavailable");
     return output;
   }
-  uint32_t qid = query_id_.fetch_add(1, std::memory_order_relaxed);
   QueryProto query;
   query.set_query_id(qid);
   query.set_model_session_id(model_session_id_);
@@ -112,14 +120,13 @@ std::shared_ptr<OutputFuture> ModelHandler::Execute(
   for (auto rect : windows) {
     query.add_window()->CopyFrom(rect);
   }
-  
-  auto msg = std::make_shared<Message>(kBackendRequest, query.ByteSizeLong());
-  msg->EncodeBody(query);
-  backend->Write(std::move(msg));
   {
     std::lock_guard<std::mutex> lock(outputs_mu_);
     outputs_.emplace(qid, output);
   }
+  auto msg = std::make_shared<Message>(kBackendRequest, query.ByteSizeLong());
+  msg->EncodeBody(query);
+  backend->Write(std::move(msg));
   return output;
 }
 
@@ -130,7 +137,8 @@ void ModelHandler::HandleResult(const QueryResultProto& result) {
     std::lock_guard<std::mutex> lock(outputs_mu_);
     auto iter = outputs_.find(qid);
     if (iter == outputs_.end()) {
-      LOG(ERROR) << "Cannot find output for query " << qid;
+      // LOG(ERROR) << model_session_id_ << " output " << qid << " is already removed, total latency " <<
+      // 	result.latency_us() << "us, queuing latency " << result.queuing_us() << " us";
       return;
     }
     output = iter->second;
@@ -187,6 +195,15 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
     }
   }
   return nullptr;
+}
+
+void ModelHandler::RemoveOutput(uint32_t qid) {
+  std::lock_guard<std::mutex> lock(outputs_mu_);
+  auto iter = outputs_.find(qid);
+  if (iter == outputs_.end()) {
+    return;
+  }
+  outputs_.erase(iter);
 }
 
 } // namespace nexu

@@ -26,7 +26,7 @@ class OutputFuture {
    * \brief Constructor of OutputFuture
    * \param timeout_ms Timeout for output future in millisecond
    */
-  OutputFuture(uint32_t timeout_ms);
+  OutputFuture(uint32_t qid, uint32_t timeout_ms, ModelHandler* handler);
   /*! \brief Gets the status of output result */
   uint32_t status();
   /*! \brief Gets the error message if any error happens in the execution */
@@ -53,8 +53,10 @@ class OutputFuture {
   void WaitForReadyOrTimeout();
 
  private:
-  bool ready_;
+  uint32_t qid_;
   std::chrono::milliseconds timeout_;
+  ModelHandler* handler_;
+  bool ready_;
   uint32_t status_;
   std::string error_message_;
   std::vector<Record> records_;
@@ -82,6 +84,10 @@ class ModelHandler {
 
  private:
   std::shared_ptr<BackendSession> GetBackend();
+
+  void RemoveOutput(uint32_t qid);
+
+  friend class OutputFuture;
 
  private:
   ModelSession model_session_;
