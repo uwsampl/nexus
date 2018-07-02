@@ -6,8 +6,8 @@
 namespace nexus {
 namespace app {
 
-Frontend::Frontend(std::string port, std::string rpc_port, std::string sch_addr,
-                   size_t nthreads):
+Frontend::Frontend(std::string port, std::string rpc_port,
+                   std::string sch_addr) :
     ServerBase(port),
     rpc_service_(this, rpc_port),
     backend_pool_(io_service_, this),
@@ -24,12 +24,6 @@ Frontend::Frontend(std::string port, std::string rpc_port, std::string sch_addr,
   sch_stub_ = SchedulerCtrl::NewStub(channel);
   // Init Node ID and register frontend to scheduler
   Register();
-  // Init message processors
-  for (size_t i = 0; i < nthreads; ++i) {
-    std::unique_ptr<Worker> worker(new Worker(this, request_queue_));
-    worker->Start();
-    workers_.push_back(std::move(worker));
-  }
 }
 
 Frontend::~Frontend() {
@@ -38,7 +32,12 @@ Frontend::~Frontend() {
   }
 }
 
-void Frontend::Run() {
+void Frontend::Run(QueryProcessor* qp, size_t nthreads) {
+  for (size_t i = 0; i < nthreads; ++i) {
+    std::unique_ptr<Worker> worker(new Worker(qp, request_pool_));
+    worker->Start();
+    workers_.push_back(std::move(worker));
+  }
   running_ = true;
   LOG(INFO) << "Frontend server (id: " << node_id_ << ") is listening on " <<
       address();
@@ -102,7 +101,8 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
         LOG(ERROR) << "UserRequest message comes from non-user connection";
         break;
       }
-      request_queue_.push(std::move(message));
+      request_pool_.AddNewRequest(std::make_shared<RequestContext>(
+          user_sess, message, request_pool_));
       break;
     }
     case kBackendReply: {
@@ -114,7 +114,7 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
         LOG(ERROR) << "Cannot find model handler for " << model_session_id;
         break;
       }
-      itr->second->HandleResult(result);
+      itr->second->HandleReply(result);
       break;
     }
     default: {
@@ -147,7 +147,7 @@ void Frontend::HandleError(std::shared_ptr<Connection> conn,
     connection_pool_.erase(conn);
     uint32_t uid = user_sess->user_id();
     user_sessions_.erase(uid);
-    LOG(INFO) << "Remove user session " << uid;
+    VLOG(1) << "Remove user session " << uid;
     conn->Stop();
   }
 }

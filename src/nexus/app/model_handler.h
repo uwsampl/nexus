@@ -13,58 +13,57 @@
 #include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
-
-class ModelHandler;
+namespace app {
 
 /*!
- * \brief OutputFuture provides a mechanism to access the result of
+ * \brief QueryResult provides a mechanism to access the result of
  *   ansynchronous model execution.
  */
-class OutputFuture {
+class QueryResult {
  public:
   /*!
    * \brief Constructor of OutputFuture
    * \param timeout_ms Timeout for output future in millisecond
    */
-  OutputFuture(uint32_t qid, uint32_t timeout_ms, ModelHandler* handler);
+  QueryResult(uint64_t qid);
+
+  bool ready() const { return ready_; }
+  
+  uint64_t query_id() const { return qid_; }
   /*! \brief Gets the status of output result */
-  uint32_t status();
+  uint32_t status() const;
   /*! \brief Gets the error message if any error happens in the execution */
-  std::string error_message();
+  std::string error_message() const;
   /*!
-   * \brief Fill the result to reply
-   * \param reply ReplyProto to fill in
+   * \brief Output the result to reply protobuf
+   * \param reply ReplyProto to be filled
    */
-  void FillReply(ReplyProto* reply);
+  void ToProto(ReplyProto* reply) const;
   /*!
    * \brief Get the record given then index
    * \param idx Index of record
    * \return Record at idx
    */
-  const Record& operator[](uint32_t idx);
+  const Record& operator[](uint32_t idx) const;
   /*! \brief Get number of records in the output */
-  uint32_t num_records();
+  uint32_t num_records() const;
 
- private:
   void SetResult(const QueryResultProto& result);
 
-  void SetResult(uint32_t error, const std::string& error_msg);
+ private:
+  void CheckReady() const;
 
-  void WaitForReadyOrTimeout();
+  void SetError(uint32_t error, const std::string& error_msg);
 
  private:
-  uint32_t qid_;
-  std::chrono::milliseconds timeout_;
-  ModelHandler* handler_;
-  bool ready_;
+  uint64_t qid_;
+  std::atomic<bool> ready_;
   uint32_t status_;
   std::string error_message_;
   std::vector<Record> records_;
-  std::mutex mutex_;
-  std::condition_variable cv_;
-
-  friend class ModelHandler;
 };
+
+class RequestContext;
 
 class ModelHandler {
  public:
@@ -72,11 +71,12 @@ class ModelHandler {
 
   std::string model_session_id() const { return model_session_id_; }
 
-  std::shared_ptr<OutputFuture> Execute(
-      const ValueProto& input, std::vector<std::string> output_fields={},
-      uint32_t topk=1, std::vector<RectProto> windows={});
+  std::shared_ptr<QueryResult> Execute(
+      std::shared_ptr<RequestContext> ctx, const ValueProto& input,
+      std::vector<std::string> output_fields={}, uint32_t topk=1,
+      std::vector<RectProto> windows={});
 
-  void HandleResult(const QueryResultProto& result);
+  void HandleReply(const QueryResultProto& result);
 
   void UpdateRoute(const ModelRouteProto& route);
 
@@ -85,15 +85,10 @@ class ModelHandler {
  private:
   std::shared_ptr<BackendSession> GetBackend();
 
-  void RemoveOutput(uint32_t qid);
-
-  friend class OutputFuture;
-
- private:
   ModelSession model_session_;
   std::string model_session_id_;
   BackendPool& backend_pool_;
-  std::atomic<uint32_t> query_id_;
+  static std::atomic<uint64_t> global_query_id_;
   /*!
    * \brief Mapping from backend id to its serving rate,
    *
@@ -101,14 +96,15 @@ class ModelHandler {
    */
   std::vector<std::pair<uint32_t, float> > backend_rates_;
   float total_throughput_;
-  std::unordered_map<uint32_t, std::shared_ptr<OutputFuture> > outputs_;
+  std::unordered_map<uint64_t, std::shared_ptr<RequestContext> > query_ctx_;
   std::mutex route_mu_;
-  std::mutex outputs_mu_;
+  std::mutex query_ctx_mu_;
   /*! \brief random number generator */
   std::random_device rd_;
   std::mt19937 rand_gen_;
 };
 
+} // namespace app
 } // namespace nexus
 
 #endif // NEXUS_COMMON_MODEL_HANDLER_H_

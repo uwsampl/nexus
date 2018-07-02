@@ -5,7 +5,20 @@ namespace app {
 
 AppBase::AppBase(std::string port, std::string rpc_port, std::string sch_addr,
                  size_t nthreads) :
-    Frontend(port, rpc_port, sch_addr, nthreads) {
+    Frontend(port, rpc_port, sch_addr),
+    nthreads_(nthreads),
+    qp_(nullptr) {
+}
+
+AppBase::~AppBase() {
+  if (qp_ != nullptr) {
+    delete qp_;
+  }
+}
+
+void AppBase::Start() {
+  CHECK(qp_ != nullptr) << "Query processor is not initialized";
+  Run(qp_, nthreads_);
 }
 
 std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
@@ -46,7 +59,7 @@ std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
 
 void LaunchApp(AppBase* app) {
   app->Setup();
-  app->Run();
+  app->Start();
 }
 
 } // namespace app
