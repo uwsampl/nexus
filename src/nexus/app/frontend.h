@@ -8,6 +8,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "nexus/app/model_handler.h"
+#include "nexus/app/query_processor.h"
+#include "nexus/app/request_context.h"
 #include "nexus/app/rpc_service.h"
 #include "nexus/app/user_session.h"
 #include "nexus/app/worker.h"
@@ -15,7 +18,6 @@
 #include "nexus/common/block_queue.h"
 #include "nexus/common/connection.h"
 #include "nexus/common/model_def.h"
-#include "nexus/common/model_handler.h"
 #include "nexus/common/server_base.h"
 #include "nexus/common/spinlock.h"
 #include "nexus/proto/control.grpc.pb.h"
@@ -26,18 +28,17 @@ namespace app {
 
 class Frontend : public ServerBase, public MessageHandler {
  public:
-  Frontend(std::string port, std::string rpc_port, std::string sch_addr,
-           size_t nthreads);
+  Frontend(std::string port, std::string rpc_port, std::string sch_addr);
 
   ~Frontend();
 
-  virtual void Process(const RequestProto& request, ReplyProto* reply) = 0;
+  //virtual void Process(const RequestProto& request, ReplyProto* reply) = 0;
 
   uint32_t node_id() const { return node_id_; }
 
   std::string rpc_port() const { return rpc_service_.port(); }
 
-  void Run();
+  void Run(QueryProcessor* qp, size_t nthreads);
 
   void Stop();
   /*! \brief Accepts new user connection */
@@ -89,8 +90,8 @@ class Frontend : public ServerBase, public MessageHandler {
   std::unique_ptr<SchedulerCtrl::Stub> sch_stub_;
   /*! \brief Backend pool */
   BackendPool backend_pool_;
-  /*! \brief Blocking queue for requests */
-  BlockQueue<Message> request_queue_;
+  /*! \brief Request pool */
+  RequestPool request_pool_;
   /*! \brief Worker pool for processing requests */
   std::vector<std::unique_ptr<Worker> > workers_;
   /*!
