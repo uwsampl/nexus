@@ -88,15 +88,6 @@ void Worker::SendReply(std::shared_ptr<Task> task) {
   task->result.set_model_session_id(task->query.model_session_id());
   task->result.set_latency_us(task->timer.GetLatencyMicros("begin", "end"));
   task->result.set_queuing_us(task->timer.GetLatencyMicros("begin", "exec"));
-  /*if (task->query.debug()) {
-    auto backend_lat = task->result.add_backend_latency();
-    backend_lat->set_model_session_id(task->context.query->model_session_id());
-    backend_lat->set_batch_time(task->timer.GetLatencyMillis(
-        "begin", "batch"));
-    backend_lat->set_process_time(task->timer.GetLatencyMillis(
-        "batch", "end"));
-    backend_lat->set_num_inputs(task->context.outputs.size());
-  }*/
   auto msg = std::make_shared<Message>(kBackendReply,
                                        task->result.ByteSizeLong());
   msg->EncodeBody(task->result);

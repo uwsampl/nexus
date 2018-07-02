@@ -4,9 +4,9 @@
 namespace nexus {
 namespace app {
 
-Worker::Worker(Frontend* frontend, BlockQueue<Message>& req_queue) :
-    frontend_(frontend),
-    request_queue_(req_queue),
+Worker::Worker(QueryProcessor* qp, RequestPool& req_pool) :
+    qp_(qp),
+    req_pool_(req_pool),
     running_(false) {
 }
 
@@ -28,30 +28,11 @@ void Worker::Join() {
 void Worker::Run() {
   auto timeout = std::chrono::milliseconds(50);
   while (running_) {
-    std::shared_ptr<Message> msg = request_queue_.pop(timeout);
-    if (msg == nullptr) {
+    auto req = req_pool_.GetRequest(timeout);
+    if (req == nullptr) {
       continue;
     }
-    auto beg = Clock::now();
-    RequestProto request;
-    ReplyProto reply;
-    msg->DecodeBody(&request);
-    auto user_sess = frontend_->GetUserSession(request.user_id());
-    if (user_sess == nullptr) {
-      LOG(ERROR) << "No user session for " << request.user_id();
-      continue;
-    }
-    reply.set_user_id(request.user_id());
-    reply.set_req_id(request.req_id());
-    frontend_->Process(request, &reply);
-    auto end = Clock::now();
-    auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
-        end - beg).count();
-    reply.set_latency_us(latency);
-    auto reply_msg = std::make_shared<Message>(kUserReply,
-                                               reply.ByteSizeLong());
-    reply_msg->EncodeBody(reply);
-    user_sess->Write(std::move(reply_msg));
+    qp_->Process(req);
   }
 }
 

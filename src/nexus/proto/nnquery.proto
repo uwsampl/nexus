@@ -106,7 +106,7 @@ message ModelSession {
 }
 
 message QueryProto {
-  uint32 query_id = 1;
+  uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
   ValueProto input = 3;
@@ -121,7 +121,7 @@ message QueryProto {
 
 message QueryResultProto {
   // Query ID
-  uint32 query_id = 1;
+  uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
   // status
