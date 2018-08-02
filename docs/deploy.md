@@ -65,7 +65,7 @@ $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus
 ```
 
 ### Step 3: Start Nexus service
-First, start the scheduler. Lets use the docker run command which aims to run a command in a new container.
+First, start the scheduler. First, we use docker to start the scheduler in a container." to replace these two sentences.
 Usage of docker run command is `docker run [OPTIONS] IMAGE [COMMAND] [ARG...]`.
 The -d option means running container in background and printing container ID. And the -v option means to 
 bind mount a volume with IMAGE.
@@ -95,5 +95,5 @@ library under the `nexus/python/proto` dirtory. Then set the PYTHONPATH environm
 ```
 $ make python
 $ cd tests/python
-$ export PYTHONPATH=~/nexus/python:$PYTHONPATH
+$ export PYTHONPATH=/path/to/nexus/python:$PYTHONPATH
 ```
