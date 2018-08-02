@@ -21,8 +21,10 @@ enum MessageType {
   kBackendRequest = 100,
   /*! \brief reply from backend to frontend */
   kBackendReply = 101,
-  /*! \brief relay request from backend to backend */
+  /*! \brief relay request from backend to backup */
   kBackendRelay = 102,
+  /*! \brief relay reply from backup */
+  kBackendRelayReply = 103,
 };
 
 /*! \brief Message header format */
@@ -66,29 +68,34 @@ class Message {
    * \param body_length Length of payload in bytes
    */
   Message(MessageType type, size_t body_length);
-  /*! \brief destruct a message. */
+  /*! \brief Destruct a message. */
   ~Message();
-  /*! \brief get the data pointer */
+  /*! \brief Get the data pointer */
   char* data() { return data_; }
-  /*! \brief get the read-only data pointer */
+  /*! \brief Get the read-only data pointer */
   const char* data() const { return data_; }
-  /*! \brief get the body pointer */
+  /*! \brief Get the body pointer */
   char* body() { return data_ + MESSAGE_HEADER_SIZE; }
-  /*! \brief get the read-only body pointer */
+  /*! \brief Get the read-only body pointer */
   const char* body() const { return data_ + MESSAGE_HEADER_SIZE; }
-  /*! \brief get the length of entire message in bytes */
+  /*! \brief Get the length of entire message in bytes */
   size_t length() const { return MESSAGE_HEADER_SIZE + body_length_; }
-  /*! \brief the the length of body in bytes */
+  /*! \brief Get the length of body in bytes */
   size_t body_length() const { return body_length_; }
-  /*! \brief get the type of message */
+  /*! \brief Get the type of message */
   MessageType type() const { return type_; }
   /*!
-   * \brief decode the message from the body
+   * \brief Set the message type
+   * \param type Message type
+   */
+  void set_type(MessageType type);
+  /*!
+   * \brief Decode the message from the body
    * \param message Protobuf message for the decoding result
    */
   void DecodeBody(google::protobuf::Message* message) const;
   /*!
-   * \brief encode the protobuf message and store in the body
+   * \brief Encode the protobuf message and store in the body
    * \param message Protobuf message to encode
    */
   void EncodeBody(const google::protobuf::Message& message);

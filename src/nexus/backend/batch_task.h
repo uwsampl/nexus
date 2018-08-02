@@ -17,10 +17,14 @@ class BatchTask {
  public:
   /*!
    * \brief Construct a batch task.
-   * \param batch_id Batch index.
    * \param max_batch Max batch size.
    */
-  BatchTask(uint64_t batch_id, uint32_t max_batch);
+  BatchTask(uint32_t max_batch);
+  /*!
+   * \brief Set batch id
+   * \param batch_id Batch id
+  */
+  inline void set_batch_id(uint64_t batch_id) { batch_id_ = batch_id; }
   /*! \brief Return batch id */
   inline uint64_t batch_id() const { return batch_id_; }
   /*! \brief Return batch size */

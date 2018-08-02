@@ -47,6 +47,11 @@ Message::~Message() {
   delete[] data_;
 }
 
+void Message::set_type(MessageType type) {
+  type_ = type;
+  *((uint32_t*) (data_ + 4)) = htonl((uint32_t) type);
+}
+
 void Message::DecodeBody(google::protobuf::Message* message) const {
   message->ParseFromArray(body(), body_length_);
 }

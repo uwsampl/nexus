@@ -72,7 +72,7 @@ size_t ModelProfile::GetMemoryUsage(uint32_t batch) const {
 }
 
 uint32_t ModelProfile::GetMaxBatch(float latency_sla_ms) const {
-  float latency_budget = latency_sla_ms * 1000 - network_latency_;
+  float latency_budget = latency_sla_ms * 1000 - network_latency_us_;
   latency_budget -= GetPreprocessLatency();
   latency_budget -= GetPostprocessLatency();
   // divide by 2 is because half of time will spend in batching
@@ -98,7 +98,7 @@ std::pair<uint32_t, float> ModelProfile::GetMaxThroughput(float latency_sla_ms)
   float max_throughput = 0;
   uint32_t best_batch = 0;
   // divide by 2 is becuase half of time will spend in batching
-  float exec_budget = (latency_sla_ms * 1000 - network_latency_ -
+  float exec_budget = (latency_sla_ms * 1000 - network_latency_us_ -
                        GetPreprocessLatency() - GetPostprocessLatency()) * 0.5;
   for (uint32_t batch = 1; ; ++batch) {
     float forward_lat = GetForwardLatency(batch);

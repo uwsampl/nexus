@@ -98,7 +98,10 @@ def profile_model(framework, model_name):
 
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
-    proc.communicate()
+    out, err = proc.communicate()
+    if not os.path.exists(output):
+        lines = err.split('\n')
+        print('\n'.join(lines[-50:]))
 
 
 def main():

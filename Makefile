@@ -36,6 +36,7 @@ CXX_BACKEND_SRCS := $(wildcard src/nexus/backend/*.cpp)
 CXX_SCHEDULER_SRCS := $(wildcard src/nexus/scheduler/*.cpp)
 CXX_LIB_SRCS := $(shell find src ! -name "*_main.cpp" -name "*.cpp")
 CXX_TEST_SRCS := $(wildcard tests/cpp/*.cpp) $(wildcard tests/cpp/*/*.cpp)
+CXX_TOOL_SRCS := $(wildcard tools/*/*.cpp)
 
 CXX_COMMON_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_COMMON_SRCS)) $(PROTO_OBJS)
 CXX_APP_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_APP_SRCS))
@@ -43,7 +44,9 @@ CXX_BACKEND_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_SRC
 CXX_SCHEDULER_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_SCHEDULER_SRCS))
 CXX_LIB_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_LIB_SRCS)) $(PROTO_OBJS)
 CXX_TEST_OBJS := $(patsubst tests/cpp/%.cpp, build/obj/tests/%.o, $(CXX_TEST_SRCS))
-OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS)
+CXX_TOOL_OBJS := $(patsubst %.cpp, build/obj/%.o, $(CXX_TOOL_SRCS))
+OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS) \
+	$(CXX_TEST_OBJS) $(CXX_TOOL_OBJS)
 DEPS := ${OBJS:.o=.d}
 
 TEST_BIN := build/bin/test

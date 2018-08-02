@@ -93,7 +93,9 @@ class ModelProfiler {
     {
       config.set_batch(1);
       config.set_max_batch(1);
-      auto model = CreateModelInstance(gpu_, config);
+      //auto model = CreateModelInstance(gpu_, config);
+      std::unique_ptr<ModelInstance> model;
+      CreateModelInstance(gpu_, config, &model);
       // prepare the input
       int num_inputs = max_batch * (repeat + 1);
       if (num_inputs > 1000) {
@@ -129,8 +131,9 @@ class ModelProfiler {
     for (int batch = min_batch; batch <= max_batch; ++batch) {
       config.set_batch(batch);
       config.set_max_batch(batch);
-      auto model = CreateModelInstance(gpu_, config);
-      ModelExecutor model_exec(model, task_queue);
+      auto model = std::make_shared<ModelExecutor>(gpu_, config, task_queue);
+      //CreateModelInstance(gpu_, config);
+      //ModelExecutor model_exec(model, task_queue);
       std::vector<uint64_t> forward_lats;
       for (int i = 0; i < batch * (repeat + 1); ++i) {
         int idx = i % preproc_tasks.size();
@@ -139,14 +142,15 @@ class ModelProfiler {
         task->query.set_query_id(i);
         task->attrs = preproc_tasks[idx]->attrs;
         task->AppendInput(preproc_tasks[idx]->inputs[0]->array);
-        model_exec.AddTask(task);
+        //model_exec.AddTask(task);
+        model->AddPreprocessedTask(task);
       }
       // dry run
-      model_exec.Execute();
+      model->Execute();
       // start meansuring forward latency
       for (int i = 0; i < repeat; ++i) {
         auto beg = std::chrono::high_resolution_clock::now();
-        model_exec.Execute();
+        model->Execute();
         auto end = std::chrono::high_resolution_clock::now();
         forward_lats.push_back(
             std::chrono::duration_cast<duration>(end - beg).count());
