@@ -98,8 +98,8 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
     return;
   }
   if (result.status() != CTRL_OK) {
-    LOG(INFO) << request_.user_id() << ":" << request_.req_id() << ":" <<
-        result.query_id() << " error: " << result.status();
+    // LOG(INFO) << request_.user_id() << ":" << request_.req_id() << ":" <<
+    //     result.query_id() << " error: " << result.status();
     HandleError(result.status(), result.error_message());
     return;
   }

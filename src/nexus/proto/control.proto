@@ -21,6 +21,7 @@ service FrontendCtrl {
 service BackendCtrl {
   rpc UpdateModelTable(ModelTableConfig) returns (RpcReply) {}
   rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
+  rpc CurrentUtilization(UtilizationRequest) returns (UtilizationReply) {}
 }
 
 enum NodeType {
@@ -91,7 +92,9 @@ message CheckAliveRequest {
 
 message BackendInfo {
   uint32 node_id = 1;
-  string server_address = 2;
+  string ip = 2;
+  string server_port = 3;
+  string rpc_port = 4;
 }
 
 message ModelRouteProto {
@@ -124,6 +127,7 @@ message ModelInstanceConfig {
   uint32 batch = 2;
   uint32 max_batch = 3;
   uint64 memory_usage = 4;
+  bool backup = 5;
 
   // The following fields are used for prefix batching and split batching.
   // Model segment is from start_index (inclusive) to end_index (exclusive).
@@ -132,10 +136,13 @@ message ModelInstanceConfig {
   int32 end_index = 11;
   string input_name = 12;
   repeated int32 input_shape = 13;
+
+  repeated BackendInfo backup_backend = 40;
 }
 
 message ModelTableConfig {
   repeated ModelInstanceConfig model_instance_config = 1;
+  double duty_cycle_us = 2;
 }
 
 message ModelStatsProto {
@@ -153,4 +160,14 @@ message BackendStatsProto {
 message KeepAliveRequest {
   NodeType node_type = 1;
   uint32 node_id = 2;
+}
+
+message UtilizationRequest {
+  uint32 node_id = 1;
+}
+
+message UtilizationReply {
+  uint32 node_id = 1;
+  double utilization = 2;
+  int32 valid_ms = 3;
 }

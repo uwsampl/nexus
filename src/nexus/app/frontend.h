@@ -71,18 +71,17 @@ class Frontend : public ServerBase, public MessageHandler {
 
   void KeepAlive();
 
-  bool UpdateRoute(const ModelRouteProto& route);
+  bool UpdateBackendPoolAndModelRoute(const ModelRouteProto& route);
 
   void RegisterUser(std::shared_ptr<UserSession> user_sess,
                     const RequestProto& request, ReplyProto* reply);
-
 
  private:
   /*! \brief Indicator whether backend is running */
   std::atomic_bool running_;
   /*! \brief Interval to update stats to scheduler in seconds */
   uint32_t beacon_interval_sec_;
-  /*! \brief Node id */
+  /*! \brief Frontend node ID */
   uint32_t node_id_;
   /*! \brief RPC service */
   RpcService rpc_service_;
@@ -90,30 +89,27 @@ class Frontend : public ServerBase, public MessageHandler {
   std::unique_ptr<SchedulerCtrl::Stub> sch_stub_;
   /*! \brief Backend pool */
   BackendPool backend_pool_;
+  /*!
+   * \brief Map from backend ID to model sessions servered at this backend.
+   * Guarded by model_pool_mu_
+   */
+  std::unordered_map<uint32_t,
+                     std::unordered_set<std::string> > backend_sessions_;
   /*! \brief Request pool */
   RequestPool request_pool_;
   /*! \brief Worker pool for processing requests */
   std::vector<std::unique_ptr<Worker> > workers_;
-  /*!
-   * \brief User connection pool
-   *
-   *   Guarded by user_mutex_
-   */
+  /*! \brief User connection pool. Guarded by user_mutex_. */
   std::unordered_set<std::shared_ptr<Connection> > connection_pool_;
-  /*!
-   * \brief Map from user id to user session.
-   * 
-   *   Guarded by user_mutex_
-   */
+  /*! \brief Map from user id to user session. Guarded by user_mutex_. */
   std::unordered_map<uint32_t, std::shared_ptr<UserSession> > user_sessions_;
-  /*! \brief Mutex for connection_pool_ and user_sessions_ */
-  std::mutex user_mutex_;
   /*!
    * \brief Map from model session ID to model handler.
-   *
-   *   Guarded by model_pool_mu_
+   * Guarded by model_pool_mu_.
    */
   std::unordered_map<std::string, std::shared_ptr<ModelHandler> > model_pool_;
+  /*! \brief Mutex for connection_pool_ and user_sessions_ */
+  std::mutex user_mutex_;
   /*! \brief Mutex for model_pool_ */
   std::mutex model_pool_mu_;
   /*! \brief Random number generator */
