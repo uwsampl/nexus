@@ -5,68 +5,54 @@
 
 namespace nexus {
 
-BackendSession::BackendSession(BackendPool* pool, const BackendInfo& info,
+BackendSession::BackendSession(const BackendInfo& info,
                                boost::asio::io_service& io_service,
                                MessageHandler* handler):
     Connection(io_service, handler),
-    pool_(pool) {
-  // init backend node_id and address
-  node_id_ = info.node_id();
-  address_ = info.server_address();
-  // connect to backend server
-  DoConnect(io_service);
-}
+    io_service_(io_service),
+    node_id_(info.node_id()),
+    ip_(info.ip()),
+    server_port_(info.server_port()),
+    rpc_port_(info.rpc_port()),
+    running_(false) {}
 
 BackendSession::~BackendSession() {
   Stop();
 }
 
+void BackendSession::Start() {
+  // Connect to backend server
+  DoConnect();
+}
+
 void BackendSession::Stop() {
   if (running_) {
+    LOG(INFO) << "Disconnect to backend " << node_id_;
     running_ = false;
     Connection::Stop();
   }
 }
 
-void BackendSession::AddModelSession(const std::string& model_session) {
-  model_sessions_.insert(model_session);
-}
-
-bool BackendSession::RemoveModelSession(const std::string& model_session) {
-  model_sessions_.erase(model_session);
-  return model_sessions_.empty();
-}
-
-void BackendSession::DoConnect(boost::asio::io_service& io_service) {
+void BackendSession::DoConnect() {
   boost::asio::ip::tcp::resolver::iterator endpoint;
-  std::vector<std::string> tokens;
-  SplitString(address_, ':', &tokens);
-  boost::asio::ip::tcp::resolver resolver(io_service);
-  endpoint = resolver.resolve({ tokens[0], tokens[1] });
+  boost::asio::ip::tcp::resolver resolver(io_service_);
+  endpoint = resolver.resolve({ ip_, server_port_ });
   boost::asio::async_connect(
       socket_, endpoint,
       [this](boost::system::error_code ec,
              boost::asio::ip::tcp::resolver::iterator) {
         if (ec) {
-          LOG(ERROR) << "Failed to connect to backend " << node_id_ <<
-              " (" << ec << "): " << ec.message();
-          pool_->RemoveBackend(node_id_);
+          handler_->HandleError(shared_from_this(), ec);
         } else {
           running_ = true;
           LOG(INFO) << "Connected to backend " << node_id_;
-          Start();
+          DoReadHeader();
         }
       });
 }
 
-BackendPool::BackendPool(boost::asio::io_service& io_service,
-                         MessageHandler* handler) :
-    io_service_(io_service),
-    handler_(handler) {
-}
-
 std::shared_ptr<BackendSession> BackendPool::GetBackend(uint32_t backend_id) {
-  std::lock_guard<std::mutex> lock(pool_mu_);
+  std::lock_guard<std::mutex> lock(mu_);
   auto iter = backends_.find(backend_id);
   if (iter == backends_.end()) {
     return nullptr;
@@ -74,50 +60,58 @@ std::shared_ptr<BackendSession> BackendPool::GetBackend(uint32_t backend_id) {
   return iter->second;
 }
 
-void BackendPool::AddBackend(const BackendInfo& backend_info,
-                             const std::string& model_session) {
-  std::lock_guard<std::mutex> lock(pool_mu_);
-  uint32_t node_id = backend_info.node_id();
-  if (backends_.find(node_id) == backends_.end()) {
-    LOG(INFO) << "New connection to backend " << node_id;
-    auto backend = std::make_shared<BackendSession>(this, backend_info,
-                                                    io_service_, handler_);
-    backends_.emplace(node_id, backend);
-  }
-  backends_.at(node_id)->AddModelSession(model_session);
+void BackendPool::AddBackend(std::shared_ptr<BackendSession> backend) {
+  std::lock_guard<std::mutex> lock(mu_);
+  backend->Start();
+  backends_.emplace(backend->node_id(), backend);
+}
+
+void BackendPool::RemoveBackend(std::shared_ptr<BackendSession> backend) {
+  std::lock_guard<std::mutex> lock(mu_);
+  LOG(INFO) << "Remove backend " << backend->node_id();
+  backend->Stop();
+  backends_.erase(backend->node_id());
 }
 
 void BackendPool::RemoveBackend(uint32_t backend_id) {
-  std::lock_guard<std::mutex> lock(pool_mu_);
+  std::lock_guard<std::mutex> lock(mu_);
   auto iter = backends_.find(backend_id);
   if (iter == backends_.end()) {
     return;
   }
+  LOG(INFO) << "Remove backend " << backend_id;
   iter->second->Stop();
   backends_.erase(iter);
 }
 
-void BackendPool::RemoveModelSessionFromBackend(
-    uint32_t backend_id, const std::string& model_session) {
-  std::lock_guard<std::mutex> lock(pool_mu_);
-  auto iter = backends_.find(backend_id);
-  if (iter == backends_.end()) {
-    return;
+std::vector<uint32_t> BackendPool::UpdateBackendList(
+    std::unordered_set<uint32_t> list) {
+  std::lock_guard<std::mutex> lock(mu_);
+  // Remove backends that are not on the list
+  for (auto iter = backends_.begin(); iter != backends_.end(); ) {
+    if (list.count(iter->first) == 0) {
+      auto backend_id = iter->first;
+      iter->second->Stop();
+      iter = backends_.erase(iter);
+      LOG(INFO) << "Remove backend " << backend_id;
+    } else {
+      ++iter;
+    }
   }
-  auto backend = iter->second;
-  if (backend->RemoveModelSession(model_session)) {
-    // No model session loaded by this backend
-    LOG(INFO) << "Remove connection to backend " << backend_id;
-    backend->Stop();
-    backends_.erase(iter);
+  // Find out new backends
+  std::vector<uint32_t> missing;
+  for (auto backend_id : list) {
+    if (backends_.count(backend_id) == 0) {
+      missing.push_back(backend_id);
+    }
   }
+  return missing;
 }
 
 void BackendPool::StopAll() {
-  std::lock_guard<std::mutex> lock(pool_mu_);
+  std::lock_guard<std::mutex> lock(mu_);
   for (auto iter : backends_) {
-    auto backend = iter.second;
-    backend->Stop();
+    iter.second->Stop();
   }
   backends_.clear();
 }

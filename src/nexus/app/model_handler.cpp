@@ -87,7 +87,6 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
   auto reply = std::make_shared<QueryResult>(qid);
   auto backend = GetBackend();
   if (backend == nullptr) {
-    //reply->SetError(SERVICE_UNAVAILABLE, "Service unavailable");
     ctx->HandleError(SERVICE_UNAVAILABLE, "Service unavailable");
     return reply;
   }
@@ -171,15 +170,6 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
   }
   return nullptr;
 }
-
-// void ModelHandler::RemoveOutput(uint64_t qid) {
-//   std::lock_guard<std::mutex> lock(rpc_replies_mu_);
-//   auto iter = rpc_replies_.find(qid);
-//   if (iter == rpc_replies_.end()) {
-//     return;
-//   }
-//   rpc_replies_.erase(iter);
-// }
 
 } // namespace app
 } // namespace nexus

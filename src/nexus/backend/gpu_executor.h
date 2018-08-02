@@ -8,24 +8,33 @@
 #include <unordered_map>
 
 #include "nexus/backend/model_exec.h"
-#include "nexus/backend/model_ins.h"
 
 namespace nexus {
 namespace backend {
 
 class GpuExecutor {
  public:
+  GpuExecutor() : duty_cycle_us_(0.) {}
+
+  virtual ~GpuExecutor() {}
+
+  void SetDutyCycle(double duty_cycle_us) {
+    duty_cycle_us_.store(duty_cycle_us);
+  }
+  
   virtual void Start() = 0;
   virtual void Stop() = 0;
-  virtual void AddModel(std::shared_ptr<ModelInstance> model) = 0;
-  virtual void RemoveModel(std::shared_ptr<ModelInstance> model) = 0;
-  virtual void AddTask(std::shared_ptr<Task> task) = 0;
+  virtual void AddModel(std::shared_ptr<ModelExecutor> model) = 0;
+  virtual void RemoveModel(std::shared_ptr<ModelExecutor> model) = 0;
+  virtual double CurrentUtilization() = 0;
+
+ protected:
+  std::atomic<double> duty_cycle_us_;
 };
 
 class GpuExecutorMultiBatching : public GpuExecutor {
  public:
-  GpuExecutorMultiBatching(int gpu_id,
-                           BlockPriorityQueue<Task>& cpu_task_queue);
+  GpuExecutorMultiBatching(int gpu_id);
 
   inline int gpu_id() { return gpu_id_; }
 
@@ -33,27 +42,26 @@ class GpuExecutorMultiBatching : public GpuExecutor {
 
   void Stop() final;
 
-  void AddModel(std::shared_ptr<ModelInstance> model) final;
+  void AddModel(std::shared_ptr<ModelExecutor> model) final;
 
-  void RemoveModel(std::shared_ptr<ModelInstance> model) final;
+  void RemoveModel(std::shared_ptr<ModelExecutor> model) final;
 
-  void AddTask(std::shared_ptr<Task> task) final;
+  double CurrentUtilization() final;
 
  private:
   void Run();
 
   int gpu_id_;
-  BlockPriorityQueue<Task>& cpu_task_queue_;
   std::atomic_bool running_;
   std::thread thread_;
-  std::unordered_map<std::string, std::shared_ptr<ModelExecutor> > models_;
+  std::vector<std::shared_ptr<ModelExecutor> > models_;
+  std::vector<std::shared_ptr<ModelExecutor> > backup_models_;
   std::mutex models_mu_;
 };
 
 class GpuExecutorNoMultiBatching : public GpuExecutor {
  public:
-  GpuExecutorNoMultiBatching(int gpu_id,
-                             BlockPriorityQueue<Task>& cpu_task_queue);
+  GpuExecutorNoMultiBatching(int gpu_id);
 
   inline int gpu_id() { return gpu_id_; }
 
@@ -61,15 +69,14 @@ class GpuExecutorNoMultiBatching : public GpuExecutor {
 
   void Stop();
 
-  void AddModel(std::shared_ptr<ModelInstance> model) final;
+  void AddModel(std::shared_ptr<ModelExecutor> model) final;
 
-  void RemoveModel(std::shared_ptr<ModelInstance> model) final;
+  void RemoveModel(std::shared_ptr<ModelExecutor> model) final;
 
-  void AddTask(std::shared_ptr<Task> task) final;
+  double CurrentUtilization() final;
 
  private:
   int gpu_id_;
-  BlockPriorityQueue<Task>& cpu_task_queue_;
   std::mutex mu_;
   std::unordered_map<std::string,
                      std::unique_ptr<GpuExecutorMultiBatching> > threads_;

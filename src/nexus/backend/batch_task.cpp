@@ -4,8 +4,7 @@
 namespace nexus {
 namespace backend {
 
-BatchTask::BatchTask(uint64_t batch_id, uint32_t max_batch) :
-    batch_id_(batch_id),
+BatchTask::BatchTask(uint32_t max_batch) :
     max_batch_(max_batch),
     input_write_pt_(nullptr),
     input_nfloats_(0) {}
@@ -76,7 +75,7 @@ void BatchTask::SliceOutputBatch(
       slice_arrays.emplace(iter.first, iter.second->Slice(
           slice.offset(i), slice.num_elements(i)));
     }
-    outputs_.push_back(std::make_shared<Output>(input->tid, input->index,
+    outputs_.push_back(std::make_shared<Output>(input->task_id, input->index,
                                                 slice_arrays));
   }
 }

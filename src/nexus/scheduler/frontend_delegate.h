@@ -16,14 +16,11 @@ class Scheduler;
 
 class FrontendDelegate {
  public:
-  FrontendDelegate(uint32_t node_id, const std::string& server_addr,
-                    const std::string& rpc_addr, int beacon_sec);
+  FrontendDelegate(uint32_t node_id, const std::string& ip,
+                   const std::string& server_port, const std::string& rpc_addr,
+                   int beacon_sec);
 
   uint32_t node_id() const { return node_id_; }
-
-  std::string server_address() const { return server_address_; }
-
-  std::string rpc_address() const { return rpc_address_; }
 
   std::time_t LastAliveTime();
 
@@ -41,8 +38,9 @@ class FrontendDelegate {
 
  private:
   uint32_t node_id_;
-  std::string server_address_;
-  std::string rpc_address_;
+  std::string ip_;
+  std::string server_port_;
+  std::string rpc_port_;
   int beacon_sec_;
   long timeout_ms_;
   std::unique_ptr<FrontendCtrl::Stub> stub_;
