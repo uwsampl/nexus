@@ -36,8 +36,7 @@ RUN apt-get update && apt-get install -y \
   python-dev \
   python-pip \
   python-setuptools \
-  openjdk-8-jdk \
-  git
+  openjdk-8-jdk
 
 RUN pip install --upgrade pip && pip install numpy scipy
 

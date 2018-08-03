@@ -16,7 +16,7 @@
 namespace nexus {
 namespace backend {
 
-class ModelInstance;
+class ModelExecutor;
 class Task;
 
 /*!
@@ -34,7 +34,7 @@ class Input : public DeadlineItem {
   Input(TimePoint deadline, uint64_t tid, int idx, ArrayPtr arr);
 
   /*! \brief Task id */
-  uint64_t tid;
+  uint64_t task_id;
   /*! \brief Index in the input vector of task. */
   int index;
   /*! \brief Input array that contains the data. */
@@ -55,7 +55,7 @@ class Output {
          const std::unordered_map<std::string, ArrayPtr>& arrs);
   
   /*! \brief Task id */
-  uint64_t tid;
+  uint64_t task_id;
   /*! \brief Index in the output vector of task. */
   int index;
   /*! \brief Map from array name to array. */
@@ -106,15 +106,17 @@ class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
   bool AddVirtualOutput(int index);
 
   /*! \brief Task id */
-  uint64_t tid;
+  uint64_t task_id;
   /*! \brief Connection to frontend. */
   std::shared_ptr<Connection> connection;
+  /*! \brief Message type */
+  MessageType msg_type;
   /*! \brief Query to process */
   QueryProto query;
   /*! \brief Query result */
   QueryResultProto result;
   /*! \brief Model instance to execute for the task */
-  std::shared_ptr<ModelInstance> model;
+  std::shared_ptr<ModelExecutor> model;
   /*! \brief Current task processing stage */
   volatile Stage stage;
   std::vector<std::shared_ptr<Input> > inputs;
@@ -129,7 +131,7 @@ class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
 
  private:
   /*! \brief Global task ID */
-  static std::atomic<uint64_t> global_tid_;
+  static std::atomic<uint64_t> global_task_id_;
 };
 
 } // namespace backend

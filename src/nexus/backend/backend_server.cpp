@@ -7,10 +7,11 @@
 #include "nexus/backend/backend_server.h"
 #include "nexus/backend/share_prefix_model.h"
 
+DEFINE_bool(multi_batch, true, "Enable multi batching");
+DEFINE_int32(occupancy_valid, 50, "Backup backend occupancy valid time in ms");
+
 namespace nexus {
 namespace backend {
-
-DEFINE_bool(multi_batch, true, "Enable multi batching");
 
 BackendServer::BackendServer(std::string port, std::string rpc_port,
                              std::string sch_addr, size_t num_workers,
@@ -35,16 +36,15 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
   // Init GPU executor
   if (FLAGS_multi_batch) {
     LOG(INFO) << "Multi-batching is enabled";
-    gpu_executor_.reset(new GpuExecutorMultiBatching(gpu_id, task_queue_));
+    gpu_executor_.reset(new GpuExecutorMultiBatching(gpu_id));
   } else {
     LOG(INFO) << "Multi-batching is disabled";
-    gpu_executor_.reset(new GpuExecutorNoMultiBatching(gpu_id, task_queue_));
+    gpu_executor_.reset(new GpuExecutorNoMultiBatching(gpu_id));
   }
   gpu_executor_->Start();
   // Init workers
   for (size_t i = 0; i < num_workers; ++i) {
-    std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_,
-                                              gpu_executor_.get()));
+    std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_));
     worker->Start();
     workers_.push_back(std::move(worker));
   }
@@ -104,13 +104,21 @@ void BackendServer::HandleAccept() {
 
 void BackendServer::HandleMessage(std::shared_ptr<Connection> conn,
                                   std::shared_ptr<Message> message) {
-  if (message->type() != kBackendRequest) {
-    LOG(INFO) << "Wrong message type: " << message->type();
-    return;
+  switch (message->type()) {
+    case kBackendRequest:
+    case kBackendRelay: {
+      auto task = std::make_shared<Task>(conn);
+      task->DecodeQuery(message);
+      task_queue_.push(std::move(task));
+      break;
+    }
+    case kBackendRelayReply: {
+      std::static_pointer_cast<BackupClient>(conn)->Reply(std::move(message));
+      break;
+    }
+    default:
+      LOG(INFO) << "Wrong message type: " << message->type();
   }
-  auto task = std::make_shared<Task>(conn);
-  task->DecodeQuery(message);
-  task_queue_.push(std::move(task));
 }
 
 void BackendServer::HandleError(std::shared_ptr<Connection> conn,
@@ -128,19 +136,34 @@ void BackendServer::HandleError(std::shared_ptr<Connection> conn,
 
 void BackendServer::UpdateModelTable(const ModelTableConfig& request,
                                      RpcReply* reply) {
-  SpinlockGuard lock(model_table_lock_);
-  std::unordered_set<std::string> new_sessions;
+  // Update backend pool
+  std::unordered_set<uint32_t> backend_list;
+  std::unordered_map<uint32_t, BackendInfo> backend_infos;
+  for (auto config : request.model_instance_config()) {
+    for (auto const& info : config.backup_backend()) {
+      backend_list.insert(info.node_id());
+      backend_infos.emplace(info.node_id(), info);
+    }
+  }
+  auto new_backends = backend_pool_.UpdateBackendList(backend_list);
+  for (auto backend_id : new_backends) {
+    backend_pool_.AddBackend(std::make_shared<BackupClient>(
+        backend_infos.at(backend_id), io_service_, this));
+  }
+  
+  // Update model table
+  std::lock_guard<std::mutex> lock(model_table_mu_);
+  std::unordered_set<std::string> all_sessions;
   for (auto config : request.model_instance_config()) {
     if (config.model_session_size() > 1) {
-      // TODO: prefix model
-      std::shared_ptr<SharePrefixModel> prefix_model = nullptr;
+      std::shared_ptr<ModelExecutor> sp_model = nullptr;
       for (auto model_sess : config.model_session()) {
         std::string session_id = ModelSessionToString(model_sess);
-        auto find = model_table_.find(session_id);
-        if (find != model_table_.end()) {
-          auto model = find->second;
-          prefix_model = std::dynamic_pointer_cast<SharePrefixModel>(model);
-          if (prefix_model != nullptr) {
+        auto iter = model_table_.find(session_id);
+        if (iter != model_table_.end()) {
+          auto model = iter->second;
+          if (model->IsSharePrefixModel()) {
+            sp_model = model;
             break;
           } else {
             // Remove its original model
@@ -149,90 +172,99 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
           }
         }
       }
-      if (prefix_model == nullptr) {
+      if (sp_model == nullptr) {
         // Create a new prefix model
         LOG(INFO) << "Load prefix model instance " <<
             ModelSessionToString(config.model_session(0)) << ", batch: " <<
-            config.batch();
-        auto model = CreateModelInstance(gpu_id_, config);
+            config.batch() << ", backup: " << config.backup();
+        auto model = std::make_shared<ModelExecutor>(gpu_id_, config,
+                                                     task_queue_);
         gpu_executor_->AddModel(model);
         for (auto model_sess : config.model_session()) {
           std::string session_id = ModelSessionToString(model_sess);
-          new_sessions.insert(session_id);
+          all_sessions.insert(session_id);
           model_table_.emplace(session_id, model);
         }
       } else {
         // Prefix model already exists
         // Need to update batch size, and add new model sessions sharing prefix
-        if (prefix_model->batch() != config.batch()) {
+        auto sp_internal = dynamic_cast<SharePrefixModel*>(sp_model->model());
+        if (sp_internal->batch() != config.batch()) {
           LOG(INFO) << "Update prefix model instance " <<
-              prefix_model->model_session_id() << ", batch: " <<
-              prefix_model->batch() << " -> " << config.batch();
-          prefix_model->set_batch(config.batch());
+              sp_internal->model_session_id() << ", batch: " <<
+              sp_internal->batch() << " -> " << config.batch();
+          sp_model->SetBatch(config.batch());
         }
         for (auto model_sess : config.model_session()) {
           std::string session_id = ModelSessionToString(model_sess);
-          new_sessions.insert(session_id);
-          if (!prefix_model->HasModelSession(session_id)) {
+          all_sessions.insert(session_id);
+          if (!sp_internal->HasModelSession(session_id)) {
             LOG(INFO) << "Add model session " << session_id <<
-                " to prefix model " << prefix_model->model_session_id();
-            prefix_model->AddModelSession(model_sess);
-            model_table_.emplace(session_id, prefix_model);
+                " to prefix model " << sp_internal->model_session_id();
+            sp_internal->AddModelSession(model_sess);
+            model_table_.emplace(session_id, sp_model);
           }
         }
+        sp_model->UpdateBackupBackends(config);
       }
     } else {
+      // Regular model session
       auto model_sess = config.model_session(0);
       std::string session_id = ModelSessionToString(model_sess);
-      new_sessions.insert(session_id);
+      all_sessions.insert(session_id);
       auto model_iter = model_table_.find(session_id);
       if (model_iter == model_table_.end()) {
         // Load new model instance
-        auto model = CreateModelInstance(gpu_id_, config);
+        auto model = std::make_shared<ModelExecutor>(gpu_id_, config,
+                                                     task_queue_);
         model_table_.emplace(session_id, model);
         gpu_executor_->AddModel(model);
         LOG(INFO) << "Load model instance " << session_id <<
-            ", batch: " << config.batch();
+            ", batch: " << config.batch() << ", backup: " << config.backup();
       } else {
         auto model = model_iter->second;
-        if (model->batch() != config.batch()) {
+        if (model->model()->batch() != config.batch()) {
           // Update the batch size
           LOG(INFO) << "Update model instance " << session_id << ", batch: " <<
-              model->batch() << " -> " << config.batch();
-          model->set_batch(config.batch());
+              model->model()->batch() << " -> " << config.batch();
+          model->SetBatch(config.batch());
         }
+        model->UpdateBackupBackends(config);
       }
     }
   }
   std::vector<std::string> to_remove;
   for (auto iter : model_table_) {
-    if (new_sessions.find(iter.first) == new_sessions.end()) {
+    if (all_sessions.count(iter.first) == 0) {
       to_remove.push_back(iter.first);
     }
   }
   for (auto session_id : to_remove) {
     auto model = model_table_.at(session_id);
     model_table_.erase(session_id);
-    auto prefix_model = std::dynamic_pointer_cast<SharePrefixModel>(model);
-    if (prefix_model == nullptr) {
+    if (!model->IsSharePrefixModel()) {
       LOG(INFO) << "Remove model instance " << session_id;
       gpu_executor_->RemoveModel(model);
     } else {
+      auto sp_internal = dynamic_cast<SharePrefixModel*>(model->model());
       LOG(INFO) << "Remove model session " << session_id <<
-          " from prefix model " << prefix_model->model_session_id();
-      prefix_model->RemoveModelSession(session_id);
-      if (prefix_model->num_model_sessions() == 0) {
+          " from prefix model " << sp_internal->model_session_id();
+      sp_internal->RemoveModelSession(session_id);
+      if (sp_internal->num_model_sessions() == 0) {
         LOG(INFO) << "Remove prefix model instance " << session_id;
         gpu_executor_->RemoveModel(model);
       }
     }
   }
+  
+  // Update duty cycle
+  gpu_executor_->SetDutyCycle(request.duty_cycle_us());
+  LOG(INFO) << "Duty cycle: " << request.duty_cycle_us() << " us";
   reply->set_status(CTRL_OK);
 }
 
-ModelInstancePtr BackendServer::GetModelInstance(
-    const std::string& model_session_id) {
-  SpinlockGuard lock(model_table_lock_);
+ModelExecutorPtr BackendServer::GetModel(const std::string& model_session_id) {
+  std::lock_guard<std::mutex> lock(model_table_mu_);
   auto itr = model_table_.find(model_session_id);
   if (itr == model_table_.end()) {
     LOG(ERROR) << "Model session is not loaded: " << model_session_id;
@@ -242,8 +274,17 @@ ModelInstancePtr BackendServer::GetModelInstance(
 }
 
 BackendServer::ModelTable BackendServer::GetModelTable() {
-  SpinlockGuard lock(model_table_lock_);
+  std::lock_guard<std::mutex> lock(model_table_mu_);
   return model_table_;
+}
+
+std::shared_ptr<BackupClient> BackendServer::GetBackupClient(
+    uint32_t backend_id) {
+  auto backup = backend_pool_.GetBackend(backend_id);
+  if (backup == nullptr) {
+    return nullptr;
+  }
+  return std::static_pointer_cast<BackupClient>(backup);
 }
 
 void BackendServer::Daemon() {
@@ -262,6 +303,7 @@ void BackendServer::Daemon() {
         model_stats->add_num_requests(nreq);
       }
     }
+    // LOG(INFO) << "Current utilization: " << gpu_executor_->CurrentUtilization();
     UpdateBackendStats(backend_stats);
     std::this_thread::sleep_until(next_time);
   }
