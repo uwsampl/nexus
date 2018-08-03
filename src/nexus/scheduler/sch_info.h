@@ -32,6 +32,8 @@ struct SessionInfo {
   /*! \brief Whether there is a static workload for this session */
   bool has_static_workload;
 
+  std::unordered_set<uint32_t> backup_backends;
+
   SessionInfo() :
       unassigned_workload(0),
       has_static_workload(false) {}
@@ -54,8 +56,18 @@ struct InstanceInfo {
   float max_duty_cycle_us;
   float throughput;
   uint64_t memory_usage;
+  bool backup;
+  std::unordered_map<uint32_t, BackendInfo> backup_backends;
 
-  InstanceInfo() {}
+  InstanceInfo() :
+      batch(0),
+      max_batch(0),
+      profile(nullptr),
+      fwd_latency_us(0.),
+      max_duty_cycle_us(0.),
+      throughput(0.),
+      memory_usage(0),
+      backup(false) {}
   
   InstanceInfo(const InstanceInfo& other) :
       model_sessions(other.model_sessions),
@@ -65,7 +77,8 @@ struct InstanceInfo {
       fwd_latency_us(other.fwd_latency_us),
       max_duty_cycle_us(other.max_duty_cycle_us),
       throughput(other.throughput),
-      memory_usage(other.memory_usage) {}
+      memory_usage(other.memory_usage),
+      backup(other.backup) {}
   
   InstanceInfo& operator=(const InstanceInfo& other) {
     if (this != &other) {
@@ -77,6 +90,7 @@ struct InstanceInfo {
       max_duty_cycle_us = other.max_duty_cycle_us;
       throughput = other.throughput;
       memory_usage = other.memory_usage;
+      backup = other.backup;
     }
     return *this;
   }

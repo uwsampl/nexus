@@ -65,12 +65,16 @@ $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus
 ```
 
 ### Step 3: Start Nexus service
-First, start the scheduler
+First, we use docker to start the scheduler in a container." to replace these two sentences.
+Usage of docker run command is `docker run [OPTIONS] IMAGE [COMMAND] [ARG...]`.
+The -d option means running container in background and printing container ID. And the -v option means to 
+bind mount a volume with IMAGE.
 ```
 $ docker run [--network nexus-network] -d -v /path/to/nexus-models:/nexus-models:ro \
 --name scheduler nexus/scheduler scheduler -model_root /nexus-models
 ```
-After the scheduler starts, we need to retrieve the IP address of scheduler.
+After the scheduler starts, we need to retrieve the IP address of scheduler. Use docker inspect command
+with -f option whose effect is to format the output using the given Go template.
 ```
 $ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' scheduler
 ```
@@ -84,4 +88,12 @@ Start an application serving at port 12345, e.g., object recognition.
 ```
 $ docker run [--network nexus-network] -d -p 12345:9001 --name obj_rec \
 nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP)
+```
+### Step 4: Test sample
+There is a sample for test at `nexus/tests/python`. Before running the file for test, we need to generate a
+library under the `nexus/python/proto` dirtory. Then set the PYTHONPATH environment variable.
+```
+$ make python
+$ cd tests/python
+$ export PYTHONPATH=/path/to/nexus/python:$PYTHONPATH
 ```

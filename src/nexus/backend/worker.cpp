@@ -9,12 +9,10 @@ namespace nexus {
 namespace backend {
 
 Worker::Worker(int index, BackendServer* server,
-               BlockPriorityQueue<Task>& task_queue,
-               GpuExecutor* gpu_executor) :
+               BlockPriorityQueue<Task>& task_queue) :
     index_(index),
     server_(server),
     task_queue_(task_queue),
-    gpu_executor_(gpu_executor),
     running_(false) {}
 
 void Worker::Start() {
@@ -45,7 +43,7 @@ void Worker::Run() {
 void Worker::Process(std::shared_ptr<Task> task) {
   switch (task->stage) {
     case kPreprocess: {
-      task->model = server_->GetModelInstance(task->query.model_session_id());
+      task->model = server_->GetModel(task->query.model_session_id());
       if (task->model == nullptr) {
         std::stringstream ss;
         ss << "Model session is not loaded: " << task->query.model_session_id();
@@ -53,18 +51,31 @@ void Worker::Process(std::shared_ptr<Task> task) {
         SendReply(std::move(task));
         break;
       }
-      // Increase input counter
-      if (task->query.window_size() > 0) {
-        task->model->counter()->Increase(task->query.window_size());
-      } else {
-        task->model->counter()->Increase(1);
-      }
       // Preprocess task
-      task->model->Preprocess(task);
-      if (task->result.status() != CTRL_OK) {
-        SendReply(std::move(task));
-      } else {
-        gpu_executor_->AddTask(std::move(task));
+      if (!task->model->Preprocess(task)) {
+        if (task->result.status() != CTRL_OK) {
+          SendReply(std::move(task));
+        } else {
+          // Relay to the request to backup servers
+          std::vector<uint32_t> backups = task->model->BackupBackends();
+          double min_util = 1.;
+          std::shared_ptr<BackupClient> best_backup = nullptr;
+          for (auto backend_id : backups) {
+            auto backup = server_->GetBackupClient(backend_id);
+            double util = backup->GetUtilization();
+            if (util < min_util) {
+              min_util = util;
+              best_backup = backup;
+            }
+          }
+          if (best_backup != nullptr) {
+            LOG(INFO) << "Forward request to backup " <<
+                best_backup->node_id() << " with utilization " << min_util;
+            best_backup->Forward(std::move(task));
+          } else {
+            task->model->Preprocess(task, true);
+          }
+        }
       }
       break;
     }
@@ -88,16 +99,11 @@ void Worker::SendReply(std::shared_ptr<Task> task) {
   task->result.set_model_session_id(task->query.model_session_id());
   task->result.set_latency_us(task->timer.GetLatencyMicros("begin", "end"));
   task->result.set_queuing_us(task->timer.GetLatencyMicros("begin", "exec"));
-  /*if (task->query.debug()) {
-    auto backend_lat = task->result.add_backend_latency();
-    backend_lat->set_model_session_id(task->context.query->model_session_id());
-    backend_lat->set_batch_time(task->timer.GetLatencyMillis(
-        "begin", "batch"));
-    backend_lat->set_process_time(task->timer.GetLatencyMillis(
-        "batch", "end"));
-    backend_lat->set_num_inputs(task->context.outputs.size());
-  }*/
-  auto msg = std::make_shared<Message>(kBackendReply,
+  MessageType reply_type = kBackendReply;
+  if (task->msg_type == kBackendRelay) {
+    reply_type = kBackendRelayReply;
+  }
+  auto msg = std::make_shared<Message>(reply_type,
                                        task->result.ByteSizeLong());
   msg->EncodeBody(task->result);
   task->connection->Write(std::move(msg));

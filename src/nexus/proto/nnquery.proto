@@ -106,12 +106,17 @@ message ModelSession {
 }
 
 message QueryProto {
-  uint32 query_id = 1;
+  // Query ID
+  uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
+  // Input of query
   ValueProto input = 3;
+  // Include top k records
   uint32 topk = 10;
+  // Cropped windows in the image
   repeated RectProto window = 11;
+  // Output fields
   repeated string output_field = 12;
   // Threshold for confidence, default is 0
   repeated ValueProto filter = 13;
@@ -121,7 +126,7 @@ message QueryProto {
 
 message QueryResultProto {
   // Query ID
-  uint32 query_id = 1;
+  uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
   // status
