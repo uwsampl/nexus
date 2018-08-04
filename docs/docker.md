@@ -5,6 +5,11 @@ To build nexus docker images, you need to install
 
 There are four docker images that needs to be built. First you need to build the
 base docker image that installs all dependent libraries required for Nexus.
+
+Following docker build commands contain -t and -f options. -t option is followed 
+by name and optionally a tag in the ‘name:tag’ format. -f option is followed by 
+name of the Dockerfile (Default is ‘PATH/Dockerfile’).
+
 ```
 $ cd nexus/dockerfiles
 $ docker build -t nexus/base -f NexusBaseDockerfile .
