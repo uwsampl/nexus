@@ -23,8 +23,7 @@ INSTANTIATE_RPC_CALL(AsyncService, UpdateBackendStats, BackendStatsProto,
                      RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
 
-Scheduler::Scheduler(std::string port, size_t nthreads,
-                     std::string model_db_root) :
+Scheduler::Scheduler(std::string port, size_t nthreads) :
     AsyncRpcServiceBase(port, nthreads),
     beacon_interval_sec_(FLAGS_beacon),
     epoch_interval_sec_(FLAGS_epoch),
@@ -39,7 +38,6 @@ Scheduler::Scheduler(std::string port, size_t nthreads,
   if (!enable_prefix_batch_) {
     LOG(INFO) << "Prefix batching is off";
   }
-  ModelDatabase::Singleton().Init(model_db_root);
 }
 
 void Scheduler::LoadWorkloadFile(const std::string& workload_file) {

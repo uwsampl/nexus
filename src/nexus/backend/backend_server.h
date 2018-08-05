@@ -44,7 +44,7 @@ class BackendServer : public ServerBase, public MessageHandler {
    * \param model_db_root Model database root directory path
    */
   BackendServer(std::string port, std::string rpc_port, std::string sch_addr,
-                size_t num_workers, int gpu_id, std::string model_db_root);
+                size_t num_workers, int gpu_id);
   /*! \brief Deconstructs backend server */
   ~BackendServer();
   /*! \brief Get backend node ID */

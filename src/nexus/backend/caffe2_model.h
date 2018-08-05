@@ -27,6 +27,10 @@ class Caffe2Model : public ModelInstance {
 
   void Forward(std::shared_ptr<BatchTask> batch_task) final;
 
+  void ForwardAsync(std::shared_ptr<BatchTask> batch_task) final;
+
+  void WaitOutput(std::shared_ptr<BatchTask> batch_task) final;
+
   void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
@@ -41,6 +45,7 @@ class Caffe2Model : public ModelInstance {
   std::unique_ptr<caffe2::CUDAContext> gpu_ctx_;
   std::string net_name_;
   std::unique_ptr<caffe2::Workspace> workspace_;
+  caffe2::NetBase* net_;
   std::string input_blob_name_;
   std::string output_blob_name_;
   // image size
