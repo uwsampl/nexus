@@ -51,6 +51,10 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
             &init_net, &predict_net);
   init_net.mutable_device_option()->CopyFrom(option);
   predict_net.mutable_device_option()->CopyFrom(option);
+  // Use caffe2 async dag net, for now use 2 workers by default
+  // TODO: probably allow to tune number of workers in the future
+  predict_net.set_type("async_dag");
+  predict_net.set_num_workers(2);
   net_name_ = predict_net.name();
 
   // New workspace
@@ -59,6 +63,7 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
   CAFFE_ENFORCE(workspace_->RunNetOnce(init_net));
   // Create predict network
   CAFFE_ENFORCE(workspace_->CreateNet(predict_net));
+  net_ = workspace_->GetNet(net_name_);
   
   // Get input size of a single input
   input_size_ = input_shape_.NumElements(1);
@@ -223,10 +228,39 @@ void Caffe2Model::Forward(std::shared_ptr<BatchTask> batch_task) {
   
   // Run the net
   workspace_->RenameBlob(blob_name, input_blob_name_);
-  CAFFE_ENFORCE(workspace_->RunNet(net_name_));
+  CAFFE_ENFORCE(net_->Run());
   workspace_->RenameBlob(input_blob_name_, blob_name);
 
   // Copy to output
+  auto out_arr = batch_task->GetOutputArray(output_blob_name_);
+  Memcpy(out_arr->Data<void>(), out_arr->device(),
+         output_tensor_->data<float>(), gpu_device_,
+         batch * output_size_ * sizeof(float));
+  batch_task->SliceOutputBatch({{
+        output_blob_name_, Slice(batch, output_size_)}});
+}
+
+void Caffe2Model::ForwardAsync(std::shared_ptr<BatchTask> batch_task) {
+  // Get corresponding input blob
+  std::string blob_name;
+  caffe2::Blob* blob;
+  std::tie(blob_name, blob) = input_blobs_[batch_task->GetInputArray()->tag()];
+  
+  // Reshape input blob to current batch size
+  uint32_t batch = batch_task->batch_size();
+  std::vector<int> input_shape = input_shape_.dims();
+  input_shape[0] = batch;
+  blob->GetMutable<caffe2::TensorCUDA>()->Resize(input_shape);
+  
+  // Run the net
+  workspace_->RenameBlob(blob_name, input_blob_name_);
+  CAFFE_ENFORCE(net_->RunAsync());
+  workspace_->RenameBlob(input_blob_name_, blob_name);
+}
+
+void Caffe2Model::WaitOutput(std::shared_ptr<BatchTask> batch_task) {
+  uint32_t batch = batch_task->batch_size();
+  net_->Wait();
   auto out_arr = batch_task->GetOutputArray(output_blob_name_);
   Memcpy(out_arr->Data<void>(), out_arr->device(),
          output_tensor_->data<float>(), gpu_device_,

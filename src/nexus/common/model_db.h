@@ -58,8 +58,6 @@ class ModelDatabase {
  public:
   static ModelDatabase& Singleton();
 
-  void Init(const std::string& model_root);
-
   const YAML::Node* GetModelInfo(const std::string& model_id) const;
 
   const YAML::Node* GetModelInfo(const std::string& framework,
@@ -84,7 +82,7 @@ class ModelDatabase {
       const;
 
  private:
-  ModelDatabase() {}
+  ModelDatabase(const std::string& model_root);
 
   void LoadModelInfo(const std::string& db_file);
 

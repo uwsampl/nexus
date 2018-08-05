@@ -109,6 +109,15 @@ class ModelInstance {
    * \param task Pointer to batch task.
    */
   virtual void Forward(std::shared_ptr<BatchTask> batch_task) = 0;
+
+  virtual void ForwardAsync(std::shared_ptr<BatchTask> batch_task) {
+    LOG(WARNING) << "Don't support async forward";
+    Forward(batch_task);
+  }
+
+  virtual void WaitOutput(std::shared_ptr<BatchTask> batch_task) {
+    LOG(WARNING) << "Don't support async forward";
+  }
   /*!
    * \brief Postprocess the query in the task.
    * \param task Pointer to task.
