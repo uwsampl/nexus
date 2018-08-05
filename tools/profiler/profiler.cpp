@@ -23,13 +23,13 @@ DEFINE_int32(gpu, 0, "GPU device id");
 DEFINE_string(framework, "", "Framework");
 DEFINE_string(model, "", "Model name");
 DEFINE_int32(model_version, 1, "Version");
-DEFINE_string(model_root, "", "Model root directory");
 DEFINE_string(image_dir, "", "Image directory");
 DEFINE_int32(min_batch, 1, "Minimum batch size");
 DEFINE_int32(max_batch, 256, "Maximum batch size");
 DEFINE_string(output, "", "Output file");
 DEFINE_int32(height, 0, "Image height");
 DEFINE_int32(width, 0, "Image width");
+DEFINE_bool(share_prefix, false, "Enable share prefix");
 DEFINE_int32(repeat, 10, "Repeat times for profiling");
 
 namespace nexus {
@@ -68,6 +68,7 @@ class ModelProfiler {
       }
     }
     LOG(INFO) << model_sess_.DebugString();
+    model_sessions_.push_back(ModelSessionToString(model_sess_));
     LOG(INFO) << "Profile model " << ModelSessionToProfileID(model_sess_);
     // Get test dataset
     ListImages(image_dir);
@@ -86,6 +87,23 @@ class ModelProfiler {
     std::unordered_map<int, std::tuple<float, float, size_t> > forward_stats;
     ModelInstanceConfig config;
     config.add_model_session()->CopyFrom(model_sess_);
+    if (FLAGS_share_prefix) {
+      std::vector<std::string> share_models =
+          ModelDatabase::Singleton().GetPrefixShareModels(
+              ModelSessionToModelID(model_sess_));
+      for (auto model_id : share_models) {
+        LOG(INFO) << model_id;
+        auto share_sess = config.add_model_session();
+        ParseModelID(model_id, share_sess);
+        share_sess->set_latency_sla(50000);
+        if (model_sess_.image_height() > 0) {
+          share_sess->set_image_height(model_sess_.image_height());
+          share_sess->set_image_width(model_sess_.image_width());
+        }
+        model_sessions_.push_back(ModelSessionToString(*share_sess));
+      }
+    }
+    LOG(INFO) << config.DebugString();
     BlockPriorityQueue<Task> task_queue;
 
     // preprocess
@@ -128,25 +146,27 @@ class ModelProfiler {
     LOG(INFO) << "Preprocess finished";
 
     // forward and postprocess
+    int dryrun = 4;
     for (int batch = min_batch; batch <= max_batch; ++batch) {
       config.set_batch(batch);
       config.set_max_batch(batch);
       auto model = std::make_shared<ModelExecutor>(gpu_, config, task_queue);
-      //CreateModelInstance(gpu_, config);
-      //ModelExecutor model_exec(model, task_queue);
       std::vector<uint64_t> forward_lats;
-      for (int i = 0; i < batch * (repeat + 1); ++i) {
+      for (int i = 0; i < batch * (repeat + dryrun); ++i) {
         int idx = i % preproc_tasks.size();
         auto task = std::make_shared<Task>();
         task->SetDeadline(std::chrono::milliseconds(1000000));
         task->query.set_query_id(i);
+        task->query.set_model_session_id(
+            model_sessions_[i % model_sessions_.size()]);
         task->attrs = preproc_tasks[idx]->attrs;
         task->AppendInput(preproc_tasks[idx]->inputs[0]->array);
-        //model_exec.AddTask(task);
         model->AddPreprocessedTask(task);
       }
       // dry run
-      model->Execute();
+      for (int i = 0; i < dryrun; ++i) {
+        model->Execute();
+      }
       // start meansuring forward latency
       for (int i = 0; i < repeat; ++i) {
         auto beg = std::chrono::high_resolution_clock::now();
@@ -158,7 +178,7 @@ class ModelProfiler {
       size_t curr_freemem = gpu_device_->FreeMemory();
       size_t memory_usage = origin_freemem - curr_freemem;
       LOG(INFO) << "memory usage: " << memory_usage;
-      for (int i = 0; i < batch * (repeat + 1); ++i) {
+      for (int i = 0; i < batch * (repeat + dryrun); ++i) {
         auto task = task_queue.pop();
         CHECK_EQ(task->result.status(), CTRL_OK) << "Error detected: " <<
             task->result.status();
@@ -253,6 +273,7 @@ class ModelProfiler {
   int height_;
   int width_;
   std::vector<std::string> test_images_;
+  std::vector<std::string> model_sessions_;
   GPUDevice* gpu_device_;
 };
 
@@ -272,12 +293,11 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   // Setup backtrace on segfault
   google::InstallFailureSignalHandler();
-  CHECK_GT(FLAGS_model_root.length(), 0) << "Missing model_root";
+  // Check flags
   CHECK_GT(FLAGS_framework.length(), 0) << "Missing framework";
   CHECK_GT(FLAGS_model.length(), 0) << "Missing model";
   CHECK_GT(FLAGS_image_dir.length(), 0) << "Missing image_dir";
   srand(time(NULL));
-  ModelDatabase::Singleton().Init(FLAGS_model_root);
   ModelProfiler profiler(FLAGS_gpu, FLAGS_framework, FLAGS_model,
                          FLAGS_model_version, FLAGS_image_dir, FLAGS_height,
                          FLAGS_width);
