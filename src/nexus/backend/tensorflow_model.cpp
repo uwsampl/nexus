@@ -43,11 +43,6 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
     gpu_opt->set_allow_growth(true);
   }
   (*cpu_option_.config.mutable_device_count())["GPU"] = 0;
-
-  // Get the GPU allocator for creating input buffer
-  tf::ProcessState* process_state = tf::ProcessState::singleton();
-  gpu_allocator_ = process_state->GetGPUAllocator(
-      gpu_option_.config.gpu_options(), tf::TfGpuId(0), 0);
   
   // Init session and load model
   session_.reset(tf::NewSession(gpu_option_));
@@ -86,6 +81,11 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   input_layer_ = model_info_["input_layer"].as<std::string>();
   output_layer_ = model_info_["output_layer"].as<std::string>();
 
+  // Get the GPU allocator for creating input buffer
+  tf::ProcessState* process_state = tf::ProcessState::singleton();
+  gpu_allocator_ = process_state->GetGPUAllocator(
+      gpu_option_.config.gpu_options(), tf::TfGpuId(0), 0);
+
   // Dry run the model to get the outpue size
   tf::Tensor* in_tensor = NewInputTensor();
   std::vector<tf::Tensor> out_tensors;
@@ -115,6 +115,7 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   for (uint i = 0; i < model_info_["input_std"].size(); ++i) {
     input_std_.push_back(model_info_["input_std"][i].as<float>());
   }
+
   // Load class names
   if (model_info_["class_names"]) {
     fs::path cns_path = model_dir / model_info_["class_names"].
