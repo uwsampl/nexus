@@ -1,0 +1,7 @@
+set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
+set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
+add_subdirectory(proto)
+add_subdirectory(common)
+add_subdirectory(backend)
+add_subdirectory(scheduler)
+add_subdirectory(app)

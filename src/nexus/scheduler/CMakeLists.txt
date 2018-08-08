@@ -1,0 +1,10 @@
+include_directories(${PROJECT_BINARY_DIR}/bin/gen)
+include_directories(${PROJECT_SOURCE_DIR}/src)
+set(SCHEDULER_SRCS backend_delegate.cpp frontend_delegate.cpp scheduler.cpp)
+add_library(scheduler_lib ${SCHEDULER_SRCS})
+add_executable(scheduler scheduler_main.cpp)
+target_link_libraries(scheduler_lib proto common ${LD_FLAGS})
+target_link_libraries(scheduler proto common scheduler_lib ${LD_FLAGS})
+set_target_properties(scheduler_lib PROPERTIES OUTPUT_NAME "scheduler_lib")
+set_target_properties(scheduler PROPERTIES OUTPUT_NAME "scheduler")
+
