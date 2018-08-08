@@ -63,8 +63,25 @@ a manager node.
 ```
 $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus-network
 ```
+### Step 3: Generate model profile
 
-### Step 3: Start Nexus service
+In order to evaluate the maximum batch size for each model in each GPU, we need to generate profiles by profiler in tools directory.
+```
+python profiler.py $(framework) $(model) $(model_root) $(dataset)
+```
+The frameworks we currently support contain tensorflow, caffe, caffe2, and darknet. The value of $(framework) can be chosen from them. 
+$(model) represents name of the model. 
+$(model_root) is the path to model root directory. And $(dataset) is the path to the dataset. 
+
+There is an example to generate a profile of model in our public model zoo
+```
+python profile.py caffe vgg_face /nexus-models/ /path/to/dataset 
+``` 
+There are some optional arguments of profiler. Running with argument -h will show help message about arguments and exit. Running with --version VERSION argument will designate version of the model, default value of version is 1. Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT and --width WIDTH specify the size of the input image. Argument -f means to overwrite the existing model profile in model database.
+ 
+If we add an new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model for this new GPU.
+ 
+### Step 4: Start Nexus service
 First, we use docker to start the scheduler in a container.
 Usage of docker run command is `docker run [OPTIONS] IMAGE [COMMAND] [ARG...]`.
 The -d option means running container in background and printing container ID. And the -v option means to 
@@ -89,7 +106,7 @@ Start an application serving at port 12345, e.g., object recognition.
 $ docker run [--network nexus-network] -d -p 12345:9001 --name obj_rec \
 nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP)
 ```
-### Step 4: Test sample
+### Step 5: Test sample
 There is a sample for test at `nexus/tests/python`. Before running the file for test, we need to generate a
 library under the `nexus/python/proto` dirtory. Then set the PYTHONPATH environment variable.
 ```
