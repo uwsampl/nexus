@@ -89,7 +89,7 @@ void GpuExecutorMultiBatching::Run() {
 
   NEXUS_CUDA_CHECK(cudaSetDevice(gpu_id_));
   //auto min_cycle = std::chrono::microseconds(50);
-  double min_cycle = 50; // us
+  double min_cycle_us = 50; // us
   LOG(INFO) << "GpuExecutor started";
   while (running_) {
     std::vector<std::shared_ptr<ModelExecutor> > models;
@@ -100,11 +100,11 @@ void GpuExecutorMultiBatching::Run() {
       models = models_;
       backup_models = backup_models_;
     }
-    double exec_cycle = 0.;
+    double exec_cycle_us = 0.;
     for (auto model : models) {
-      exec_cycle += model->Execute();
+      exec_cycle_us += model->Execute();
     }
-    double budget = duty_cycle_us_ - exec_cycle;
+    double budget = duty_cycle_us_ - exec_cycle_us;
     for (auto model : backup_models) {
       if (budget <= 0) {
         break;
@@ -122,14 +122,14 @@ void GpuExecutorMultiBatching::Run() {
       if (batch > 0) {
         auto lat = model->Execute(batch);
         budget -= lat;
-        exec_cycle += lat;
+        exec_cycle_us += lat;
       }
     }
-    if (exec_cycle < min_cycle) {
+    if (exec_cycle_us < min_cycle_us) {
       // ensure the cycle to be at least min_cycle to avoid acquiring lock
       // too frequently in the ModelInstance
       std::this_thread::sleep_for(std::chrono::microseconds(
-          int(min_cycle - exec_cycle)));
+          int(min_cycle_us - exec_cycle_us)));
     }
   }
   LOG(INFO) << "GpuExecutor stopped";

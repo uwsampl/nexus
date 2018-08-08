@@ -29,9 +29,9 @@ SharePrefixModel::SharePrefixModel(int gpu_id,
     prefix_output_name_ = iter.first;
     prefix_output_shape_ = iter.second;
   }
-  prefix_output_arr_ = prefix_model_->GetOutputGpuArrays();
+  prefix_batch_output_arr_ = prefix_model_->GetOutputGpuArrays();
 
-  max_suffix_output_size_ = 0;
+  max_suffix_output_size_ = 0; 
   for (int i = 0; i < config.model_session_size(); ++i) {
     ModelInstanceConfig suffix_cfg;
     suffix_cfg.add_model_session()->CopyFrom(config.model_session(i));
@@ -101,16 +101,88 @@ void SharePrefixModel::Preprocess(std::shared_ptr<Task> task) {
 
 void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   // Do not allow to change the shared models during the forwarding
-  std::lock_guard<std::mutex> lock(suffix_mu_);
+  // auto t1 = Clock::now();
+  std::unordered_map<std::string, std::shared_ptr<ModelInstance> > suffix_models;
+  {
+    std::lock_guard<std::mutex> lock(suffix_mu_);
+    suffix_models = suffix_models_;
+  }
   auto suffix_output_arr = batch_task->GetOutputArray("output");
 
   // Replace the origin output arrays by prefix output GPU array and
   // Forward prefix model
-  batch_task->SetOutputArrays(prefix_output_arr_);
+  batch_task->SetOutputArrays(prefix_batch_output_arr_);
   VLOG(1) << "Forward prefix model " << prefix_model_->model_session_id() <<
       " with batch size " << batch_task->batch_size();
-  prefix_model_->Forward(batch_task);
 
+#if 1
+  prefix_model_->ForwardAsync(batch_task);
+  // auto t2 = Clock::now();
+
+  uint32_t batch_size = batch_task->batch_size();
+  auto tasks = batch_task->tasks();
+  size_t offset = 0;
+  float* prefix_batch_output_ptr = prefix_batch_output_arr_.
+                                   at(prefix_output_name_)->Data<float>();
+  size_t prefix_output_nfloats = prefix_output_shape_.NumElements(1);
+  std::vector<ArrayPtr> suffix_input_arrs;
+  std::vector<std::shared_ptr<BatchTask> > suffix_batch_tasks;
+  
+  // Prepare the suffix batch tasks
+  for (uint32_t i = 0; i < batch_size; ++i) {
+    auto task = tasks[i];
+    auto model_sess_id = task->query.model_session_id();
+    auto suffix_model = suffix_models.at(model_sess_id);
+    task->suffix_model = suffix_model;
+    auto suffix_batch_task = std::make_shared<BatchTask>(1);
+
+    // Set input array in batch task
+    auto suffix_input_arr = suffix_model->CreateInputGpuArrayWithRawPointer(
+        prefix_batch_output_ptr, prefix_output_nfloats);
+    prefix_batch_output_ptr += prefix_output_nfloats;
+    suffix_batch_task->SetInputArray(suffix_input_arr);
+    // Append input
+    auto suffix_input = std::make_shared<Input>(
+        task->deadline(), task->task_id, batch_task->inputs()[i]->index,
+        suffix_input_arr);
+    suffix_batch_task->AppendInput(suffix_input, task);
+
+    // Set output array in batch task
+    size_t suffix_output_nfloats = suffix_output_sizes_.at(model_sess_id);
+    auto out_arr = suffix_output_arr->Slice(offset, suffix_output_nfloats);
+    offset += suffix_output_nfloats;
+    suffix_batch_task->SetOutputArrays({{
+          suffix_output_names_.at(model_sess_id), out_arr }});
+
+    suffix_input_arrs.push_back(suffix_input_arr);
+    suffix_batch_tasks.push_back(suffix_batch_task);
+  }
+  // auto t3 = Clock::now();
+
+  prefix_model_->WaitOutput(batch_task);
+  // auto t4 = Clock::now();
+  
+  std::vector<std::shared_ptr<Output> > batch_outputs;
+  for (int i = 0; i < batch_size; ++i) {
+    auto task = tasks[i];
+    auto suffix_batch_task = suffix_batch_tasks[i];
+    task->suffix_model->Forward(suffix_batch_task);
+    batch_outputs.push_back(suffix_batch_task->outputs()[0]);
+    task->suffix_model->RemoveInputGpuArray(suffix_input_arrs[i]);
+  }
+
+  batch_task->set_outputs(batch_outputs);
+  // auto t5 = Clock::now();
+  // LOG(INFO) << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() <<
+  //     " us, " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() <<
+  //     " us, "  << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() <<
+  //     " us, "  << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count() <<
+  //     " us";
+
+#else
+  prefix_model_->Forward(batch_task);
+  // auto t2 = Clock::now();
+  
   // Append the outputs of prefix model to the input queue of corresponding
   // suffix model
   std::unordered_map<std::string, std::shared_ptr<BatchTask> > suffix_tasks;
@@ -126,7 +198,7 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
         prefix_output->arrays.at(prefix_output_name_));
     if (suffix_tasks.find(model_sess_id) == suffix_tasks.end()) {
       auto suffix_task = std::make_shared<BatchTask>(
-          suffix_models_[model_sess_id]->max_batch());
+          suffix_models[model_sess_id]->max_batch());
       suffix_task->SetInputArray(suffix_input_arrays_[model_sess_id]);
       suffix_tasks.emplace(model_sess_id, suffix_task);
       suffix_indices.emplace(model_sess_id, std::vector<int>{});
@@ -149,13 +221,13 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
           suffix_output_names_.at(model_sess_id), out_arr }});
     VLOG(1) << "Forward suffix model " << model_sess_id <<
         " with batch size " << suffix_task->batch_size();
-    suffix_models_.at(model_sess_id)->ForwardAsync(suffix_task);
+    suffix_models.at(model_sess_id)->ForwardAsync(suffix_task);
   }
   for (auto iter : suffix_tasks) {
     auto& model_sess_id = iter.first;
     auto suffix_task = iter.second;
     auto origin_indices = suffix_indices.at(model_sess_id);
-    suffix_models_.at(model_sess_id)->WaitOutput(suffix_task);
+    suffix_models.at(model_sess_id)->WaitOutput(suffix_task);
     auto outputs = suffix_task->outputs();
     for (int i = 0; i < outputs.size(); ++i) {
       batch_outputs[origin_indices[i]] = outputs[i];
@@ -163,20 +235,15 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   }
   // Set suffix outputs into the batch_task outputs
   batch_task->set_outputs(batch_outputs);
+  // auto t3 = Clock::now();
+  // LOG(INFO) << "Prefix: " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() <<
+  //     " us, suffix: " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() <<
+  //     " us";
+#endif
 }
 
 void SharePrefixModel::Postprocess(std::shared_ptr<Task> task) {
-  ModelInstance* suffix_model;
-  {
-    std::lock_guard<std::mutex> lock(suffix_mu_);
-    auto iter = suffix_models_.find(task->query.model_session_id());
-    if (iter == suffix_models_.end()) {
-      task->result.set_status(MODEL_SESSION_NOT_LOADED);
-      return;
-    }
-    suffix_model = iter->second.get();
-  }
-  suffix_model->Postprocess(task);
+  task->suffix_model->Postprocess(task);
 }
 
 int SharePrefixModel::num_model_sessions() {
