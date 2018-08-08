@@ -15,14 +15,12 @@ namespace backend {
 
 BackendServer::BackendServer(std::string port, std::string rpc_port,
                              std::string sch_addr, size_t num_workers,
-                             int gpu_id, std::string model_db_root) :
+                             int gpu_id) :
     ServerBase(port),
     gpu_id_(gpu_id),
     running_(false),
     rpc_service_(this, rpc_port),
     rand_gen_(rd_()) {
-  // Init model information
-  ModelDatabase::Singleton().Init(model_db_root);
   // Start RPC service
   rpc_service_.Start();
   // Init scheduler client

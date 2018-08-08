@@ -1,7 +1,11 @@
 import os
+import sys
 import argparse
 import subprocess
+import shutil
+import uuid
 import yaml
+
 
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 _profiler = os.path.join(_root, 'build/bin/profiler')
@@ -22,7 +26,7 @@ def load_model_db(path):
 def find_max_batch(framework, model_name):
     global args
     cmd_base = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s' % (
-        _profiler, args.model_dir, args.dataset, args.gpu, framework, model_name)
+        _profiler, args.model_root, args.dataset, args.gpu, framework, model_name)
     if args.height > 0 and args.width > 0:
         cmd_base += ' -height %s -width %s' % (args.height, args.width)
     left = 1
@@ -75,7 +79,8 @@ def find_max_batch(framework, model_name):
             right = mid
         else:
             left = mid
-    return left
+    # minus 2 just to be conservative in case framework has memory leak
+    return left - 2
 
 
 def profile_model(framework, model_name):
@@ -88,9 +93,9 @@ def profile_model(framework, model_name):
     max_batch = find_max_batch(framework, model_name)
     print('Max batch: %s' % max_batch)
 
-    output = prof_id + '.txt'
+    output = str(uuid.uuid4()) + '.txt'
     cmd = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -max_batch %s -output %s' % (
-        _profiler, args.model_dir, args.dataset, args.gpu, framework, model_name,
+        _profiler, args.model_root, args.dataset, args.gpu, framework, model_name,
         max_batch, output)
     if args.height > 0 and args.width > 0:
         cmd += ' -height %s -width %s' % (args.height, args.width)
@@ -98,46 +103,55 @@ def profile_model(framework, model_name):
 
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
-    out, err = proc.communicate()
+    proc.communicate()
     if not os.path.exists(output):
         lines = err.split('\n')
-        print('\n'.join(lines[-50:]))
+        sys.stderr.write('\n'.join(lines[-50:]))
+        sys.stderr.write('\n')
+        return
+    with open(output) as f:
+        pid = f.readline().strip().replace(':', '-')
+        gpu = f.readline().strip().replace('(', '').replace(')','')
+    prof_dir = os.path.join(args.model_root, 'profiles')
+    gpu_dir = os.path.join(prof_dir, gpu)
+    if not os.path.exists(gpu_dir):
+        os.mkdir(gpu_dir)
+    prof_file = os.path.join(gpu_dir, '%s.txt' % pid)
+    if os.path.exists(prof_file) and not args.force:
+        print('%s already exists' % prof_file)
+        return
+    shutil.move(output, prof_file)
+    print('Save profile to %s' % prof_file)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Profile models')
-    parser.add_argument('-f', '--framework',
+    parser.add_argument('framework',
                         choices=['caffe', 'caffe2', 'tensorflow', 'darknet'],
                         help='Framework name')
-    parser.add_argument('-m', '--model', type=str, help='Model name')
-    parser.add_argument('-v', '--version', type=int, default=1,
-                        help='Model version')
-    parser.add_argument('--gpu', type=int, default=0, help='GPU index')
-    parser.add_argument('--dataset', type=str,
-                        default='/home/haichen/datasets/imagenet/ILSVRC2012/val',
+    parser.add_argument('model', type=str, help='Model name')
+    parser.add_argument('model_root', type=str,
+                        help='Nexus model root directory')
+    parser.add_argument('dataset', type=str,
                         help='Dataset directory')
-    parser.add_argument('--model_dir', type=str,
-                        default='/home/haichen/nexus-models',
-                        help='Model root directory')
+    parser.add_argument('--version', type=int, default=1,
+                        help='Model version (default: 1)')
+    parser.add_argument('--gpu', type=int, default=0, help='GPU index')
     parser.add_argument('--height', type=int, default=0, help='Image height')
     parser.add_argument('--width', type=int, default=0, help='Image width')
+    parser.add_argument('-f', '--force', action='store_true',
+                        help='Overwrite the existing model profile in model DB')
     global args
     args = parser.parse_args()
 
-    load_model_db(os.path.join(args.model_dir, 'db', 'model_db.yml'))
-    if args.framework:
-        frameworks = [args.framework]
-    else:
-        frameworks = _models.keys()
-    for framework in frameworks:
-        if args.model:
-            if args.model not in _models[framework]:
-                continue
-            profile_model(framework, args.model)
-        else:
-            for model in _models[framework]:
-                profile_model(framework, model)
+    load_model_db(os.path.join(args.model_root, 'db', 'model_db.yml'))
+    if args.model not in _models[args.framework]:
+        sys.stderr.write('%s:%s not found in model DB\n' % (args.framework, args.model))
+        return
+
+    profile_model(args.framework, args.model)
     
 
 if __name__ == '__main__':
     main()
+

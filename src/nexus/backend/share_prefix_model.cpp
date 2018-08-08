@@ -139,9 +139,8 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   size_t offset = 0;
   std::vector<std::shared_ptr<Output> > batch_outputs(batch_task->batch_size());
   for (auto iter : suffix_tasks) {
-    auto model_sess_id = iter.first;
+    auto& model_sess_id = iter.first;
     auto suffix_task = iter.second;
-    auto origin_indices = suffix_indices.at(model_sess_id);
     uint32_t batch = suffix_task->batch_size();
     size_t nfloats = batch * suffix_output_sizes_.at(model_sess_id);
     auto out_arr = suffix_output_arr->Slice(offset, nfloats);
@@ -150,7 +149,13 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
           suffix_output_names_.at(model_sess_id), out_arr }});
     VLOG(1) << "Forward suffix model " << model_sess_id <<
         " with batch size " << suffix_task->batch_size();
-    suffix_models_.at(model_sess_id)->Forward(suffix_task);
+    suffix_models_.at(model_sess_id)->ForwardAsync(suffix_task);
+  }
+  for (auto iter : suffix_tasks) {
+    auto& model_sess_id = iter.first;
+    auto suffix_task = iter.second;
+    auto origin_indices = suffix_indices.at(model_sess_id);
+    suffix_models_.at(model_sess_id)->WaitOutput(suffix_task);
     auto outputs = suffix_task->outputs();
     for (int i = 0; i < outputs.size(); ++i) {
       batch_outputs[origin_indices[i]] = outputs[i];
@@ -255,3 +260,4 @@ void SharePrefixModel::RemoveModelSession(const std::string& model_sess_id) {
 
 } // namespace backend
 } // namespace nexus
+
