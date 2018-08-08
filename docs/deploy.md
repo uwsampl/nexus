@@ -77,7 +77,11 @@ There is an example to generate a profile of model in our public model zoo
 ```
 python profile.py caffe vgg_face /nexus-models/ /path/to/dataset 
 ``` 
-There are some optional arguments of profiler. Running with argument -h will show help message about arguments and exit. Running with --version VERSION argument will designate version of the model, default value of version is 1. Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT and --width WIDTH specify the size of the input image. Argument -f means to overwrite the existing model profile in model database.
+There are some optional arguments of profiler. 
+Running with argument -h will show help message about arguments and exit. 
+Running with --version VERSION argument will designate version of the model, default value of version is 1. 
+Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT and --width WIDTH specify the size of the input image. 
+Argument -f means to overwrite the existing model profile in model database.
  
 If we add an new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model for this new GPU.
  
