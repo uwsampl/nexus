@@ -78,7 +78,8 @@ enum RequestState {
 class ExecBlock;
 class RequestPool;
 
-class RequestContext : public std::enable_shared_from_this<RequestContext> {
+class RequestContext : public DeadlineItem,
+                       public std::enable_shared_from_this<RequestContext> {
  public:
   RequestContext(std::shared_ptr<UserSession> user_sess,
                  std::shared_ptr<Message> msg, RequestPool& req_pool);
@@ -109,6 +110,8 @@ class RequestContext : public std::enable_shared_from_this<RequestContext> {
 
   void HandleError(uint32_t status, const std::string& error_msg);
 
+  void RecordQuerySend(uint64_t qid);
+
   void SendReply();
 
  private:
@@ -119,7 +122,7 @@ class RequestContext : public std::enable_shared_from_this<RequestContext> {
   RequestPool& req_pool_;
   RequestProto request_;
   ReplyProto reply_;
-  TimePoint beg_;
+  //TimePoint beg_;
   std::atomic<RequestState> state_;
   
   std::deque<ExecBlock*> ready_blocks_;
@@ -130,6 +133,7 @@ class RequestContext : public std::enable_shared_from_this<RequestContext> {
   std::unordered_map<std::string, VariablePtr> waiting_vars_;
   std::unordered_map<uint64_t, std::string> qid_var_map_;
   std::unordered_map<uint64_t, QueryResultProto> dangling_results_;
+  std::unordered_map<uint64_t, uint64_t> query_send_;
   std::mutex mu_;
 };
 
@@ -155,7 +159,7 @@ class RequestPool {
   }
 
  private:
-  BlockQueue<RequestContext> ready_requests_;
+  BlockPriorityQueue<RequestContext> ready_requests_;
   std::unordered_set<std::shared_ptr<RequestContext> > block_requests_;
   std::mutex mu_;
 };
