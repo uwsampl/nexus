@@ -8,7 +8,7 @@
 #include "nexus/proto/nnquery.pb.h"
 #include "nexus/scheduler/backend_delegate.h"
 
-DECLARE_string(model_db);
+//DECLARE_string(model_db);
 DECLARE_int32(beacon);
 DECLARE_int32(epoch);
 
@@ -18,7 +18,6 @@ namespace scheduler {
 class BackendDelegateTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    ModelDatabase::Singleton().Init(FLAGS_model_db);
     gpu_device_ = "TITAN_X_(Pascal)";
     gpu_available_memory_ = 12L * 1024L * 1024L * 1024L;
     FLAGS_beacon = 1;
