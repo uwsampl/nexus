@@ -148,7 +148,7 @@ tools: build/bin/profiler
 test: build/bin/runtest
 
 runtest: test
-	@build/bin/runtest -model_db $(ROOTDIR)/tests/data/model_db
+	@build/bin/runtest -model_root $(ROOTDIR)/tests/data/model_db
 
 build/lib/libnexus.so: $(CXX_COMMON_OBJS) $(CXX_APP_OBJS)
 	@mkdir -p $(@D)
