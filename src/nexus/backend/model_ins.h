@@ -92,6 +92,26 @@ class ModelInstance {
    */
   virtual ArrayPtr CreateInputGpuArray() = 0;
   /*!
+   * \brief Create input GPU array given raw pointer. Neither input gpu array
+   * nor framework-dependent data blob should take the ownership of allocated
+   * buffer.
+   * \param ptr Pointer to GPU buffer
+   * \param nfloats Number of floating numbers in the buffer
+   * \return Array pointer enclosing the given pointer.
+   */
+  virtual ArrayPtr CreateInputGpuArrayWithRawPointer(float* ptr,
+                                                     size_t nfloats) {
+    LOG(ERROR) << "Don't support create input gpu array with raw pointer";
+    return nullptr;
+  }
+  /*!
+   * \brief Remove the input gpu array.
+   * \param arr Input array geneated by CreateInputGpuArray or CreateInputGpuArrayWithRawPointer
+   */
+  virtual void RemoveInputGpuArray(ArrayPtr arr) {
+    LOG(WARNING) << "Don't support remove input gpu array";
+  }
+  /*!
    * \brief Get output array in GPU memory for storing output data up to
    * max batch size. This function should be only called once.
    * \return Map from output name to array pointer with buffer allocated

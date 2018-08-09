@@ -112,7 +112,7 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
     DecreaseOpenRequests(dequeue_cnt);
     std::lock_guard<std::mutex> lock(time_mu_);
     last_exec_finish_ = t2;
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
+    return std::chrono::duration_cast<std::chrono::microseconds>(
         t2 - t1).count();
   }
   uint64_t batch_id = batch_id_.fetch_add(1, std::memory_order_relaxed);
@@ -133,13 +133,13 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
   }
   DecreaseOpenRequests(dequeue_cnt);
   
-  auto memcpy_lat = std::chrono::duration_cast<std::chrono::milliseconds>(
+  auto memcpy_lat = std::chrono::duration_cast<std::chrono::microseconds>(
       t2 - t1).count();
-  auto forward_lat = std::chrono::duration_cast<std::chrono::milliseconds>(
+  auto forward_lat = std::chrono::duration_cast<std::chrono::microseconds>(
       t3 - t2).count();
   LOG(INFO) << model_->model_session_id() << " forwards batch " <<
       batch_task->batch_id() << ", size " << batch_task->batch_size() <<
-      ", memcpy " << memcpy_lat << " ms, forward " << forward_lat << " ms";
+      ", memcpy " << memcpy_lat << " us, forward " << forward_lat << " us";
 
   auto outputs = batch_task->outputs();
   auto tasks = batch_task->tasks();

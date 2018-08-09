@@ -54,7 +54,7 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
   // Use caffe2 async dag net, for now use 2 workers by default
   // TODO: probably allow to tune number of workers in the future
   predict_net.set_type("async_dag");
-  predict_net.set_num_workers(2);
+  predict_net.set_num_workers(1);
   net_name_ = predict_net.name();
 
   // New workspace
@@ -64,13 +64,15 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
   // Create predict network
   CAFFE_ENFORCE(workspace_->CreateNet(predict_net));
   net_ = workspace_->GetNet(net_name_);
+  LOG(INFO) << "Caffe2 model support async run: " << net_->SupportsAsync();
   
   // Get input size of a single input
   input_size_ = input_shape_.NumElements(1);
   // Dry run network to get output tensor, shape, and size
-  std::string blob_name;
+  uint32_t blob_idx;
   caffe2::Blob* input_blob;
-  std::tie(blob_name, input_blob) = NewInputBlob();
+  std::tie(blob_idx, input_blob) = NewInputBlob();
+  std::string blob_name = input_blobs_[blob_idx].first;
   workspace_->RenameBlob(blob_name, input_blob_name_);
   CAFFE_ENFORCE(workspace_->RunNet(net_name_));
   workspace_->RenameBlob(input_blob_name_, blob_name);
@@ -138,21 +140,41 @@ std::unordered_map<std::string, Shape> Caffe2Model::OutputShapes() {
 }
 
 ArrayPtr Caffe2Model::CreateInputGpuArray() {
+  uint32_t blob_idx;
   caffe2::Blob* blob;
   if (first_input_array_) {
-    blob = input_blobs_[0].second;
+    blob_idx = 0;
+    blob = input_blobs_[blob_idx].second;
     first_input_array_ = false;
   } else {
-    std::string name;
-    std::tie(name, blob) = NewInputBlob();
+    std::tie(blob_idx, blob) = NewInputBlob();
   }
   size_t nfloats = max_batch_ * input_size_;
   auto tensor = blob->Get<caffe2::TensorCUDA>();
   auto buf = std::make_shared<Buffer>(tensor.mutable_data<float>(),
                                       nfloats * sizeof(float), gpu_device_);
   auto arr = std::make_shared<Array>(DT_FLOAT, nfloats, buf);
-  arr->set_tag(input_blobs_.size() - 1);
+  arr->set_tag(blob_idx);
   return arr;
+}
+
+ArrayPtr Caffe2Model::CreateInputGpuArrayWithRawPointer(float* ptr,
+                                                        size_t nfloats) {
+  uint32_t blob_idx;
+  caffe2::Blob* blob;
+  std::tie(blob_idx, blob) = NewInputBlob(ptr, nfloats);
+  auto tensor = blob->Get<caffe2::TensorCUDA>();
+  auto buf = std::make_shared<Buffer>(tensor.mutable_data<float>(),
+                                      nfloats * sizeof(float), gpu_device_);
+  auto arr = std::make_shared<Array>(DT_FLOAT, nfloats, buf);
+  arr->set_tag(blob_idx);
+  return arr;
+}
+
+void Caffe2Model::RemoveInputGpuArray(ArrayPtr arr) {
+  auto blob_name = input_blobs_.at(arr->tag()).first;
+  workspace_->RemoveBlob(blob_name);
+  input_blobs_.erase(arr->tag());
 }
 
 std::unordered_map<std::string, ArrayPtr> Caffe2Model::GetOutputGpuArrays() {
@@ -381,21 +403,52 @@ void Caffe2Model::LoadModel(const std::string& init_path,
   }
 }
 
-std::pair<std::string, caffe2::Blob*> Caffe2Model::NewInputBlob() {
-  std::string blob_name = input_blob_name_ + "-" +
-                          std::to_string(input_blobs_.size());
+std::pair<uint32_t, caffe2::Blob*> Caffe2Model::NewInputBlob() {
+  uint32_t idx;
+  std::string blob_name;
   caffe2::Blob* blob;
   if (input_blobs_.empty()) {
+    idx = 0;
+    blob_name = input_blob_name_ + "-" + std::to_string(idx);
     blob = workspace_->RenameBlob(input_blob_name_, blob_name);
   } else {
+    for (idx = 1; ; ++idx) {
+      if (input_blobs_.count(idx) == 0) {
+        break;
+      }
+    }
+    blob_name = input_blob_name_ + "-" + std::to_string(idx);
     blob = workspace_->CreateBlob(blob_name);
   }
   auto tensor = blob->GetMutable<caffe2::TensorCUDA>();
   tensor->Resize(input_shape_.dims());
   tensor->mutable_data<float>();
   tensor->Reserve(input_shape_.dims(), gpu_ctx_.get());
-  input_blobs_.emplace_back(blob_name, blob);
-  return std::make_pair(blob_name, blob);
+  input_blobs_.emplace(idx, std::make_pair(blob_name, blob));
+  return std::make_pair(idx, blob);
+}
+
+std::pair<uint32_t, caffe2::Blob*> Caffe2Model::NewInputBlob(float* ptr,
+                                                             size_t nfloats) {
+  uint32_t batch = nfloats / input_size_;
+  CHECK_GT(batch, 0) << "Capacity is too small to fit in batch size 1";
+  //LOG(INFO) << "Batch size: " << batch;
+  uint32_t idx;
+  for (idx = 1; ; ++idx) {
+    if (input_blobs_.count(idx) == 0) {
+      break;
+    }
+  }
+  std::string blob_name = input_blob_name_ + "-" + std::to_string(idx);
+  caffe2::Blob* blob;
+  blob = workspace_->CreateBlob(blob_name);
+  auto tensor = blob->GetMutable<caffe2::TensorCUDA>();
+  auto dims = input_shape_.dims();
+  dims[0] = batch;
+  tensor->Resize(dims);
+  tensor->ShareExternalPointer<float>(ptr, nfloats * sizeof(float));
+  input_blobs_.emplace(idx, std::make_pair(blob_name, blob));
+  return std::make_pair(idx, blob);
 }
 
 void Caffe2Model::LoadClassnames(const std::string& filepath) {
