@@ -103,6 +103,7 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
   for (auto rect : windows) {
     query.add_window()->CopyFrom(rect);
   }
+  ctx->RecordQuerySend(qid);
   {
     std::lock_guard<std::mutex> lock(query_ctx_mu_);
     query_ctx_.emplace(qid, ctx);
