@@ -7,10 +7,12 @@ namespace app {
 RequestContext::RequestContext(std::shared_ptr<UserSession> user_sess,
                                std::shared_ptr<Message> msg,
                                RequestPool& req_pool) :
+    DeadlineItem(),
     user_session_(user_sess),
     req_pool_(req_pool),
     state_(kUninitialized) {
-  beg_ = Clock::now();
+  SetDeadline(std::chrono::milliseconds(50));
+  //beg_ = Clock::now();
   msg->DecodeBody(&request_);
 }
 
@@ -97,14 +99,29 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
   if (state_ == kError) {
     return;
   }
+  std::lock_guard<std::mutex> lock(mu_);
+  // Add query latency info
+  uint64_t qid = result.query_id();
+
+  auto query_latency = reply_.add_query_latency();
+  query_latency->set_query_id(qid);
+  query_latency->set_model_session_id(result.model_session_id());
+  query_latency->set_frontend_send_timestamp_us(query_send_.at(qid));
+  query_latency->set_frontend_recv_timestamp_us(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          Clock::now() - begin_).count());
+  query_send_.erase(qid);
+
   if (result.status() != CTRL_OK) {
     // LOG(INFO) << request_.user_id() << ":" << request_.req_id() << ":" <<
     //     result.query_id() << " error: " << result.status();
     HandleError(result.status(), result.error_message());
     return;
   }
-  std::lock_guard<std::mutex> lock(mu_);
-  uint64_t qid = result.query_id();
+
+  query_latency->set_backend_latency_us(result.latency_us());
+  query_latency->set_backend_queuing_us(result.queuing_us());
+
   auto qid_itr = qid_var_map_.find(qid);
   if (qid_itr == qid_var_map_.end()) {
     dangling_results_.emplace(qid, result);
@@ -130,12 +147,18 @@ void RequestContext::HandleError(uint32_t status,
   SetState(kError);
 }
 
+void RequestContext::RecordQuerySend(uint64_t qid) {
+  std::lock_guard<std::mutex> lock(mu_);
+  uint64_t ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      Clock::now() - begin_).count();
+  query_send_.emplace(qid, ts);
+}
+
 void RequestContext::SendReply() {
   reply_.set_user_id(request_.user_id());
   reply_.set_req_id(request_.req_id());
-  auto end = Clock::now();
   auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
-      end - beg_).count();
+      Clock::now() - begin_).count();
   reply_.set_latency_us(latency);
   auto reply_msg = std::make_shared<Message>(kUserReply,
                                              reply_.ByteSizeLong());
