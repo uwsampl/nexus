@@ -115,7 +115,7 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
   if (result.status() != CTRL_OK) {
     // LOG(INFO) << request_.user_id() << ":" << request_.req_id() << ":" <<
     //     result.query_id() << " error: " << result.status();
-    HandleError(result.status(), result.error_message());
+    HandleErrorLocked(result.status(), result.error_message());
     return;
   }
 
@@ -140,11 +140,7 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
 void RequestContext::HandleError(uint32_t status,
                                  const std::string& error_msg) {
   std::lock_guard<std::mutex> lock(mu_);
-  reply_.set_status(status);
-  reply_.set_error_message(error_msg);
-  ready_blocks_.clear();
-  pending_blocks_.clear();
-  SetState(kError);
+  HandleErrorLocked(status, error_msg);
 }
 
 void RequestContext::RecordQuerySend(uint64_t qid) {
@@ -184,6 +180,15 @@ void RequestContext::AddReadyVariable(std::shared_ptr<Variable> var) {
   if (!ready_blocks_.empty()) {
     SetState(kRunning);
   }
+}
+
+void RequestContext::HandleErrorLocked(uint32_t status,
+                                       const std::string& error_msg) {
+  reply_.set_status(status);
+  reply_.set_error_message(error_msg);
+  ready_blocks_.clear();
+  pending_blocks_.clear();
+  SetState(kError);
 }
 
 } // namespace app

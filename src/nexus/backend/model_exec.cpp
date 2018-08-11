@@ -143,6 +143,8 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
 
   auto outputs = batch_task->outputs();
   auto tasks = batch_task->tasks();
+  // Add output to corresponding tasks, and remove tasks that get all outputs
+  std::lock_guard<std::mutex> lock(task_mu_);
   for (int i = 0; i < outputs.size(); ++i) {
     auto output = outputs[i];
     auto task = tasks[i];
@@ -186,54 +188,68 @@ void ModelExecutor::DecreaseOpenRequests(int cnt) {
 }
 
 std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
-    uint32_t batch_size) {
+    uint32_t expect_batch_size) {
   auto batch_task = std::make_shared<BatchTask>(model_->max_batch());
   batch_task->SetInputArray(input_array_);
-  if (batch_size > model_->max_batch()) {
-    batch_size = model_->max_batch();
+  if (expect_batch_size > model_->max_batch()) {
+    expect_batch_size = model_->max_batch();
   }
-  if (batch_size > input_queue_.size()) {
-    batch_size = input_queue_.size();
+  if (expect_batch_size > input_queue_.size()) {
+    expect_batch_size = input_queue_.size();
   }
 
-  std::unique_lock<std::mutex> lock(task_mu_);
+  std::lock_guard<std::mutex> lock(task_mu_);
   TimePoint now = Clock::now();
   TimePoint finish;
   if (profile_ != nullptr) {
-    float latency = profile_->GetForwardLatency(batch_size);
+    float latency = profile_->GetForwardLatency(expect_batch_size);
     finish = now + std::chrono::microseconds(int(latency));
   }
-  int cnt = 0;
-  while (batch_task->batch_size() < batch_size && !input_queue_.empty()) {
+  int dequeue_cnt = 0;
+  int current_batch = 0;
+  std::unordered_map<std::string, std::vector<std::shared_ptr<Input> > > model_inputs;
+  // if (expect_batch_size > 0) {
+  //   LOG(INFO) << "expect batch size: " << expect_batch_size;
+  // }
+  while (current_batch < expect_batch_size && !input_queue_.empty()) {
     auto input = std::move(input_queue_.top());
     input_queue_.pop();
-    ++cnt;
+    ++dequeue_cnt;
     auto task = processing_tasks_.at(input->task_id);
     task->timer.Record("exec");
     if (task->result.status() != CTRL_OK ||
         (profile_ != nullptr && input->deadline() < finish)) {
       if (task->AddVirtualOutput(input->index)) {
-        lock.unlock();
         RemoveTask(task);
-        lock.lock();
       }
     } else {
-      batch_task->AppendInput(input, task);
+      auto& model_sess_id = task->query.model_session_id();
+      if (model_inputs.find(model_sess_id) == model_inputs.end()) {
+        model_inputs.emplace(model_sess_id,
+                             std::vector<std::shared_ptr<Input> >{});
+      }
+      model_inputs.at(model_sess_id).push_back(input);
+      ++current_batch;
     }
     // Check whether there is enough requests left to fill the batch size
-    if (profile_ != nullptr && \
-        batch_size > batch_task->batch_size() + input_queue_.size()) {
-      batch_size = batch_task->batch_size() + input_queue_.size();
-      float latency = profile_->GetForwardLatency(batch_size);
+    int est_max_batch = current_batch + input_queue_.size();
+    if (profile_ != nullptr && expect_batch_size > est_max_batch) {
+      expect_batch_size = est_max_batch;
+      // LOG(INFO) << "update expect batch size: " << expect_batch_size;
+      float latency = profile_->GetForwardLatency(expect_batch_size);
       finish = now + std::chrono::microseconds(int(latency));
     }
   }
-  lock.unlock();
-  return {batch_task, cnt};
+  for (auto const& iter : model_inputs) {
+    for (auto input : iter.second) {
+      auto task = processing_tasks_.at(input->task_id);
+      batch_task->AppendInput(input, task);
+    }
+  }
+  return {batch_task, dequeue_cnt};
 }
 
 void ModelExecutor::RemoveTask(std::shared_ptr<Task> task) {
-  std::lock_guard<std::mutex> lock(task_mu_);
   task->stage = kPostprocess;
   task_queue_.push(task);
   processing_tasks_.erase(task->task_id);
