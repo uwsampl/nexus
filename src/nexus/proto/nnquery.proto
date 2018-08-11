@@ -147,9 +147,10 @@ message QueryLatency {
   uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
-  // Timestamp when sending query, relative to user request recv time
+  // Timestamp of sending query, relative to the time that receives user request
   uint64 frontend_send_timestamp_us = 3;
-  // Timestamp when receiving query, relative to user request recv time
+  // Timestamp of receiving query result, relative to the time that receives
+  // user request
   uint64 frontend_recv_timestamp_us = 4;
   // Backend processing latency
   uint64 backend_latency_us = 5;

@@ -8,8 +8,6 @@
 namespace nexus {
 namespace backend {
 
-using ModelInstancePtr = std::shared_ptr<ModelInstance>;
-
 class SharePrefixModel : public ModelInstance {
  public:
   SharePrefixModel(int gpu_id, const ModelInstanceConfig& config);
