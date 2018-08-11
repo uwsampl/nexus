@@ -44,6 +44,8 @@ void BackendSession::DoConnect() {
         if (ec) {
           handler_->HandleError(shared_from_this(), ec);
         } else {
+          boost::asio::ip::tcp::no_delay option(true);
+          socket_.set_option(option);
           running_ = true;
           LOG(INFO) << "Connected to backend " << node_id_;
           DoReadHeader();

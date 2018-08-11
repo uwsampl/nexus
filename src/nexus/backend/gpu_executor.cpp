@@ -89,7 +89,7 @@ void GpuExecutorMultiBatching::Run() {
 
   NEXUS_CUDA_CHECK(cudaSetDevice(gpu_id_));
   //auto min_cycle = std::chrono::microseconds(50);
-  double min_cycle_us = 50; // us
+  double min_cycle_us = 50.; // us
   LOG(INFO) << "GpuExecutor started";
   while (running_) {
     std::vector<std::shared_ptr<ModelExecutor> > models;

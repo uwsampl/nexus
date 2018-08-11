@@ -117,6 +117,8 @@ class RequestContext : public DeadlineItem,
  private:
   void AddReadyVariable(std::shared_ptr<Variable> var);
 
+  void HandleErrorLocked(uint32_t status, const std::string& error_msg);
+
  protected:
   std::shared_ptr<UserSession> user_session_;
   RequestPool& req_pool_;
