@@ -29,6 +29,8 @@ def find_max_batch(framework, model_name):
         _profiler, args.model_root, args.dataset, args.gpu, framework, model_name)
     if args.height > 0 and args.width > 0:
         cmd_base += ' -height %s -width %s' % (args.height, args.width)
+    if args.prefix:
+        cmd_base += ' -share_prefix'
     left = 1
     right = 64
     curr_tp = None
@@ -99,6 +101,8 @@ def profile_model(framework, model_name):
         max_batch, output)
     if args.height > 0 and args.width > 0:
         cmd += ' -height %s -width %s' % (args.height, args.width)
+    if args.prefix:
+        cmd += ' -share_prefix'
     print(cmd)
 
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
@@ -139,6 +143,8 @@ def main():
     parser.add_argument('--gpu', type=int, default=0, help='GPU index')
     parser.add_argument('--height', type=int, default=0, help='Image height')
     parser.add_argument('--width', type=int, default=0, help='Image width')
+    parser.add_argument('--prefix', action='store_true',
+                        help='Enable prefix batching')
     parser.add_argument('-f', '--force', action='store_true',
                         help='Overwrite the existing model profile in model DB')
     global args

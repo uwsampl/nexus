@@ -207,8 +207,12 @@ class ModelProfiler {
     } else {
       fout = new std::ofstream(output, std::ofstream::out);
     }
-  
-    *fout << ModelSessionToProfileID(model_sess_) << "\n";
+
+    if (FLAGS_share_prefix) {
+      *fout << ModelSessionToProfileID(model_sess_) << "-prefix\n";
+    } else {
+      *fout << ModelSessionToProfileID(model_sess_) << "\n";
+    }
     *fout << gpu_device_->device_name() << "\n";
     *fout << "Forward latency\n";
     *fout << "batch,latency(us),std(us),memory(B)\n";
