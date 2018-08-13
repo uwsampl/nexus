@@ -13,7 +13,7 @@ class ObjRecApp : public AppBase {
   }
 
   void Setup() final {
-    model_ = GetModelHandler("caffe", "vgg16", 1, 1000);
+    model_ = GetModelHandler("caffe2", "vgg16", 1, 1000);
   }
 
   void Process(const RequestProto& request, ReplyProto* reply) final {

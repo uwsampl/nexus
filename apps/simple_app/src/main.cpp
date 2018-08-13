@@ -54,7 +54,7 @@ DEFINE_string(port, "9001", "Server port");
 DEFINE_string(rpc_port, "9002", "RPC port");
 DEFINE_string(sch_addr, "127.0.0.1", "Scheduler address");
 DEFINE_int32(nthread, 1000, "Number of threads processing requests");
-DEFINE_string(framework, "", "Framework (caffe, darknet, tensorflow)");
+DEFINE_string(framework, "", "Framework (caffe2, caffe, darknet, tensorflow)");
 DEFINE_string(model, "", "Model name");
 DEFINE_int32(model_version, 1, "Model version (default: 1)");
 DEFINE_int32(latency, 500, "Latency SLA in ms (default: 500)");

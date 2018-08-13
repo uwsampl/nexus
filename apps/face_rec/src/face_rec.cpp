@@ -13,7 +13,7 @@ class FaceRecApp : public AppBase {
   }
 
   void Setup() final {
-    model_ = GetModelHandler("caffe", "vgg_face", 1, 1000);
+    model_ = GetModelHandler("caffe2", "vgg_face", 1, 1000);
   }
 
   void Process(const RequestProto& request, ReplyProto* reply) final {
