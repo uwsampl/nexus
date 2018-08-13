@@ -66,9 +66,7 @@ To build nexus docker images and deploy Nexus, following packages are required
 Set Config for Nexus
 --------------------
 
-There is a file names Makefile.config in the nexus folder. And it stores location of cuda and cudnn. $(CUDA_PATH) should be set as your/path/to/cuda, and $(CUDNN_PATH) should be set as your/path/to/cudnn. 
-
-There are some variables in this file.$(USE_GPU) decides wether backends of nexus need to run with GPU.
+There is a file names Makefile.config in the nexus folder. You can config the CUDA and CUDNN library path in the config file. $(CUDA_PATH) should be set as CUDA/library/path, and $(CUDNN_PATH) should be set as CUDNN/library/path. 
 
 Other varaibles such as $(USE_CAFFE) decide if the corresponding frameworks nexus need to support. Nexus is not able to support caffe and caffe2 at the same time.
 
@@ -195,8 +193,9 @@ $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus
 
 In order to evaluate the maximum batch size for each model in each GPU, we need to generate profiles by profiler in tools directory. 
 ```
-cd nexus/tools/profiler
-python profiler.py $(framework) $(model) $(model_root) $(dataset)
+$ cd nexus/tools/profiler
+$ docker run --runtime=nvidia -t -v /path/to/nexus-models:/nexus-models -v /path/to/dataset:/dataset:ro nexus/backend \
+python /nexus/tools/profiler/profiler.py $(framework) $(model) /nexus-models /dataset
 ```
 The frameworks we currently support contain tensorflow, caffe, caffe2, and darknet. The value of $(framework) can be chosen from them. 
 $(model) represents name of the model. 
@@ -204,7 +203,8 @@ $(model_root) is the path to model root directory. And $(dataset) is the path to
 
 There is an example to generate a profile of model in our public model zoo
 ```
-python profile.py caffe vgg_face /nexus-models/ /path/to/dataset 
+$ docker run --runtime=nvidia -t -v /path/to/nexus-models:/nexus-models -v /path/to/dataset:/dataset:ro nexus/backend \
+python nexus/tools/profiler/profiler.py caffe2 vgg_face /nexus-models /dataset
 ``` 
 
 There are some optional arguments of profiler. 
@@ -217,7 +217,7 @@ Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT
 
 Argument -f means to overwrite the existing model profile in model database.
  
-If we add an new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model for this new GPU.
+If we add a new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model on this new GPU.
  
 ### Step 3: Start Nexus service
 
