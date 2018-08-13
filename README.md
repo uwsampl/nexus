@@ -189,9 +189,11 @@ a manager node.
 $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus-network
 ```
 
-### Step 3: Generate model profile
+### Step 2: Generate model profile
 
-If you build nexus on your local machine, you can launch profiler byWW
+In order to evaluate the maximum batch size for each model in each GPU, we need to generate profiles by profiler in tools directory.
+
+If you build nexus on your local machine, you can launch profiler by
 ```
 $ cd nexus/tools/profiler
 $ python profiler.py $(framework) $(model) /path/to/nexus-models /path/to/dataset
