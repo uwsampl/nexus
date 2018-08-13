@@ -9,6 +9,8 @@ Connection::Connection(boost::asio::ip::tcp::socket socket,
     socket_(std::move(socket)),
     handler_(handler),
     wrong_header_(false) {
+  boost::asio::ip::tcp::no_delay option(true);
+  socket_.set_option(option);
 }
 
 Connection::Connection(boost::asio::io_service& io_service,

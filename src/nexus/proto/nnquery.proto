@@ -87,7 +87,9 @@ message ReplyProto {
   // Output
   repeated RecordProto output = 5;
   // Latency
-  uint64 latency_us = 20;
+  uint64 latency_us = 100;
+  // Breakdown latency for each query
+  repeated QueryLatency query_latency = 101;
 }
 
 message ModelSession {
@@ -138,4 +140,20 @@ message QueryResultProto {
   // Latency
   uint64 latency_us = 20;
   uint64 queuing_us = 21;
+}
+
+message QueryLatency {
+  // Query ID
+  uint64 query_id = 1;
+  // Model session ID
+  string model_session_id = 2;
+  // Timestamp of sending query, relative to the time that receives user request
+  uint64 frontend_send_timestamp_us = 3;
+  // Timestamp of receiving query result, relative to the time that receives
+  // user request
+  uint64 frontend_recv_timestamp_us = 4;
+  // Backend processing latency
+  uint64 backend_latency_us = 5;
+  // Backend queuing latency
+  uint64 backend_queuing_us = 6;
 }

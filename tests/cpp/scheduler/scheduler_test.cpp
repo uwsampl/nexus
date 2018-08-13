@@ -24,7 +24,7 @@ class SchedulerTest : public ::testing::Test {
     gpu_available_memory_ = 12L * 1024L * 1024L * 1024L;
     FLAGS_beacon = 1;
     FLAGS_epoch = 5;
-    scheduler_.reset(new Scheduler("10001", 1, FLAGS_model_db));
+    scheduler_.reset(new Scheduler("10001", 1));
     for (int i = 0; i < 5; ++i) {
       auto backend = std::make_shared<BackendDelegate>(
           i + 1, "127.0.0.1", "8001", "8002", gpu_device_,
