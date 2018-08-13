@@ -191,7 +191,12 @@ $ docker network create --driver overlay --attachable --subnet 10.0.0.0/16 nexus
 
 ### Step 3: Generate model profile
 
-In order to evaluate the maximum batch size for each model in each GPU, we need to generate profiles by profiler in tools directory. 
+If you build nexus on your local machine, you can launch profiler byWW
+```
+$ cd nexus/tools/profiler
+$ python profiler.py $(framework) $(model) /path/to/nexus-models /path/to/dataset
+```
+Otherwise, you can launch profiler through docker
 ```
 $ cd nexus/tools/profiler
 $ docker run --runtime=nvidia -t -v /path/to/nexus-models:/nexus-models -v /path/to/dataset:/dataset:ro nexus/backend \
@@ -217,7 +222,7 @@ Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT
 
 Argument -f means to overwrite the existing model profile in model database.
  
-If we add a new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model on this new GPU.
+If you add a new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model on this new GPU.
  
 ### Step 3: Start Nexus service
 
