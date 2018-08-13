@@ -25,10 +25,10 @@ set(CUDNN_PATH /usr/local/cuda)
 
 #---set---options---
 #USE_CAFFE and USE_CAFFE2 cannot be set to 1 at the same time
-option(USE_DARKNET "Enable to support darknet" OFF)
+option(USE_DARKNET "Enable to support darknet" ON)
 option(USE_CAFFE2 "Enable to support caffe2" ON)
 option(USE_CAFFE "Enable to support caffe" OFF)
-option(USE_TENSORFLOW "Enable to support tensorflow" OFF)
+option(USE_TENSORFLOW "Enable to support tensorflow" ON)
 option(USE_GPU "Enable to run in GPU" ON)
 #================== 
 
@@ -40,15 +40,15 @@ set(TEST_BIN build/bin/test)
 #====================================================
 
 #=== set === c++ === config ===
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
-endif()
+#if(NOT CMAKE_BUILD_TYPE)
+#  set(CMAKE_BUILD_TYPE Release)
+#endif()
 
 set(WARNING "-Wall -Wfatal-errors -Wno-unused -Wno-unused-result")
 #shell: "pkg-config --cflags protobuf"
 set(CMAKE_PROTOBUF_FLAGS "-lpthread -I/usr/local/include")
 
-set(CMAKE_CXX_FLAGS "-std=c++11 -O3 -fPIC ${WARNING} -Isrc -Ibuild/gen -MMD -MP ${CMAKE_PROTOBUF_FLAGS}" )
+set(CMAKE_CXX_FLAGS "-std=c++11 -O3 -fPIC ${WARNING} -Isrc -Ibuild/gen  ${CMAKE_PROTOBUF_FLAGS} -MMD -MP" )
 
 #shell: "pkg-config --libs opencv"
 set(OPENCV_FLAGS "-L/usr/local/lib -L/usr/local/share/OpenCV/3rdparty/lib -lopencv_shape -lopencv_stitching -lopencv_objdetect -lopencv_superres -lopencv_videostab -lopencv_calib3d -lopencv_features2d -lopencv_highgui -lopencv_videoio -lopencv_imgcodecs -lopencv_video -lopencv_photo -lopencv_ml -lopencv_imgproc -lopencv_flann -lopencv_viz -lippicv -lopencv_core")
@@ -80,36 +80,27 @@ set(TENSORFLOW_BUILD_DIR ${TENSORFLOW_ROOT_DIR}/build)
 set(BACKEND_CXXFLAGS ${CMAKE_CXX_FLAGS})
 set(BACKEND_LD_FLAGS "-L${ROOTDIR}")#
 
+
 if(USE_CAFFE2)
-    #list(APPEND BACKEND_DEPS caffe2)
-    #set(BACKEND_CXXFLAGS "${BACKEND_CXXFLAGS} -DUSE_CAFFE2 -I${CAFFE2_INSTALL_DIR}/include")
-    #set(BACKEND_LD_FLAGS "${BACKEND_LD_FLAGS} -L${CAFFE2_INSTALL_DIR}/lib -lcaffe2 -lcaffe2_gpu -Wl,-rpath,${CAFFE2_INSTALL_DIR}/lib")
+    add_definitions(-DUSE_CAFFE2=1)
     option(USE_CAFFE, OFF)
 endif()
 
 if(USE_CAFFE)
-		#set(BACKEND_CXXFLAGS "${BACKEND_CXXFLAGS} -DUSE_CAFFE -I${CAFFE_ROOT_DIR}/include -I${CAFFE_BUILD_DIR}/src")
-		#set(BACKEND_LD_FLAGS "${BACKEND_LD_FLAGS} -L${CAFFE_BUILD_DIR}/lib -lcaffe -Wl,-rpath,${CAFFE_BUILD_DIR}/lib")
+		add_definitions(-DUSE_CAFFE=1)
 endif()
 
 if(USE_DARKNRT)
-		#set(BACKEND_CXXFLAGS "${BACKEND_CXXFLAGS} -DUSE_DARKNET -I${DARKNET_ROOT_DIR}/src -I${DARKNET_ROOT_DIR}/include")
-		#set(BACK_LD_FLAGS "${BACKEND_LD_FLAGS} -L${DARKNET_BUILD_DIR} -ldarknet -Wl,-rpath,${DARKNET_BUILD_DIR}")
+		add_definitions(-DUSE_DARKNET=1)
 endif()
 
 if(USE_TENSORFLOW)
-		#shell: "export PKG_CONFIG_PATH=/directory/contains/'tensorflow.pc'/"
-		#shell: "pkg-config --cflags tensorflow"
-		#set(CXXFLAGS_TENSORFLOW "-DUSE_TENSORFLOW -I${TENSORFLOW_BUILD_DIR}/include/tensorflow -I${TENSORFLOW_BUILD_DIR}/include/tensorflow/tensorflow/contrib/makefile/downloads -I${TENSORFLOW_BUILD_DIR}/include/tensorflow/tensorflow/contrib/makefile/downloads/eigen -I${TENSORFLOW_BUILD_DIR}/include/tensorflow/tensorflow/contrib/makefile/downloads/gemmlowp -I${TENSORFLOW_BUILD_DIR}/include/tensorflow/tensorflow/contrib/makefile/downloads/nsync/public")
-		#shell: "pkg-config --libs tensorflow"
-		#set(LD_FLAGS_TENSORFLOW "-L${TENSORFLOW_BUILD_DIR}/lib/tensorflow -rdynamic -ltensorflow_cc -ldl -lpthread -Wl,-rpath,${TENSORFLOW_BUILD_DIR}/lib/tensorflow")
-		#set(BACKEND_CXXFLAGS "${BACKEND_CXXFLAGS} ${CXXFLAGS_TENSORFLOW}")
-		#set(BACK_LD_FLAGS "${BACKEND_LD_FLAGS} ${LD_FLAGS_TENSORFLOW}")
+		add_definitions(-DUSE_TENSORFLOW=1)
 endif()
 set(CMAKE_CXX_FLAGS ${BACKEND_CXXFLAGS})
 
 add_subdirectory(frameworks) 
 add_subdirectory(src/nexus)
 add_subdirectory(tools/profiler)
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
