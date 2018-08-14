@@ -1,5 +1,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <pthread.h>
 #include <thread>
 
 #include "nexus/backend/backend_server.h"
@@ -15,9 +16,20 @@ GpuExecutorMultiBatching::GpuExecutorMultiBatching(int gpu_id) :
     running_(false) {
 }
 
-void GpuExecutorMultiBatching::Start() {
+void GpuExecutorMultiBatching::Start(int core) {
   running_ = true;
   thread_ = std::thread(&GpuExecutorMultiBatching::Run, this);
+  if (core >= 0) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core, &cpuset);
+    int rc = pthread_setaffinity_np(thread_.native_handle(),
+                                    sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+      LOG(ERROR) << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    }
+    LOG(INFO) << "GPU executor is pinned on CPU " << core;
+  }
 }
 
 void GpuExecutorMultiBatching::Stop() {
@@ -138,7 +150,9 @@ void GpuExecutorMultiBatching::Run() {
 GpuExecutorNoMultiBatching::GpuExecutorNoMultiBatching(int gpu_id) :
     gpu_id_(gpu_id) {}
 
-void GpuExecutorNoMultiBatching::Start() {}
+void GpuExecutorNoMultiBatching::Start(int core) {
+  core_ = core;
+}
 
 void GpuExecutorNoMultiBatching::Stop() {
   for (auto& iter : threads_) {
@@ -153,7 +167,7 @@ void GpuExecutorNoMultiBatching::AddModel(
   std::unique_ptr<GpuExecutorMultiBatching> exec(
       new GpuExecutorMultiBatching(gpu_id_));
   exec->AddModel(model);
-  exec->Start();
+  exec->Start(core_);
   threads_.emplace(model->model()->model_session_id(), std::move(exec));
 }
 

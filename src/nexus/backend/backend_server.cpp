@@ -14,8 +14,8 @@ namespace nexus {
 namespace backend {
 
 BackendServer::BackendServer(std::string port, std::string rpc_port,
-                             std::string sch_addr, size_t num_workers,
-                             int gpu_id) :
+                             std::string sch_addr, int gpu_id,
+                             size_t num_workers, std::vector<int> cores) :
     ServerBase(port),
     gpu_id_(gpu_id),
     running_(false),
@@ -39,11 +39,27 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     LOG(INFO) << "Multi-batching is disabled";
     gpu_executor_.reset(new GpuExecutorNoMultiBatching(gpu_id));
   }
-  gpu_executor_->Start();
+  if (cores.empty()) {
+    gpu_executor_->Start();
+  } else {
+    gpu_executor_->Start(cores.back());
+    cores.pop_back();
+  }
   // Init workers
+  if (num_workers == 0) {
+    if (cores.empty()) {
+      num_workers = 4;
+    } else {
+      num_workers = cores.size();
+    }
+  }
   for (size_t i = 0; i < num_workers; ++i) {
     std::unique_ptr<Worker> worker(new Worker(i, this, task_queue_));
-    worker->Start();
+    if (cores.empty()) {
+      worker->Start();
+    } else {
+      worker->Start(cores[i % cores.size()]);
+    }
     workers_.push_back(std::move(worker));
   }
   // Init node id and register backend to global scheduler
