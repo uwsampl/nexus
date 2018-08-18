@@ -1,5 +1,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <pthread.h>
 #include <unordered_set>
 
 #include "nexus/common/config.h"
@@ -61,6 +62,17 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
       worker->Start(cores[i % cores.size()]);
     }
     workers_.push_back(std::move(worker));
+  }
+  if (cores.size() > 0) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    int core = cores[num_workers % cores.size()];
+    CPU_SET(core, &cpuset);
+    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+      LOG(ERROR) << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    }
+    LOG(INFO) << "IO thread is pinned on CPU " << core;
   }
   // Init node id and register backend to global scheduler
   Register();
