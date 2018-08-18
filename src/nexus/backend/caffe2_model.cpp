@@ -333,7 +333,6 @@ void Caffe2Model::LoadModel(const std::string& init_path,
     int start_index = config.start_index();
     int end_index = config.end_index() == 0 ? num_ops : config.end_index();
     int op_idx = 0;
-    //LOG(INFO) << full_predict_net.DebugString();
     predict_net->set_name(full_predict_net.name());
     for (int i = start_index; i < end_index; ++i) {
       auto const& op = full_predict_net.op(i);
@@ -400,6 +399,12 @@ void Caffe2Model::LoadModel(const std::string& init_path,
     for (auto iter : external_outputs) {
       output_blob_name_ = iter;
     }
+  }
+  // Set context of all operators to be CUDA
+  for (int i = 0; i < predict_net->op_size(); ++i) {
+    auto device_option = predict_net->mutable_op(i)->mutable_device_option();
+    device_option->set_cuda_gpu_id(gpu_id_);
+    device_option->set_device_type(caffe2::CUDA);
   }
 }
 
