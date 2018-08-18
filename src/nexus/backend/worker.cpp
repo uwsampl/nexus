@@ -1,5 +1,6 @@
 #include <chrono>
 #include <glog/logging.h>
+#include <pthread.h>
 
 #include "nexus/backend/backend_server.h"
 #include "nexus/backend/model_ins.h"
@@ -15,9 +16,20 @@ Worker::Worker(int index, BackendServer* server,
     task_queue_(task_queue),
     running_(false) {}
 
-void Worker::Start() {
+void Worker::Start(int core) {
   running_ = true;
   thread_ = std::thread(&Worker::Run, this);
+  if (core >= 0) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core, &cpuset);
+    int rc = pthread_setaffinity_np(thread_.native_handle(),
+                                    sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+      LOG(ERROR) << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    }
+    LOG(INFO) << "Worker " << index_ << " is pinned on CPU " << core;
+  }
 }
 
 void Worker::Stop() {
@@ -28,7 +40,8 @@ void Worker::Stop() {
 }
 
 void Worker::Run() {
-  LOG(INFO) << "Worker " << index_ << " started";
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  LOG(INFO) << "Worker " << index_ << " starts";
   auto timeout = std::chrono::milliseconds(50);
   while (running_) {
     std::shared_ptr<Task> task = task_queue_.pop(timeout);

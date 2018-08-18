@@ -22,7 +22,7 @@ class GpuExecutor {
     duty_cycle_us_.store(duty_cycle_us);
   }
   
-  virtual void Start() = 0;
+  virtual void Start(int core = -1) = 0;
   virtual void Stop() = 0;
   virtual void AddModel(std::shared_ptr<ModelExecutor> model) = 0;
   virtual void RemoveModel(std::shared_ptr<ModelExecutor> model) = 0;
@@ -38,7 +38,7 @@ class GpuExecutorMultiBatching : public GpuExecutor {
 
   inline int gpu_id() { return gpu_id_; }
 
-  void Start() final;
+  void Start(int core = -1) final;
 
   void Stop() final;
 
@@ -65,7 +65,7 @@ class GpuExecutorNoMultiBatching : public GpuExecutor {
 
   inline int gpu_id() { return gpu_id_; }
 
-  void Start();
+  void Start(int core = -1);
 
   void Stop();
 
@@ -77,6 +77,7 @@ class GpuExecutorNoMultiBatching : public GpuExecutor {
 
  private:
   int gpu_id_;
+  int core_;
   std::mutex mu_;
   std::unordered_map<std::string,
                      std::unique_ptr<GpuExecutorMultiBatching> > threads_;

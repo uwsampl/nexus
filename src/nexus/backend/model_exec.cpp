@@ -197,6 +197,9 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
   if (expect_batch_size > input_queue_.size()) {
     expect_batch_size = input_queue_.size();
   }
+  if (expect_batch_size == 0) {
+    return {batch_task, 0};
+  }
 
   std::lock_guard<std::mutex> lock(task_mu_);
   TimePoint now = Clock::now();
@@ -208,9 +211,6 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
   int dequeue_cnt = 0;
   int current_batch = 0;
   std::unordered_map<std::string, std::vector<std::shared_ptr<Input> > > model_inputs;
-  // if (expect_batch_size > 0) {
-  //   LOG(INFO) << "expect batch size: " << expect_batch_size;
-  // }
   while (current_batch < expect_batch_size && !input_queue_.empty()) {
     auto input = std::move(input_queue_.top());
     input_queue_.pop();
@@ -235,7 +235,6 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
     int est_max_batch = current_batch + input_queue_.size();
     if (profile_ != nullptr && expect_batch_size > est_max_batch) {
       expect_batch_size = est_max_batch;
-      // LOG(INFO) << "update expect batch size: " << expect_batch_size;
       float latency = profile_->GetForwardLatency(expect_batch_size);
       finish = now + std::chrono::microseconds(int(latency));
     }
