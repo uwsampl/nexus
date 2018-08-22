@@ -63,7 +63,6 @@ void BatchTask::AppendInput(std::shared_ptr<Input> input,
   Memcpy(input_write_pt_, input_array_->device(), src_data, in_arr->device(),
          nbytes);
   input_write_pt_ += nbytes;
-  LOG(INFO) << "Memcpy " << nbytes << " B";
 }
 
 void BatchTask::SliceOutputBatch(

@@ -167,7 +167,8 @@ void GpuExecutorNoMultiBatching::AddModel(
   std::unique_ptr<GpuExecutorMultiBatching> exec(
       new GpuExecutorMultiBatching(gpu_id_));
   exec->AddModel(model);
-  exec->Start(core_);
+  // Do not bind core when multi-batching is disabled
+  exec->Start();
   threads_.emplace(model->model()->model_session_id(), std::move(exec));
 }
 

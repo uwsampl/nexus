@@ -193,7 +193,6 @@ void TensorflowModel::Preprocess(std::shared_ptr<Task> task) {
   };
 
   auto prepare_image_ssd = [&](cv::Mat& image) {
-    LOG(INFO) << "prepare image ssd";
     auto in_arr = std::make_shared<Array>(DT_UINT8, input_size_, cpu_device_);
     // create a cv::Mat using buffer allocated in the in_arr
     cv::Mat resized(image_width_, image_height_, CV_8UC3,

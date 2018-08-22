@@ -376,8 +376,8 @@ CtrlStatus BackendDelegate::UpdateModelTableRpc() {
     cfg->set_memory_usage(inst_info->memory_usage);
     cfg->set_backup(inst_info->backup);
   }
-  LOG(INFO) << "Backend " << node_id_ << " update model table: " <<
-      request.DebugString();
+  // LOG(INFO) << "Backend " << node_id_ << " update model table: " <<
+  //     request.DebugString();
   
   // Invoke UpdateModelTable RPC
   grpc::ClientContext context;
