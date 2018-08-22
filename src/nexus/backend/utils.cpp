@@ -1,14 +1,36 @@
+#include <fstream>
 #include <glog/logging.h>
 #include <unordered_set>
 
-#include "nexus/backend/postprocess.h"
+#include "nexus/common/util.h"
+#include "nexus/backend/utils.h"
 
 namespace nexus {
 namespace backend {
 
-void PostprocessClassification(const QueryProto& query, const float* prob,
-                               size_t nprobs, QueryResultProto* result,
-                               const std::vector<std::string>* classnames) {
+void LoadClassnames(const std::string& filepath,
+                    std::unordered_map<int, std::string>* classnames) {
+  std::ifstream infile(filepath);
+  CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
+  std::string line;
+  int class_id;
+  while (std::getline(infile, line)) {
+    std::vector<std::string> items;
+    SplitString(line, ' ', &items);
+    if (items.size() == 1) {
+      classnames->emplace(class_id++, line);
+    } else {
+      int idx = std::stoi(items[0]);
+      classnames->emplace(idx, items[1]);
+    }
+  }
+  infile.close();
+}
+
+void PostprocessClassification(
+    const QueryProto& query, const float* prob, size_t nprobs,
+    QueryResultProto* result,
+    const std::unordered_map<int, std::string>* classnames) {
   // TODO: handle top k and threshold in the query
   if (classnames != nullptr) {
     CHECK_EQ(classnames->size(), nprobs) << "Mismatch between number of " <<
@@ -35,7 +57,7 @@ void PostprocessClassification(const QueryProto& query, const float* prob,
       if (field == "class_id") {
         auto value = record->add_named_value();
         value->set_name("class_id");
-        value->set_data_type(DT_INT);
+        value->set_data_type(DT_INT32);
         value->set_i(max_idx);
       } else if (field == "class_prob") {
         auto value = record->add_named_value();
@@ -47,7 +69,12 @@ void PostprocessClassification(const QueryProto& query, const float* prob,
         value->set_name("class_name");
         value->set_data_type(DT_STRING);
         if (classnames != nullptr) {
-          value->set_s(classnames->at(max_idx));
+          auto iter = classnames->find(max_idx);
+          if (iter == classnames->end()) {
+            LOG(ERROR) << "Cannot find class name for class id " << max_idx;
+          } else {
+            value->set_s(iter->second);
+          }
         }
       }
     }

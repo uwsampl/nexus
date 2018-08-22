@@ -36,8 +36,6 @@ class DarknetModel : public ModelInstance {
   void Postprocess(std::shared_ptr<Task> task) final;
 
  private:
-  void LoadClassnames(const std::string& filepath);
-
   void MarshalDetectionResult(
       const QueryProto& query, const float* probs, size_t nprobs,
       const int* boxes, size_t nboxes, QueryResultProto* result);
@@ -51,7 +49,7 @@ class DarknetModel : public ModelInstance {
   size_t output_size_;
   size_t output_layer_id_;
   std::string output_name_;
-  std::vector<std::string> classnames_;
+  std::unordered_map<int, std::string> classnames_;
   bool first_input_array_;
 };
 

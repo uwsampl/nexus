@@ -23,13 +23,16 @@ message ImageProto {
 enum DataType {
   DT_UNKNOWN = 0; 
   DT_BOOL = 1;
-  DT_INT = 2;
-  DT_FLOAT = 3;
-  DT_DOUBLE = 4;
-  DT_STRING = 5;
-  DT_TENSOR = 10;
-  DT_IMAGE = 11;
-  DT_RECT = 12;
+  DT_INT8 = 2;
+  DT_UINT8 = 3;
+  DT_INT32 = 4;
+  DT_UINT32 = 5;
+  DT_FLOAT = 6;
+  DT_DOUBLE = 7;
+  DT_STRING = 8;
+  DT_TENSOR = 50;
+  DT_IMAGE = 51;
+  DT_RECT = 52;
 }
 
 message TensorProto {

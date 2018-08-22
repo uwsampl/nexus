@@ -8,8 +8,8 @@
 #include <unordered_set>
 
 #include "nexus/backend/darknet_model.h"
-#include "nexus/backend/postprocess.h"
 #include "nexus/backend/slice.h"
+#include "nexus/backend/utils.h"
 #include "nexus/common/image.h"
 #include "nexus/proto/control.pb.h"
 
@@ -97,7 +97,7 @@ DarknetModel::DarknetModel(int gpu_id, const ModelInstanceConfig& config) :
   if (model_info_["class_names"]) {
     fs::path cns_path = model_dir / model_info_["class_names"].
                         as<std::string>();
-    LoadClassnames(cns_path.string());
+    LoadClassnames(cns_path.string(), &classnames_);
   }
 }
 
@@ -244,17 +244,6 @@ void DarknetModel::Postprocess(std::shared_ptr<Task> task) {
   }
 }
 
-void DarknetModel::LoadClassnames(const std::string& filepath) {
-  std::ifstream infile(filepath);
-  CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
-  std::string line;
-  while (std::getline(infile, line)) {
-    classnames_.push_back(line);
-  }
-  LOG(INFO) << "Load " << classnames_.size() << " class names from " <<
-      filepath;
-}
-
 void DarknetModel::MarshalDetectionResult(
     const QueryProto& query, const float* probs, size_t nprobs,
     const int* boxes, size_t nboxes, QueryResultProto* result) {
@@ -309,7 +298,7 @@ void DarknetModel::MarshalDetectionResult(
       } else if (field == "class_id") {
         auto value = record->add_named_value();
         value->set_name("class_id");
-        value->set_data_type(DT_INT);
+        value->set_data_type(DT_INT32);
         value->set_i(max_idx);
       } else if (field == "class_prob") {
         auto value = record->add_named_value();
