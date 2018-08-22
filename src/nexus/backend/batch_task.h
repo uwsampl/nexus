@@ -38,10 +38,12 @@ class BatchTask {
   void SetInputArray(ArrayPtr arr);
   /*!
    * \brief Create input arrays to hold the batch input data.
-   * \param input_size Number of elements of a single input.
+   * \param data_type Data type of input.
+   * \param num_elements_per_input Number of elements in a single input.
    * \param device Device for allocation of input array.
    */
-  void CreateInputArray(size_t input_size, Device* device);
+  void CreateInputArray(DataType data_type, size_t num_elements_per_input,
+                        Device* device);
   /*!
    * \brief Set output arrays for holding the batch output results.
    * \param arrays Map from name to arrays.
@@ -95,9 +97,9 @@ class BatchTask {
   /*! \brief Array that holds batch input data. */
   ArrayPtr input_array_;
   /*! \brief Write pointer to input_array_. */
-  float* input_write_pt_;
-  /*! \brief Number of floats added in the input_array_. */
-  size_t input_nfloats_;
+  char* input_write_pt_;
+  /*! \brief Number of elements added in the input_array_. */
+  size_t input_elements_;
   /*! \brief Map from name to array. */
   std::unordered_map<std::string, ArrayPtr> output_arrays_;
   /*! \brief Tasks in the batch */

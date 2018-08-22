@@ -8,10 +8,9 @@
 #include <sstream>
 
 #include "nexus/backend/caffe_model.h"
-#include "nexus/backend/postprocess.h"
 #include "nexus/backend/slice.h"
+#include "nexus/backend/utils.h"
 #include "nexus/common/image.h"
-#include "nexus/common/util.h"
 #include "nexus/proto/control.pb.h"
 
 namespace fs = boost::filesystem;
@@ -97,7 +96,7 @@ CaffeModel::CaffeModel(int gpu_id, const ModelInstanceConfig& config) :
   if (model_info_["class_names"]) {
     fs::path cns_path = model_dir / model_info_["class_names"].
                         as<std::string>();
-    LoadClassnames(cns_path.string());
+    LoadClassnames(cns_path.string(), &classnames_);
   }
 }
 

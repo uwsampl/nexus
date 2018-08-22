@@ -17,8 +17,23 @@ template<> struct TypeMap<DT_BOOL> {
   static constexpr size_t size = 1;
 };
 
-template<> struct TypeMap<DT_INT> {
+template<> struct TypeMap<DT_INT8> {
+  using type = int8_t;
+  static constexpr size_t size = 1;
+};
+
+template<> struct TypeMap<DT_UINT8> {
+  using type = uint8_t;
+  static constexpr size_t size = 1;
+};
+
+template<> struct TypeMap<DT_INT32> {
   using type = int32_t;
+  static constexpr size_t size = 4;
+};
+
+template<> struct TypeMap<DT_UINT32> {
+  using type = uint32_t;
   static constexpr size_t size = 4;
 };
 
@@ -34,8 +49,14 @@ template<> struct TypeMap<DT_DOUBLE> {
 
 inline size_t type_size(DataType type) {
   switch (type) {
-    case DT_INT:
-      return TypeMap<DT_INT>::size;
+    case DT_INT8:
+      return TypeMap<DT_INT8>::size;
+    case DT_UINT8:
+      return TypeMap<DT_UINT8>::size;
+    case DT_INT32:
+      return TypeMap<DT_INT32>::size;
+    case DT_UINT32:
+      return TypeMap<DT_UINT32>::size;
     case DT_FLOAT:
       return TypeMap<DT_FLOAT>::size;
     case DT_DOUBLE:

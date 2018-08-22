@@ -7,10 +7,9 @@
 #include <sstream>
 
 #include "nexus/backend/caffe2_model.h"
-#include "nexus/backend/postprocess.h"
 #include "nexus/backend/slice.h"
+#include "nexus/backend/utils.h"
 #include "nexus/common/image.h"
-#include "nexus/common/util.h"
 #include "nexus/proto/control.pb.h"
 // Caffe2 headers
 #include "caffe2/utils/proto_utils.h"
@@ -127,7 +126,7 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
   if (model_info_["class_names"]) {
     fs::path cns_path = model_dir / model_info_["class_names"].
                         as<std::string>();
-    LoadClassnames(cns_path.string());
+    LoadClassnames(cns_path.string(), &classnames_);
   }
 }
 
@@ -454,16 +453,6 @@ std::pair<uint32_t, caffe2::Blob*> Caffe2Model::NewInputBlob(float* ptr,
   tensor->ShareExternalPointer<float>(ptr, nfloats * sizeof(float));
   input_blobs_.emplace(idx, std::make_pair(blob_name, blob));
   return std::make_pair(idx, blob);
-}
-
-void Caffe2Model::LoadClassnames(const std::string& filepath) {
-  std::ifstream infile(filepath);
-  CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
-  std::string line;
-  while (std::getline(infile, line)) {
-    classnames_.push_back(line);
-  }
-  infile.close();
 }
 
 } // namespace backend
