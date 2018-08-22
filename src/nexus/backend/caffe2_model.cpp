@@ -7,10 +7,9 @@
 #include <sstream>
 
 #include "nexus/backend/caffe2_model.h"
-#include "nexus/backend/postprocess.h"
 #include "nexus/backend/slice.h"
+#include "nexus/backend/utils.h"
 #include "nexus/common/image.h"
-#include "nexus/common/util.h"
 #include "nexus/proto/control.pb.h"
 // Caffe2 headers
 #include "caffe2/utils/proto_utils.h"
@@ -127,7 +126,7 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
   if (model_info_["class_names"]) {
     fs::path cns_path = model_dir / model_info_["class_names"].
                         as<std::string>();
-    LoadClassnames(cns_path.string());
+    LoadClassnames(cns_path.string(), &classnames_);
   }
 }
 
@@ -333,7 +332,6 @@ void Caffe2Model::LoadModel(const std::string& init_path,
     int start_index = config.start_index();
     int end_index = config.end_index() == 0 ? num_ops : config.end_index();
     int op_idx = 0;
-    //LOG(INFO) << full_predict_net.DebugString();
     predict_net->set_name(full_predict_net.name());
     for (int i = start_index; i < end_index; ++i) {
       auto const& op = full_predict_net.op(i);
@@ -401,6 +399,12 @@ void Caffe2Model::LoadModel(const std::string& init_path,
       output_blob_name_ = iter;
     }
   }
+  // Set context of all operators to be CUDA
+  for (int i = 0; i < predict_net->op_size(); ++i) {
+    auto device_option = predict_net->mutable_op(i)->mutable_device_option();
+    device_option->set_cuda_gpu_id(gpu_id_);
+    device_option->set_device_type(caffe2::CUDA);
+  }
 }
 
 std::pair<uint32_t, caffe2::Blob*> Caffe2Model::NewInputBlob() {
@@ -449,16 +453,6 @@ std::pair<uint32_t, caffe2::Blob*> Caffe2Model::NewInputBlob(float* ptr,
   tensor->ShareExternalPointer<float>(ptr, nfloats * sizeof(float));
   input_blobs_.emplace(idx, std::make_pair(blob_name, blob));
   return std::make_pair(idx, blob);
-}
-
-void Caffe2Model::LoadClassnames(const std::string& filepath) {
-  std::ifstream infile(filepath);
-  CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
-  std::string line;
-  while (std::getline(infile, line)) {
-    classnames_.push_back(line);
-  }
-  infile.close();
 }
 
 } // namespace backend

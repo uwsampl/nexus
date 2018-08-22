@@ -18,7 +18,7 @@ class Worker {
   Worker(int index, BackendServer* server,
          BlockPriorityQueue<Task>& task_queue);
 
-  void Start();
+  void Start(int core = -1);
 
   void Stop();
 

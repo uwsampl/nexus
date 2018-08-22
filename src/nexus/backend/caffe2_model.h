@@ -46,8 +46,6 @@ class Caffe2Model : public ModelInstance {
 
   std::pair<uint32_t, caffe2::Blob*> NewInputBlob(float* ptr, size_t nfloats);
 
-  void LoadClassnames(const std::string& filename);
-
   std::unique_ptr<caffe2::CUDAContext> gpu_ctx_;
   std::string net_name_;
   std::unique_ptr<caffe2::Workspace> workspace_;
@@ -72,7 +70,7 @@ class Caffe2Model : public ModelInstance {
   // Output tensor
   caffe2::TensorCUDA* output_tensor_;
 
-  std::vector<std::string> classnames_;
+  std::unordered_map<int, std::string> classnames_;
   bool has_mean_file_;
   std::vector<float> mean_value_;
   std::vector<float> mean_blob_;
@@ -88,3 +86,4 @@ class Caffe2Model : public ModelInstance {
 #endif // USE_CAFFE2
 
 #endif // NEXUS_BACKEND_CAFFE2_MODEL_H_
+

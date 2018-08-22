@@ -41,9 +41,6 @@ class CaffeModel : public ModelInstance {
 
   void Postprocess(std::shared_ptr<Task> task) final;
 
- private:
-  void LoadClassnames(const std::string& filename);
-
   // Caffe neural network for serving
   std::unique_ptr<caffe::ServeNet<float> > net_;
   // image size
@@ -59,7 +56,7 @@ class CaffeModel : public ModelInstance {
   size_t output_size_;
   int input_blob_idx_;
   std::string output_blob_name_;
-  std::vector<std::string> classnames_;
+  std::unordered_map<int, std::string> classnames_;
   // transformer for input
   std::unique_ptr<caffe::DataTransformer<float> > transformer_;
   std::vector<boost::shared_ptr<caffe::Blob<float> > > input_blobs_;

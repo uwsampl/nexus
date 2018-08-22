@@ -44,7 +44,7 @@ class BackendServer : public ServerBase, public MessageHandler {
    * \param model_db_root Model database root directory path
    */
   BackendServer(std::string port, std::string rpc_port, std::string sch_addr,
-                size_t num_workers, int gpu_id);
+                int gpu_id, size_t num_workers = 0, std::vector<int> cores = {});
   /*! \brief Deconstructs backend server */
   ~BackendServer();
   /*! \brief Get backend node ID */
@@ -155,3 +155,4 @@ class BackendServer : public ServerBase, public MessageHandler {
 } // namespace nexus
 
 #endif // NEXUS_BACKEND_BACKEND_SERVER_H_
+

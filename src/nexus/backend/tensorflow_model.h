@@ -35,23 +35,26 @@ class TensorflowModel : public ModelInstance {
 
  private:
   tf::Tensor* NewInputTensor();
-  
-  void LoadClassnames(const std::string& filepath);
+
+  void MarshalDetectionResult(
+      const QueryProto& query, std::shared_ptr<Output> output,
+      int im_height, int im_width, QueryResultProto* result);
   
   tf::SessionOptions gpu_option_;
   tf::SessionOptions cpu_option_;
   std::unique_ptr<tf::Session> session_;
   int image_height_;
   int image_width_;
-  Shape input_shape_;
-  Shape output_shape_;
-  size_t input_size_;
-  size_t output_size_;
   std::string input_layer_;
-  std::string output_layer_;
+  Shape input_shape_;
+  size_t input_size_;
+  DataType input_data_type_;
+  std::vector<std::string> output_layers_;
+  std::unordered_map<std::string, Shape> output_shapes_;
+  std::unordered_map<std::string, size_t> output_sizes_;
   std::vector<float> input_mean_;
   std::vector<float> input_std_;
-  std::vector<std::string> classnames_;
+  std::unordered_map<int, std::string> classnames_;
   tf::Allocator* gpu_allocator_;
   std::vector<std::unique_ptr<tf::Tensor> > input_tensors_;
   bool first_input_array_;

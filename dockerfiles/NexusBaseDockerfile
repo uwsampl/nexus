@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y \
   cmake \
   clang \
   swig \
-  net-tools \
   build-essential \
   libgtk2.0-dev \
   pkg-config \
@@ -82,8 +81,8 @@ RUN mkdir /tmp/gtest && cd /tmp/gtest && \
 
 # Install Eigen latest
 RUN cd /tmp && git clone https://github.com/eigenteam/eigen-git-mirror eigen && \
-    cd eigen && mkdir build && cd build && cmake .. && make -j10 && \
-    make install
+    cd eigen && git checkout -b nexus 0d1c24ecba538f23c862b652e2b50e99a3de1aaa && \
+    mkdir build && cd build && cmake .. && make -j10 && make install
 
 RUN rm -r /tmp/*
 
