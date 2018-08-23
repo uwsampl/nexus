@@ -174,7 +174,7 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
 #else
   // Run suffix model in batch and in parallel
   
-  prefix_model_->ForwardAsync(batch_task);
+  prefix_model_->Forward(batch_task);
 
   auto tasks = batch_task->tasks();
   float* prefix_batch_output_ptr = prefix_batch_output_arr_.
@@ -229,20 +229,14 @@ void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
                                 suffix_batch_input_arr);
   }
   // Wait prefix model finish
-  prefix_model_->WaitOutput(batch_task);
+  //prefix_model_->WaitOutput(batch_task);
   // Start suffix batch task in parallel
-  for (int i = 0; i < suffix_batches.size(); ++i) {
-    auto suffix_model = std::get<0>(suffix_batches[i]);
-    auto suffix_batch_task = std::get<1>(suffix_batches[i]);
-    suffix_model->ForwardAsync(suffix_batch_task);
-  }
-  // Wait suffix outputs and copy to CPU memory
   std::vector<std::shared_ptr<Output> > batch_outputs;
   for (int i = 0; i < suffix_batches.size(); ++i) {
     auto suffix_model = std::get<0>(suffix_batches[i]);
     auto suffix_batch_task = std::get<1>(suffix_batches[i]);
     auto suffix_batch_input_arr = std::get<2>(suffix_batches[i]);
-    suffix_model->WaitOutput(suffix_batch_task);
+    suffix_model->Forward(suffix_batch_task);
     for (auto output : suffix_batch_task->outputs()) {
       batch_outputs.push_back(output);
     }

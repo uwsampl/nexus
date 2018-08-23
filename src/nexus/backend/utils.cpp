@@ -13,10 +13,10 @@ void LoadClassnames(const std::string& filepath,
   std::ifstream infile(filepath);
   CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
   std::string line;
-  int class_id;
+  int class_id = 0;
   while (std::getline(infile, line)) {
     std::vector<std::string> items;
-    SplitString(line, ' ', &items);
+    SplitString(line, ',', &items);
     if (items.size() == 1) {
       classnames->emplace(class_id++, line);
     } else {

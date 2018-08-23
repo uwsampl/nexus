@@ -52,8 +52,8 @@ Caffe2Model::Caffe2Model(int gpu_id, const ModelInstanceConfig& config) :
   predict_net.mutable_device_option()->CopyFrom(option);
   // Use caffe2 async dag net, for now use 2 workers by default
   // TODO: probably allow to tune number of workers in the future
-  predict_net.set_type("async_dag");
-  predict_net.set_num_workers(1);
+  // predict_net.set_type("async_dag");
+  // predict_net.set_num_workers(1);
   net_name_ = predict_net.name();
 
   // New workspace
