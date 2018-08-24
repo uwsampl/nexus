@@ -37,9 +37,9 @@ class BackendDelegate {
 
   void set_workload_id(int id) { workload_id_ = id; }
 
-  float overload() const { return overload_; }
+  bool overload() const { return overload_; }
 
-  float Occupancy() const;
+  double Occupancy() const;
 
   void GetInfo(BackendInfo* info) const;
 
@@ -49,8 +49,8 @@ class BackendDelegate {
 
   bool Assign(const BackendDelegate& other);
 
-  bool PrepareLoadModel(const ModelSession& model_sess, float workload,
-                        InstanceInfo* inst_info, float* occupancy) const;
+  bool PrepareLoadModel(const ModelSession& model_sess, double workload,
+                        InstanceInfo* inst_info, double* occupancy) const;
 
   void LoadModel(const InstanceInfo& inst_info);
   
@@ -73,10 +73,10 @@ class BackendDelegate {
    * \return Left over throughput if expected throughput is not achieved,
    *   otherwise 0.
    */
-  float UpdateModelThroughput(const std::string& model_sess_id,
-                              float throughput);
+  double UpdateModelThroughput(const std::string& model_sess_id,
+                               double throughput);
 
-  void SpillOutWorkload(std::vector<std::pair<SessionGroup, float> >* spillout);
+  void SpillOutWorkload(std::vector<std::pair<SessionGroup, double> >* spillout);
 
   CtrlStatus UpdateModelTableRpc();
 
@@ -88,16 +88,18 @@ class BackendDelegate {
 
   const InstanceInfo* GetInstanceInfo(const std::string& model_sess_id) const;
 
-  float GetModelThroughput(const std::string& model_sess_id) const;
+  double GetModelThroughput(const std::string& model_sess_id) const;
 
-  float GetModelRps(const std::string& model_sess_id) const;
+  double GetModelWeight(const std::string& model_sess_id) const;
+
+  double GetModelRps(const std::string& model_sess_id) const;
 
   bool IsAlive();
 
   bool IsIdle() const;
 
  private:
-  void ComputeBatchSize(InstanceInfo* inst_info, float workload) const;
+  void ComputeBatchSize(InstanceInfo* inst_info, double workload) const;
   
   void UpdateCycle();
   

@@ -24,11 +24,11 @@ inline void RemoveFromSessionGroup(SessionGroup* sessions,
 struct SessionInfo {
   SessionGroup model_sessions;
   /*! \brief Mapping from backend id to throughput */
-  std::unordered_map<uint32_t, double> backend_throughputs;
+  std::unordered_map<uint32_t, double> backend_weights;
   /*! \brief Workload request rate history */
   std::deque<double> rps_history;
   /*! \brief Gap between workload and throughput */
-  float unassigned_workload;
+  double unassigned_workload;
   /*! \brief Whether there is a static workload for this session */
   bool has_static_workload;
 
@@ -40,7 +40,7 @@ struct SessionInfo {
 
   double total_throughput() const {
     double total = 0.;
-    for (auto iter : backend_throughputs) {
+    for (auto iter : backend_weights) {
       total += iter.second;
     }
     return total;
@@ -52,9 +52,10 @@ struct InstanceInfo {
   uint32_t batch;
   uint32_t max_batch;
   const ModelProfile* profile;
-  float fwd_latency_us;
-  float max_duty_cycle_us;
-  float throughput;
+  double fwd_latency_us;
+  double max_duty_cycle_us;
+  double throughput;
+  double weight;
   uint64_t memory_usage;
   bool backup;
   std::unordered_map<uint32_t, BackendInfo> backup_backends;
@@ -66,6 +67,7 @@ struct InstanceInfo {
       fwd_latency_us(0.),
       max_duty_cycle_us(0.),
       throughput(0.),
+      weight(0.),
       memory_usage(0),
       backup(false) {}
   
@@ -77,6 +79,7 @@ struct InstanceInfo {
       fwd_latency_us(other.fwd_latency_us),
       max_duty_cycle_us(other.max_duty_cycle_us),
       throughput(other.throughput),
+      weight(other.weight),
       memory_usage(other.memory_usage),
       backup(other.backup) {}
   
@@ -89,10 +92,15 @@ struct InstanceInfo {
       fwd_latency_us = other.fwd_latency_us;
       max_duty_cycle_us = other.max_duty_cycle_us;
       throughput = other.throughput;
+      weight = other.weight;
       memory_usage = other.memory_usage;
       backup = other.backup;
     }
     return *this;
+  }
+
+  double GetWeight() const {
+    return (weight > 0) ? weight : throughput;
   }
 };
 

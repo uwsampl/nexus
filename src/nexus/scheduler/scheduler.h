@@ -205,7 +205,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \param best_backend Best-fit backend pointer.
    * \param inst_cfg Model instance configuration to be loaded.
    */
-  void FindBestBackend(const ModelSession& model_sess, float request_rate,
+  void FindBestBackend(const ModelSession& model_sess, double request_rate,
                        const std::unordered_set<uint32_t>& skips,
                        BackendDelegatePtr* best_backend,
                        InstanceInfo* inst_info);

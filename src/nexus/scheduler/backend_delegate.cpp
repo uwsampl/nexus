@@ -36,7 +36,7 @@ BackendDelegate::BackendDelegate(uint32_t node_id, const std::string& ip,
   last_time_ = std::chrono::system_clock::now();
 }
 
-float BackendDelegate::Occupancy() const {
+double BackendDelegate::Occupancy() const {
   if (exec_cycle_us_ == 0) {
     return 0.;
   }
@@ -78,8 +78,8 @@ bool BackendDelegate::Assign(const BackendDelegate& other) {
 }
 
 bool BackendDelegate::PrepareLoadModel(
-    const ModelSession& model_sess, float workload,
-    InstanceInfo* inst_info, float* occupancy) const {
+    const ModelSession& model_sess, double workload,
+    InstanceInfo* inst_info, double* occupancy) const {
   if (workload_id_ >= 0 || Occupancy() == 1.0) {
     // Static configured backend or fully occupied backend cannot load a new
     // model
@@ -105,7 +105,7 @@ bool BackendDelegate::PrepareLoadModel(
     return false;
   }
   // Compute new duty cycle and new exec cycle if we load this model
-  float new_duty_cycle, new_exec_cycle;
+  double new_duty_cycle, new_exec_cycle;
   if (duty_cycle_us_ == 0 || inst_info->max_duty_cycle_us < duty_cycle_us_) {
     new_duty_cycle = inst_info->max_duty_cycle_us;
     new_exec_cycle = 0.;
@@ -207,6 +207,9 @@ void BackendDelegate::LoadModel(const YAML::Node& model_info) {
   if (model_info["backup"]) {
     inst_info->backup = model_info["backup"].as<bool>();
   }
+  if (model_info["weight"]) {
+    inst_info->weight = model_info["weight"].as<double>();
+  }
 
   if (inst_info->backup) {
     backup_models_.push_back(inst_info);
@@ -293,10 +296,10 @@ void BackendDelegate::RemoveBackupForModel(const std::string& model_sess_id,
   }
 }
 
-float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
-                                             float workload) {
+double BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
+                                              double workload) {
   auto inst_info = session_model_map_.at(model_sess_id);
-  float prev_throughput = inst_info->throughput;
+  double prev_throughput = inst_info->throughput;
   ComputeBatchSize(inst_info.get(), workload);
   if (std::abs(prev_throughput - inst_info->throughput) > 1e-3) {
     UpdateCycle();
@@ -308,19 +311,19 @@ float BackendDelegate::UpdateModelThroughput(const std::string& model_sess_id,
 }
 
 void BackendDelegate::SpillOutWorkload(
-    std::vector<std::pair<SessionGroup, float> >* spillout) {
+    std::vector<std::pair<SessionGroup, double> >* spillout) {
   if (!overload_ || workload_id_ >= 0) {
     return;
   }
-  std::vector<std::tuple<SessionGroup, float, float> > workloads;
+  std::vector<std::tuple<SessionGroup, double, double> > workloads;
   for (auto inst_info : models_) {
     workloads.emplace_back(inst_info->model_sessions, inst_info->fwd_latency_us,
                            inst_info->throughput);
   }
   // Sort workload based on exec latency
   std::sort(workloads.begin(), workloads.end(),
-            [](std::tuple<SessionGroup, float, float> a,
-               std::tuple<SessionGroup, float, float> b) {
+            [](std::tuple<SessionGroup, double, double> a,
+               std::tuple<SessionGroup, double, double> b) {
               return std::get<1>(a) > std::get<1>(b);
             });
   // Recompute exec cycle and duty cycle
@@ -329,9 +332,9 @@ void BackendDelegate::SpillOutWorkload(
   duty_cycle_us_ = 0.;
   for (auto iter : workloads) {
     SessionGroup sessions = std::get<0>(iter);
-    float workload = std::get<2>(iter);
+    double workload = std::get<2>(iter);
     InstanceInfo inst_info;
-    float occupancy;
+    double occupancy;
     bool ret = PrepareLoadModel(sessions[0], workload, &inst_info, &occupancy);
     if (!ret) {
       spillout->emplace_back(sessions, workload);
@@ -435,12 +438,17 @@ const InstanceInfo* BackendDelegate::GetInstanceInfo(
   return iter->second.get();
 }
 
-float BackendDelegate::GetModelThroughput(const std::string& model_sess_id)
+double BackendDelegate::GetModelThroughput(const std::string& model_sess_id)
     const {
   return session_model_map_.at(model_sess_id)->throughput;
 }
 
-float BackendDelegate::GetModelRps(const std::string& model_sess_id) const {
+double BackendDelegate::GetModelWeight(const std::string& model_sess_id)
+    const {
+  return session_model_map_.at(model_sess_id)->GetWeight();
+}
+
+double BackendDelegate::GetModelRps(const std::string& model_sess_id) const {
   return std::max(0., model_rps_.at(model_sess_id)->rate());
 }
 
@@ -471,10 +479,10 @@ bool BackendDelegate::IsIdle() const {
 }
 
 void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
-                                       float workload) const {
+                                       double workload) const {
   // 1. Compute the max batch and throughput to saturate an empty GPU
   uint32_t batch, max_batch;
-  float max_throughput;
+  double max_throughput;
   max_batch = inst_info->profile->GetMaxBatch(
       inst_info->model_sessions[0].latency_sla());
   max_throughput = max_batch * 1e6 / inst_info->profile->GetForwardLatency(
@@ -494,14 +502,14 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
 
   // 2. Compute the max batch for residue load
   double latency_sla_us = inst_info->model_sessions[0].latency_sla() * 1000;
-  float preprocess = inst_info->profile->GetPreprocessLatency();
-  float postprocess = inst_info->profile->GetPostprocessLatency();
+  double preprocess = inst_info->profile->GetPreprocessLatency();
+  double postprocess = inst_info->profile->GetPostprocessLatency();
   batch = 1;
   for (; batch <= max_batch; ++batch) {
-    float fwd_lat = inst_info->profile->GetForwardLatency(batch);
+    double fwd_lat = inst_info->profile->GetForwardLatency(batch);
     // because batch = ceil(workload * duty_cycle),
     // duty_cycle >= (batch - 1) / workload
-    float min_duty_cycle = (batch - 1) * 1e6 / workload;
+    double min_duty_cycle = (batch - 1) * 1e6 / workload;
     if (min_duty_cycle + fwd_lat + preprocess + postprocess > latency_sla_us) {
       break;
     }
@@ -536,7 +544,7 @@ void BackendDelegate::UpdateCycle() {
     }
   }
   for (auto inst_info : models_) {
-    float batch = duty_cycle_us_ * inst_info->throughput / 1e6;
+    double batch = duty_cycle_us_ * inst_info->throughput / 1e6;
     if (batch - std::floor(batch) < 1e-3) {
       inst_info->batch = std::floor(batch);
     } else {

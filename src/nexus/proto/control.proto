@@ -100,7 +100,7 @@ message BackendInfo {
 message ModelRouteProto {
   message BackendRate {
     BackendInfo info = 1;
-    float throughput = 2;
+    double throughput = 2;
   }
   string model_session_id = 1;
   repeated BackendRate backend_rate = 2;
@@ -113,7 +113,7 @@ message ModelRouteUpdates {
 message LoadModelRequest {
   uint32 node_id = 1;
   ModelSession model_session = 2;
-  float estimate_workload = 3;
+  double estimate_workload = 3;
   //uint32 num_gpus = 4;
 }
 
