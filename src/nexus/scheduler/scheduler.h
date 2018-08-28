@@ -215,7 +215,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    *
    * This function acquires mutex_.
    */
-  void BeaconCheck();
+  bool BeaconCheck();
   /*!
    * \brief At each epoch cycle, re-schedule the resources for all model
    * sessions based on the request rates during last epoch
@@ -234,6 +234,9 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void AllocateUnassignedWorkloads(
       std::unordered_set<SessionInfoPtr>* changed_sessions,
       std::unordered_set<BackendDelegatePtr>* changed_backends = nullptr);
+
+  void ConsolidateBackends(
+      std::unordered_set<SessionInfoPtr>* changed_sessions);
   /*!
    * \brief Update model routing tables to subscribed frontends
    *
@@ -256,8 +259,6 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   uint32_t beacon_interval_sec_;
   /*! \brief Epoch duration in seconds */
   uint32_t epoch_interval_sec_;
-  /*! \brief Minimum history length for epoch scheduling */
-  uint32_t min_history_len_;
   /*! \brief History length to keep in the model stats */
   uint32_t history_len_;
   /*! \brief Flag for enabling epoch scheduling */

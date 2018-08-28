@@ -160,8 +160,7 @@ void BackendServer::HandleError(std::shared_ptr<Connection> conn,
   conn->Stop();
 }
 
-void BackendServer::UpdateModelTable(const ModelTableConfig& request,
-                                     RpcReply* reply) {
+void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
   // Update backend pool
   std::unordered_set<uint32_t> backend_list;
   std::unordered_map<uint32_t, BackendInfo> backend_infos;
@@ -286,7 +285,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request,
   // Update duty cycle
   gpu_executor_->SetDutyCycle(request.duty_cycle_us());
   LOG(INFO) << "Duty cycle: " << request.duty_cycle_us() << " us";
-  reply->set_status(CTRL_OK);
+  //reply->set_status(CTRL_OK);
 }
 
 ModelExecutorPtr BackendServer::GetModel(const std::string& model_session_id) {

@@ -10,8 +10,11 @@ namespace fs = boost::filesystem;
 
 DEFINE_bool(epoch_schedule, true, "Enable epoch scheduling");
 DEFINE_bool(prefix_batch, true, "Enable prefix batching");
-DEFINE_int32(beacon, 2, "beacon interval in seconds");
-DEFINE_int32(epoch, 10, "epoch scheduling interval in seconds");
+DEFINE_int32(beacon, 1, "Beacon interval in seconds");
+DEFINE_int32(epoch, 30, "Epoch scheduling interval in seconds");
+DEFINE_int32(min_epoch, 10, "Minimum time interval in seconds to invoke "
+             "epoch schedule");
+DEFINE_int32(avg_interval, 10, "Moving average interval for backend rate");
 
 namespace nexus {
 namespace scheduler {
@@ -29,9 +32,8 @@ Scheduler::Scheduler(std::string port, size_t nthreads) :
     epoch_interval_sec_(FLAGS_epoch),
     enable_epoch_schedule_(FLAGS_epoch_schedule),
     enable_prefix_batch_(FLAGS_prefix_batch) {
-  min_history_len_ = (epoch_interval_sec_ + beacon_interval_sec_ - 1) /
-                     beacon_interval_sec_;
-  history_len_ = min_history_len_ * 2;
+  history_len_ = (FLAGS_avg_interval * 2 + beacon_interval_sec_ - 1) /
+                 beacon_interval_sec_;
   if (!enable_epoch_schedule_) {
     LOG(INFO) << "Epoch scheduling is off";
   }
@@ -60,26 +62,29 @@ void Scheduler::Run() {
   // Start RPC service first
   Start();
   // main scheduler login
-  uint64_t elapse_sec = 0;
-  uint64_t last_beacon = 0;
-  uint64_t last_epoch = 0;
+  std::this_thread::sleep_for(std::chrono::seconds(beacon_interval_sec_));
+  auto last_epoch_schedule = std::chrono::system_clock::now();
   while (running_) {
     auto now = std::chrono::system_clock::now();
-    if (elapse_sec > 0 && elapse_sec % beacon_interval_sec_ == 0) {
-      last_beacon = elapse_sec;
-      BeaconCheck();
-    }
-    if (elapse_sec > 0 && elapse_sec % epoch_interval_sec_ == 0) {
-      last_epoch = elapse_sec;
-      if (enable_epoch_schedule_) {
-        EpochSchedule();
+    bool trigger = BeaconCheck();
+    if (enable_epoch_schedule_) {
+      if (trigger) {
+        auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_epoch_schedule).count();
+        if (elapse >= FLAGS_min_epoch * 1000) {
+          EpochSchedule();
+          last_epoch_schedule = std::chrono::system_clock::now();
+        }
+      } else {
+        auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_epoch_schedule).count();
+        if (elapse >= epoch_interval_sec_ * 1000) {
+          EpochSchedule();
+          last_epoch_schedule = std::chrono::system_clock::now();
+        }
       }
     }
-    int next_sec = std::min(last_beacon + beacon_interval_sec_,
-                            last_epoch + epoch_interval_sec_);
-    std::this_thread::sleep_until(
-        now + std::chrono::seconds(next_sec - elapse_sec));
-    elapse_sec = next_sec;
+    std::this_thread::sleep_for(std::chrono::seconds(beacon_interval_sec_));
   }
 }
 
@@ -95,7 +100,7 @@ void Scheduler::Register(const grpc::ServerContext& ctx,
     auto backend = std::make_shared<BackendDelegate>(
         request.node_id(), ip, request.server_port(), request.rpc_port(),
         request.gpu_device_name(), request.gpu_available_memory(),
-        beacon_interval_sec_, epoch_interval_sec_);
+        beacon_interval_sec_, FLAGS_avg_interval);
     RegisterBackend(std::move(backend), reply);
   } else { // FRONTEND_NODE
     auto frontend = std::make_shared<FrontendDelegate>(
@@ -648,7 +653,7 @@ void Scheduler::FindBestBackend(
   }
 }
 
-void Scheduler::BeaconCheck() {
+bool Scheduler::BeaconCheck() {
   std::lock_guard<std::mutex> lock(mutex_);
   // 1. Remove dead frontends
   std::vector<FrontendDelegatePtr> dead_frontends;
@@ -711,6 +716,24 @@ void Scheduler::BeaconCheck() {
   for (auto backend : dead_backends) {
     RemoveBackend(backend);
   }
+
+  // 4. Check if need to trigger epoch schedule
+  bool trigger = false;
+  for (auto iter : session_table_) {
+    const auto& model_sess_id = iter.first;
+    auto session_info = iter.second;
+    if (session_info->rps_history.size() < history_len_) {
+      continue;
+    }
+    double estimate_rps = std::max(session_info->rps_history[history_len_ - 1],
+                                   0.1);
+    double throughput = session_info->total_throughput();
+    if (estimate_rps < throughput * 0.8 || estimate_rps > throughput * 1.1) {
+      trigger = true;
+      break;
+    }
+  }
+  return trigger;
 }
 
 void Scheduler::EpochSchedule() {
@@ -731,7 +754,7 @@ void Scheduler::EpochSchedule() {
     double throughput = session_info->total_throughput();
     // Compute the workload mean and std
     uint32_t n = session_info->rps_history.size();
-    if (n < min_history_len_) {
+    if (n < history_len_) {
       continue;
     }
     double rps_mean = 0., rps_std = 0.;
@@ -743,8 +766,10 @@ void Scheduler::EpochSchedule() {
       rps_std += (rps - rps_mean) * (rps - rps_mean);
     }
     rps_std = sqrt(rps_std / (n - 1));
-    double estimate_rps = std::max(
-        session_info->rps_history[n - 1] + rps_std, 0.1);
+    // double estimate_rps = std::max(
+    //     session_info->rps_history[n - 1] + rps_std, 0.1);
+    //double estimate_rps = std::max(rps_mean + rps_std, 0.1);
+    double estimate_rps = std::max(session_info->rps_history[n - 1], 0.1);
     session_info->unassigned_workload = std::max(0., estimate_rps - throughput);
     VLOG(1) << model_sess_id << " estimate rps: " << estimate_rps <<
         " (last: " << session_info->rps_history[n - 1] << ", mean: " <<
@@ -810,12 +835,14 @@ void Scheduler::EpochSchedule() {
         session_info->backend_weights[iter.first] = backend->GetModelWeight(
             model_sess_id);
         estimate_rps -= new_tp;
-        if (backend->overload()) {
+        if (backend->overload() && backend->Occupancy() > 1.05) {
           overload_backends.push_back(backend);
         }
       }
-      if (estimate_rps > 0) {
+      if (estimate_rps > 1e-3) {
         session_info->unassigned_workload = estimate_rps;
+      } else {
+        session_info->unassigned_workload = 0;
       }
       changed_sessions.insert(session_info);
     }
@@ -836,7 +863,10 @@ void Scheduler::EpochSchedule() {
   // 3. Allocate the unassigned workloads to backends that still have space
   AllocateUnassignedWorkloads(&changed_sessions);
 
-  // 4. Update model table to backends and model routes to frontends
+  // 4. Consolidate low utilization backends
+  ConsolidateBackends(&changed_sessions);
+
+  // 5. Update model table to backends and model routes to frontends
   for (auto iter : backends_) {
     iter.second->UpdateModelTableRpc();
   }
@@ -857,7 +887,9 @@ void Scheduler::AllocateUnassignedWorkloads(
       continue;
     }
     visited.insert(session_info);
-    if (session_info->unassigned_workload > 0) {
+    if (session_info->unassigned_workload > 1e-3) {
+      VLOG(1) << iter.first << " has unassigned workload " <<
+          session_info->unassigned_workload;
       unassigned_workloads.emplace_back(session_info);
     }
   }
@@ -899,6 +931,64 @@ void Scheduler::AllocateUnassignedWorkloads(
   }
 }
 
+void Scheduler::ConsolidateBackends(
+    std::unordered_set<SessionInfoPtr>* changed_sessions) {
+  std::vector<BackendDelegatePtr> backends;
+  std::unordered_set<uint32_t> skip_backends;
+  for (auto iter : backends_) {
+    auto backend = iter.second;
+    if (backend->Occupancy() == 0) {
+      skip_backends.insert(backend->node_id());
+    } else {
+      backends.push_back(backend);
+    }
+  }
+  while (!backends.empty()) {
+    std::sort(backends.begin(), backends.end(),
+              [](const BackendDelegatePtr& a,
+                 const BackendDelegatePtr& b) {
+                return a->Occupancy() > b->Occupancy();
+              });
+    auto backend = backends.back();
+    backends.pop_back();
+    skip_backends.insert(backend->node_id());
+    bool full = false;
+    //changed_backends->insert(backend);
+    for (auto inst_info : backend->GetModels()) {
+      auto const& model_sess = inst_info->model_sessions[0];
+      std::string model_sess_id = ModelSessionToString(model_sess);
+      BackendDelegatePtr assign;
+      InstanceInfo new_inst_info;
+      FindBestBackend(model_sess, inst_info->workload, skip_backends, &assign,
+                      &new_inst_info);
+      if (assign == nullptr) {
+        full = true;
+        break;
+      }
+      auto rps = backend->UnloadModel(model_sess_id);
+      assign->LoadModel(new_inst_info, rps);
+      if (inst_info->model_sessions.size() > 1) {
+        for (uint i = 1; i < inst_info->model_sessions.size(); ++i) {
+          assign->LoadPrefixModel(inst_info->model_sessions[i], model_sess);
+          backend->UnloadModel(ModelSessionToString(
+              inst_info->model_sessions[i]));
+        }
+      }
+      //changed_backends->insert(assign);
+      auto session_info = session_table_.at(model_sess_id);
+      session_info->backend_weights.erase(backend->node_id());
+      session_info->backend_weights.emplace(assign->node_id(),
+                                            new_inst_info.GetWeight());
+      changed_sessions->insert(session_info);
+      LOG(INFO) << "Move model " << model_sess_id << " from " <<
+          backend->node_id() << " to " << assign->node_id();
+    }
+    if (full) {
+      break;
+    }
+  }
+}
+
 void Scheduler::UpdateModelRoutes(std::unordered_set<SessionInfoPtr> sessions) {
   std::unordered_map<uint32_t, ModelRouteUpdates> frontend_updates;
   for (auto session_info : sessions) {
@@ -923,20 +1013,31 @@ void Scheduler::UpdateModelRoutes(std::unordered_set<SessionInfoPtr> sessions) {
 }
 
 void Scheduler::DisplayModelTable() {
+  std::unordered_set<uint32_t> used_backends;
   std::stringstream ss;
-  for (auto iter : session_table_) {
-    auto const& model_sess_id = iter.first;
-    auto session_info = iter.second;
-    ss << model_sess_id << ":";
-    for (auto backend_iter : session_info->backend_weights) {
-      auto backend = GetBackend(backend_iter.first);
-      auto info = backend->GetInstanceInfo(model_sess_id);
-      ss << " " << backend_iter.first << "/" << info->throughput << "/" <<
-          info->batch;
+  for (auto iter : backends_) {
+    auto backend = iter.second;
+    double occ = backend->Occupancy();
+    if (occ > 0) {
+      used_backends.insert(backend->node_id());
+      ss << "Backend " << backend->node_id() << ": " << occ << "\n";
     }
-    ss << "\n";
   }
-  VLOG(1) << "Model table: \n" << ss.str();
+  if (!used_backends.empty()) {
+    VLOG(1) << "Total used GPUs: " << used_backends.size() << "\n" << ss.str();
+    std::stringstream ss1;
+    for (auto iter : session_table_) {
+      auto const& model_sess_id = iter.first;
+      auto session_info = iter.second;
+      ss1 << model_sess_id << ":";
+      for (auto backend_iter : session_info->backend_weights) {
+        ss1 << " " << backend_iter.first << "/" << backend_iter.second;
+        used_backends.insert(backend_iter.first);
+      }
+      ss1 << "\n";
+    }
+    VLOG(1) << "Model table: \n" << ss1.str();
+  }
 }
 
 } // namespace scheduler

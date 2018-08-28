@@ -1,3 +1,4 @@
+#include <future>
 #include <gflags/gflags.h>
 
 #include "nexus/backend/backend_server.h"
@@ -26,7 +27,8 @@ void BackendRpcService::HandleRpcs() {
       &service_, cq_.get(),
       [this](const grpc::ServerContext&, const ModelTableConfig& req,
              RpcReply* reply) {
-        backend_->UpdateModelTable(req, reply);
+        std::thread (&BackendServer::UpdateModelTable, backend_, req).detach();
+        reply->set_status(CTRL_OK);
       });
   new CheckAlive_Call(
       &service_, cq_.get(),

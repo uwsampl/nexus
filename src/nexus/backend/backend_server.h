@@ -76,7 +76,7 @@ class BackendServer : public ServerBase, public MessageHandler {
    * \param req Update model table requests
    * \param reply Replies to update model tabel requests
    */
-  void UpdateModelTable(const ModelTableConfig& req, RpcReply* reply);
+  void UpdateModelTable(const ModelTableConfig& req);
   /*!
    * \brief Gets the model instance given model session ID
    * \param model_session_id Model session ID

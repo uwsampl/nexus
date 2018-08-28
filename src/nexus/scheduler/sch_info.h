@@ -54,6 +54,7 @@ struct InstanceInfo {
   const ModelProfile* profile;
   double fwd_latency_us;
   double max_duty_cycle_us;
+  double workload;
   double throughput;
   double weight;
   uint64_t memory_usage;
@@ -66,6 +67,7 @@ struct InstanceInfo {
       profile(nullptr),
       fwd_latency_us(0.),
       max_duty_cycle_us(0.),
+      workload(0.),
       throughput(0.),
       weight(0.),
       memory_usage(0),
@@ -78,6 +80,7 @@ struct InstanceInfo {
       profile(other.profile),
       fwd_latency_us(other.fwd_latency_us),
       max_duty_cycle_us(other.max_duty_cycle_us),
+      workload(other.workload),
       throughput(other.throughput),
       weight(other.weight),
       memory_usage(other.memory_usage),
@@ -91,6 +94,7 @@ struct InstanceInfo {
       profile = other.profile;
       fwd_latency_us = other.fwd_latency_us;
       max_duty_cycle_us = other.max_duty_cycle_us;
+      workload = other.workload;
       throughput = other.throughput;
       weight = other.weight;
       memory_usage = other.memory_usage;

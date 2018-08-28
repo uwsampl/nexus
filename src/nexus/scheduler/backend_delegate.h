@@ -52,14 +52,15 @@ class BackendDelegate {
   bool PrepareLoadModel(const ModelSession& model_sess, double workload,
                         InstanceInfo* inst_info, double* occupancy) const;
 
-  void LoadModel(const InstanceInfo& inst_info);
+  void LoadModel(const InstanceInfo& inst_info,
+                 std::shared_ptr<EWMA> rps = nullptr);
   
   void LoadModel(const YAML::Node& model_info);
 
   void LoadPrefixModel(const ModelSession& model_session,
                        const ModelSession& shared_session);
 
-  void UnloadModel(const std::string& model_sess_id);
+  std::shared_ptr<EWMA> UnloadModel(const std::string& model_sess_id);
 
   void AddBackupForModel(const std::string& model_sess_id,
                          const BackendInfo& info);
@@ -86,6 +87,8 @@ class BackendDelegate {
 
   std::vector<std::string> GetBackupModelSessions() const;
 
+  std::vector<InstanceInfoPtr> GetModels() const { return models_; }
+
   const InstanceInfo* GetInstanceInfo(const std::string& model_sess_id) const;
 
   double GetModelThroughput(const std::string& model_sess_id) const;
@@ -110,7 +113,7 @@ class BackendDelegate {
   std::string gpu_device_;
   size_t gpu_available_memory_;
   int beacon_sec_;
-  int epoch_sec_;
+  int avg_sec_;
   long timeout_ms_;
   std::unique_ptr<BackendCtrl::Stub> stub_;
 
