@@ -22,8 +22,7 @@ namespace scheduler {
 INSTANTIATE_RPC_CALL(AsyncService, Register, RegisterRequest, RegisterReply);
 INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, LoadModel, LoadModelRequest, LoadModelReply);
-INSTANTIATE_RPC_CALL(AsyncService, UpdateBackendStats, BackendStatsProto,
-                     RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, ReportWorkload, WorkloadStatsProto, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
 
 Scheduler::Scheduler(std::string port, size_t nthreads) :
@@ -93,14 +92,12 @@ void Scheduler::Register(const grpc::ServerContext& ctx,
   std::vector<std::string> tokens;
   SplitString(ctx.peer(), ':', &tokens);
   std::string ip = tokens[1];
-  //std::string server_addr = tokens[1] + ':' + request.server_port();
-  //std::string rpc_addr = tokens[1] + ':' + request.rpc_port();
   LOG(INFO) << "Register server: " << request.DebugString();
   if (request.node_type() == BACKEND_NODE) {
     auto backend = std::make_shared<BackendDelegate>(
         request.node_id(), ip, request.server_port(), request.rpc_port(),
         request.gpu_device_name(), request.gpu_available_memory(),
-        beacon_interval_sec_, FLAGS_avg_interval);
+        beacon_interval_sec_);
     RegisterBackend(std::move(backend), reply);
   } else { // FRONTEND_NODE
     auto frontend = std::make_shared<FrontendDelegate>(
@@ -148,17 +145,15 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
     reply->set_status(CTRL_SERVER_NOT_REGISTERED);
     return;
   }
-  if (session_table_.find(model_sess_id) != session_table_.end()) {
+  auto session_iter = session_table_.find(model_sess_id);
+  if (session_iter != session_table_.end()) {
     // TODO: For now, if model session is already loaded, don't allocate
     // new backends, just rely on epoch scheduling
     reply->set_status(CTRL_OK);
     GetModelRoute(model_sess_id, reply->mutable_model_route());
     frontend->SubscribeModel(model_sess_id);
-    if (session_subscribers_.count(model_sess_id) == 0) {
-      session_subscribers_.emplace(model_sess_id, ServerList{request.node_id()});
-    } else {
-      session_subscribers_.at(model_sess_id).insert(request.node_id());
-    }
+    session_iter->second->SubscribeModelSession(frontend->node_id(),
+                                                model_sess_id);
     return;
   }
   
@@ -198,8 +193,8 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
         share_session_info->model_sessions.push_back(model_sess);
         session_table_.emplace(model_sess_id, share_session_info);
         frontend->SubscribeModel(model_sess_id);
-        session_subscribers_.emplace(model_sess_id,
-                                     ServerList{request.node_id()});
+        share_session_info->SubscribeModelSession(frontend->node_id(),
+                                                  model_sess_id);
         // Fill route table in the reply
         reply->set_status(CTRL_OK);
         GetModelRoute(model_sess_id, reply->mutable_model_route());
@@ -248,28 +243,16 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
   session_info->model_sessions.push_back(model_sess);
   session_table_.emplace(model_sess_id, session_info);
   frontend->SubscribeModel(model_sess_id);
-  session_subscribers_.emplace(model_sess_id, ServerList{request.node_id()});
+  session_info->SubscribeModelSession(frontend->node_id(), model_sess_id);
   
   // Fill route table in the reply
   reply->set_status(CTRL_OK);
   GetModelRoute(model_sess_id, reply->mutable_model_route());
 }
 
-void Scheduler::UpdateBackendStats(const grpc::ServerContext& ctx,
-                                   const BackendStatsProto& request,
-                                   RpcReply* reply) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto backend = GetBackend(request.node_id());
-  if (backend == nullptr) {
-    reply->set_status(CTRL_SERVER_NOT_REGISTERED);
-    return;
-  }
-  backend->UpdateStats(request);
-  reply->set_status(CTRL_OK);
-}
-
-void Scheduler::KeepAlive(const grpc::ServerContext& ctx,
-                          const KeepAliveRequest& request, RpcReply* reply) {
+void Scheduler::ReportWorkload(const grpc::ServerContext& ctx,
+                               const WorkloadStatsProto& request,
+                               RpcReply* reply) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto frontend = GetFrontend(request.node_id());
   if (frontend == nullptr) {
@@ -277,6 +260,31 @@ void Scheduler::KeepAlive(const grpc::ServerContext& ctx,
     return;
   }
   frontend->Tick();
+  for (auto const& model_stats : request.model_stats()) {
+    auto session_info = session_table_.at(model_stats.model_session_id());
+    session_info->UpdateWorkload(request.node_id(), model_stats);
+  }
+  reply->set_status(CTRL_OK);
+}
+
+void Scheduler::KeepAlive(const grpc::ServerContext& ctx,
+                          const KeepAliveRequest& request, RpcReply* reply) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (request.node_type() == FRONTEND_NODE) {
+    auto frontend = GetFrontend(request.node_id());
+    if (frontend == nullptr) {
+      reply->set_status(CTRL_SERVER_NOT_REGISTERED);
+      return;
+    }
+    frontend->Tick();
+  } else {
+    auto backend = GetBackend(request.node_id());
+    if (backend == nullptr) {
+      reply->set_status(CTRL_SERVER_NOT_REGISTERED);
+      return;
+    }
+    backend->Tick();
+  }
   reply->set_status(CTRL_OK);
 }
 
@@ -288,9 +296,9 @@ void Scheduler::HandleRpcs() {
                       std::bind(&Scheduler::Unregister, this, _1, _2, _3));
   new LoadModel_Call(&service_, cq_.get(),
                      std::bind(&Scheduler::LoadModel, this, _1, _2, _3));
-  new UpdateBackendStats_Call(
+  new ReportWorkload_Call(
       &service_, cq_.get(),
-      std::bind(&Scheduler::UpdateBackendStats, this, _1, _2, _3));
+      std::bind(&Scheduler::ReportWorkload, this, _1, _2, _3));
   new KeepAlive_Call(&service_, cq_.get(),
                      std::bind(&Scheduler::KeepAlive, this, _1, _2, _3));
   void* tag;
@@ -552,15 +560,11 @@ void Scheduler::RemoveFrontend(FrontendDelegatePtr frontend) {
   // Update subscribed model sessions
   std::unordered_set<BackendDelegatePtr> update_backends;
   for (auto model_sess_id : frontend->subscribe_models()) {
-    ServerList& subs = session_subscribers_.at(model_sess_id);
-    subs.erase(frontend->node_id());
-    if (subs.empty()) {
-      auto session_info = session_table_.at(model_sess_id);
-      if (session_info->has_static_workload) {
-        continue;
-      }
+    auto session_info = session_table_.at(model_sess_id);
+    bool remove = session_info->UnsubscribleModelSession(frontend->node_id(),
+                                                         model_sess_id);
+    if (remove) {
       LOG(INFO) << "Remove model session: " << model_sess_id;
-      RemoveFromSessionGroup(&session_info->model_sessions, model_sess_id);
       for (auto iter : session_info->backend_weights) {
         auto backend = GetBackend(iter.first);
         backend->UnloadModel(model_sess_id);
@@ -677,9 +681,8 @@ bool Scheduler::BeaconCheck() {
     const auto& model_sess_id = iter.first;
     auto session_info = iter.second;
     double rps = 0.;
-    for (auto backend_iter : session_info->backend_weights) {
-      auto backend = backends_.at(backend_iter.first);
-      rps += backend->GetModelRps(model_sess_id);
+    for (auto const& wk_iter : session_info->workloads) {
+      rps += std::max(0., wk_iter.second->rate());
     }
     if (session_info->rps_history.size() > 0 || rps > 0) {
       // Don't push 0 in the begining
@@ -689,12 +692,7 @@ bool Scheduler::BeaconCheck() {
       session_info->rps_history.pop_front();
     }
     VLOG(2) << "Model " << model_sess_id << " rps: " << rps <<
-        " req/s (avg over " << epoch_interval_sec_ << " seconds)";
-    for (auto backend_iter : session_info->backend_weights) {
-      auto backend = backends_.at(backend_iter.first);
-      VLOG(2) << "- backend " << backend->node_id() << ": " <<
-          backend->GetModelRps(model_sess_id);
-    }
+        " req/s (avg over " << FLAGS_avg_interval << " seconds)";
   }
   
   // 3. Remove dead backend
@@ -727,7 +725,7 @@ bool Scheduler::BeaconCheck() {
     }
     double estimate_rps = std::max(session_info->rps_history[history_len_ - 1],
                                    0.1);
-    double throughput = session_info->total_throughput();
+    double throughput = session_info->TotalThroughput();
     if (estimate_rps < throughput * 0.8 || estimate_rps > throughput * 1.1) {
       trigger = true;
       break;
@@ -751,7 +749,7 @@ void Scheduler::EpochSchedule() {
       continue;
     }
     visited.insert(session_info);
-    double throughput = session_info->total_throughput();
+    double throughput = session_info->TotalThroughput();
     // Compute the workload mean and std
     uint32_t n = session_info->rps_history.size();
     if (n < history_len_) {
@@ -965,8 +963,8 @@ void Scheduler::ConsolidateBackends(
         full = true;
         break;
       }
-      auto rps = backend->UnloadModel(model_sess_id);
-      assign->LoadModel(new_inst_info, rps);
+      backend->UnloadModel(model_sess_id);
+      assign->LoadModel(new_inst_info);
       if (inst_info->model_sessions.size() > 1) {
         for (uint i = 1; i < inst_info->model_sessions.size(); ++i) {
           assign->LoadPrefixModel(inst_info->model_sessions[i], model_sess);
@@ -992,23 +990,21 @@ void Scheduler::ConsolidateBackends(
 void Scheduler::UpdateModelRoutes(std::unordered_set<SessionInfoPtr> sessions) {
   std::unordered_map<uint32_t, ModelRouteUpdates> frontend_updates;
   for (auto session_info : sessions) {
-    for (auto& model_sess : session_info->model_sessions) {
-      std::string model_sess_id = ModelSessionToString(model_sess);
-      if (session_subscribers_.count(model_sess_id) == 0) {
-        continue;
-      }
-      for (auto frontend_id : session_subscribers_.at(model_sess_id)) {
+    for (auto const& iter : session_info->session_subscribers) {
+      for (auto frontend_id : iter.second) {
         if (frontend_updates.find(frontend_id) == frontend_updates.end()) {
           frontend_updates.emplace(frontend_id, ModelRouteUpdates());
         }
-        GetModelRoute(model_sess_id,
+        GetModelRoute(iter.first,
                       frontend_updates.at(frontend_id).add_model_route());
       }
     }
   }
   for (auto iter : frontend_updates) {
-    auto frontend = frontends_.at(iter.first);
-    frontend->UpdateModelRoutesRpc(iter.second);
+    auto frontend = GetFrontend(iter.first);
+    if (frontend != nullptr) {
+      frontend->UpdateModelRoutesRpc(iter.second);
+    }
   }
 }
 

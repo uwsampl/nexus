@@ -9,7 +9,7 @@ service SchedulerCtrl {
   rpc Register(RegisterRequest) returns (RegisterReply) {}
   rpc Unregister(UnregisterRequest) returns (RpcReply) {}
   rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
-  rpc UpdateBackendStats(BackendStatsProto) returns (RpcReply) {}
+  rpc ReportWorkload(WorkloadStatsProto) returns (RpcReply) {}
   rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
 }
 
@@ -152,7 +152,7 @@ message ModelStatsProto {
   repeated uint64 num_requests = 2;
 }
 
-message BackendStatsProto {
+message WorkloadStatsProto {
   uint32 node_id = 1;
   repeated ModelStatsProto model_stats = 2;
 }

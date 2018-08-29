@@ -27,7 +27,6 @@ using AsyncService = nexus::SchedulerCtrl::AsyncService;
 using BackendDelegatePtr = std::shared_ptr<BackendDelegate>;
 using FrontendDelegatePtr = std::shared_ptr<FrontendDelegate>;
 using SessionInfoPtr = std::shared_ptr<SessionInfo>;
-using ServerList = std::unordered_set<uint32_t>;
 
 /*! \brief Scheduler acts as a global centralized scheduler server. */
 class Scheduler : public AsyncRpcServiceBase<AsyncService> {
@@ -82,16 +81,16 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void LoadModel(const grpc::ServerContext& ctx,
                  const LoadModelRequest& request, LoadModelReply* reply);
   /*!
-   * \brief Handles UpdateBackendStats RPC.
+   * \brief Handles ReportWorkload RPC.
    *
    * This function acquires mutex_.
    *
    * \param ctx RPC server context
-   * \param request Backend stats information
+   * \param request Workload stats information
    * \param reply Reply to RPC
    */
-  void UpdateBackendStats(const grpc::ServerContext& ctx,
-                          const BackendStatsProto& request, RpcReply* reply);
+  void ReportWorkload(const grpc::ServerContext& ctx,
+                      const WorkloadStatsProto& request, RpcReply* reply);
   /*!
    * \brief Handles KeepAlive RPC.
    *
@@ -275,8 +274,6 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<uint32_t, BackendDelegatePtr> backends_;
   /*! \brief Mapping from model session ID to session information */
   std::unordered_map<std::string, SessionInfoPtr> session_table_;
-  /*! \brief Frontend subscribers */
-  std::unordered_map<std::string, ServerList> session_subscribers_;
   /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
 };

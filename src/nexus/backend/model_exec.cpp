@@ -5,8 +5,6 @@
 #include "nexus/backend/share_prefix_model.h"
 #include "nexus/common/model_db.h"
 
-DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
-
 namespace nexus {
 namespace backend {
 
@@ -21,16 +19,10 @@ ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(gpu_id);
   profile_ = ModelDatabase::Singleton().GetModelProfile(
       gpu_device->device_name(), model_->profile_id());
-  counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
-      FLAGS_count_interval);
   input_array_ = model_->CreateInputGpuArray();
   for (auto const& info : config.backup_backend()) {
     backup_backends_.push_back(info.node_id());
   }
-}
-
-ModelExecutor::~ModelExecutor() {
-  MetricRegistry::Singleton().RemoveMetric(counter_);
 }
 
 bool ModelExecutor::IsSharePrefixModel() const {
@@ -64,7 +56,6 @@ bool ModelExecutor::Preprocess(std::shared_ptr<Task> task, bool force) {
   if (!IncreaseOpenRequests(cnt, limit)) {
     return false;
   }
-  counter_->Increase(cnt);
   
   model_->Preprocess(task);
   if (task->result.status() != CTRL_OK) {
@@ -85,7 +76,6 @@ bool ModelExecutor::AddPreprocessedTask(std::shared_ptr<Task> task,
   if (!IncreaseOpenRequests(cnt, limit)) {
     return false;
   }
-  counter_->Increase(cnt);
   std::lock_guard<std::mutex> lock(task_mu_);
   processing_tasks_.emplace(task->task_id, task);
   for (auto input : task->inputs) {

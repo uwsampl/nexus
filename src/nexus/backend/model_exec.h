@@ -18,15 +18,11 @@ class ModelExecutor {
   ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
                 BlockPriorityQueue<Task>& task_queue);
 
-  ~ModelExecutor();
-
   ModelInstance* model() { return model_.get(); }
 
   const ModelInstance* model() const { return model_.get(); }
   /*! \brief Return whether this model is a backup model. */
   bool backup() const { return backup_; }
-
-  std::shared_ptr<IntervalCounter> counter() const { return counter_; }
 
   const ModelProfile* profile() const { return profile_; }
 
@@ -82,10 +78,6 @@ class ModelExecutor {
   std::shared_ptr<Array> input_array_;
   /*! \brief Batch index. */
   std::atomic<uint64_t> batch_id_;
-  /*! \brief Interval counter to count number of requests within each
-   *  interval.
-   */
-  std::shared_ptr<IntervalCounter> counter_;
   /*! \brief Number of open requests. */
   std::atomic<int> open_requests_;
 

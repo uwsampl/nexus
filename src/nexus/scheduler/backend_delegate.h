@@ -25,7 +25,7 @@ class BackendDelegate {
   BackendDelegate(uint32_t node_id, const std::string& ip,
                   const std::string& server_port, const std::string& rpc_port,
                   const std::string& gpu_device, size_t gpu_available_memory,
-                  int beacon_sec, int epoch_sec);
+                  int beacon_sec);
 
   uint32_t node_id() const { return node_id_; }
  
@@ -52,15 +52,14 @@ class BackendDelegate {
   bool PrepareLoadModel(const ModelSession& model_sess, double workload,
                         InstanceInfo* inst_info, double* occupancy) const;
 
-  void LoadModel(const InstanceInfo& inst_info,
-                 std::shared_ptr<EWMA> rps = nullptr);
+  void LoadModel(const InstanceInfo& inst_info);
   
   void LoadModel(const YAML::Node& model_info);
 
   void LoadPrefixModel(const ModelSession& model_session,
                        const ModelSession& shared_session);
 
-  std::shared_ptr<EWMA> UnloadModel(const std::string& model_sess_id);
+  void UnloadModel(const std::string& model_sess_id);
 
   void AddBackupForModel(const std::string& model_sess_id,
                          const BackendInfo& info);
@@ -81,8 +80,6 @@ class BackendDelegate {
 
   CtrlStatus UpdateModelTableRpc();
 
-  void UpdateStats(const BackendStatsProto& backend_stats);
-
   std::vector<std::string> GetModelSessions() const;
 
   std::vector<std::string> GetBackupModelSessions() const;
@@ -94,8 +91,6 @@ class BackendDelegate {
   double GetModelThroughput(const std::string& model_sess_id) const;
 
   double GetModelWeight(const std::string& model_sess_id) const;
-
-  double GetModelRps(const std::string& model_sess_id) const;
 
   bool IsAlive();
 
@@ -113,7 +108,6 @@ class BackendDelegate {
   std::string gpu_device_;
   size_t gpu_available_memory_;
   int beacon_sec_;
-  int avg_sec_;
   long timeout_ms_;
   std::unique_ptr<BackendCtrl::Stub> stub_;
 
@@ -127,11 +121,6 @@ class BackendDelegate {
    * info due to prefix batching.
    */
   std::unordered_map<std::string, InstanceInfoPtr> session_model_map_;
-  /*!
-   * \brief Mapping from model session id to incoming request rate.
-   * Mapping could be multiple to one.
-   */
-  std::unordered_map<std::string, std::shared_ptr<EWMA> > model_rps_;
   double exec_cycle_us_;
   double duty_cycle_us_;
   bool overload_;

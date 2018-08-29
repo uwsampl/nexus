@@ -5,6 +5,8 @@
 #include "nexus/app/request_context.h"
 #include "nexus/common/model_def.h"
 
+DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
+
 namespace nexus {
 namespace app {
 
@@ -77,6 +79,12 @@ ModelHandler::ModelHandler(const std::string& model_session_id,
     total_throughput_(0.),
     rand_gen_(rd_()) {
   ParseModelSession(model_session_id, &model_session_);
+  counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
+      FLAGS_count_interval);
+}
+
+ModelHandler::~ModelHandler() {
+  MetricRegistry::Singleton().RemoveMetric(counter_);
 }
 
 std::shared_ptr<QueryResult> ModelHandler::Execute(
@@ -84,6 +92,7 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
     std::vector<std::string> output_fields, uint32_t topk,
     std::vector<RectProto> windows) {
   uint64_t qid = global_query_id_.fetch_add(1, std::memory_order_relaxed);
+  counter_->Increase(1);
   auto reply = std::make_shared<QueryResult>(qid);
   auto backend = GetBackend();
   if (backend == nullptr) {

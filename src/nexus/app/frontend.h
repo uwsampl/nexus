@@ -76,6 +76,10 @@ class Frontend : public ServerBase, public MessageHandler {
   void RegisterUser(std::shared_ptr<UserSession> user_sess,
                     const RequestProto& request, ReplyProto* reply);
 
+  void Daemon();
+
+  void ReportWorkload(const WorkloadStatsProto& request);
+
  private:
   /*! \brief Indicator whether backend is running */
   std::atomic_bool running_;
@@ -105,13 +109,12 @@ class Frontend : public ServerBase, public MessageHandler {
   std::unordered_map<uint32_t, std::shared_ptr<UserSession> > user_sessions_;
   /*!
    * \brief Map from model session ID to model handler.
-   * Guarded by model_pool_mu_.
    */
   std::unordered_map<std::string, std::shared_ptr<ModelHandler> > model_pool_;
+
+  std::thread daemon_thread_;
   /*! \brief Mutex for connection_pool_ and user_sessions_ */
   std::mutex user_mutex_;
-  /*! \brief Mutex for model_pool_ */
-  std::mutex model_pool_mu_;
   /*! \brief Random number generator */
   std::random_device rd_;
   std::mt19937 rand_gen_;

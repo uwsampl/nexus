@@ -71,6 +71,8 @@ class BackendServer : public ServerBase, public MessageHandler {
    */
   void HandleError(std::shared_ptr<Connection> conn,
                    boost::system::error_code ec) final;
+
+  void UpdateModelTableAsync(const ModelTableConfig& req);
   /*!
    * \brief Updates model table
    * \param req Update model table requests
@@ -102,6 +104,8 @@ class BackendServer : public ServerBase, public MessageHandler {
  private:
   /*! \brief Daemon thread that sends stats to scheduler periodically. */
   void Daemon();
+
+  void ModelTableDaemon();
   /*! \brief Register this backend server to global scheduler. */
   void Register();
   /*! \brief Unregister this backend server to global scheduler. */
@@ -110,7 +114,7 @@ class BackendServer : public ServerBase, public MessageHandler {
    * \brief Send model workload history to global scheduler.
    * \param request Workload history protobuf.
    */
-  void UpdateBackendStats(const BackendStatsProto& request);
+  void KeepAlive();
 
  private:
   /*! \brief GPU device index */
@@ -127,6 +131,8 @@ class BackendServer : public ServerBase, public MessageHandler {
   std::unique_ptr<SchedulerCtrl::Stub> sch_stub_;
   /*! \brief Daemon thread */
   std::thread daemon_thread_;
+
+  std::thread model_table_thread_;
   /*! \brief Frontend connection pool. Guraded by frontend_mutex_. */
   std::set<std::shared_ptr<Connection> > frontend_connections_;
   /*! \brief Mutex for frontend_connections_ */
@@ -142,6 +148,8 @@ class BackendServer : public ServerBase, public MessageHandler {
    * Guarded by model_table_mu_.p
    */
   ModelTable model_table_;
+
+  BlockQueue<ModelTableConfig> model_table_requests_;
   /*! \brief Mutex for accessing model_table_ */
   std::mutex model_table_mu_;
   /*! \brief Backend pool for backup servers. */

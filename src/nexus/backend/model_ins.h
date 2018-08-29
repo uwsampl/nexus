@@ -34,7 +34,7 @@ class ModelInstance {
       batch_(config.batch()),
       max_batch_(config.max_batch()) {
     CHECK_GT(batch_, 0) << "batch must be greater than 0";
-    CHECK_GT(max_batch_, 0) << "max_batch must be greater than 0";
+    CHECK_GE(max_batch_, batch_) << "max_batch must be greater than batch";
     std::string model_id = ModelSessionToModelID(model_session_);
     auto info = ModelDatabase::Singleton().GetModelInfo(model_id);
     CHECK(info != nullptr) << "Model not found in the database";
@@ -42,9 +42,13 @@ class ModelInstance {
     model_session_id_ = ModelSessionToString(model_session_);
     cpu_device_ = DeviceManager::Singleton().GetCPUDevice();
     gpu_device_ = DeviceManager::Singleton().GetGPUDevice(gpu_id);
+    LOG(INFO) << "Construct model " << model_session_id_ << ", batch " <<
+        batch_ << ", max batch " << max_batch_;
   }
   /*! \brief Deconstructs ModelInstance. */
-  virtual ~ModelInstance() {}
+  virtual ~ModelInstance() {
+    LOG(INFO) << "Deconstruct model " << model_session_id_;
+  }
   /*! \brief Get GPU ID that model is allocated on. */
   int gpu_id() const { return gpu_id_; }
   /*! \brief Get the framework name. */

@@ -10,6 +10,7 @@
 
 #include "nexus/common/backend_pool.h"
 #include "nexus/common/data_type.h"
+#include "nexus/common/metric.h"
 #include "nexus/proto/nnquery.pb.h"
 
 namespace nexus {
@@ -69,7 +70,11 @@ class ModelHandler {
  public:
   ModelHandler(const std::string& model_session_id, BackendPool& pool);
 
+  ~ModelHandler();
+
   std::string model_session_id() const { return model_session_id_; }
+
+  std::shared_ptr<IntervalCounter> counter() const { return counter_; }
 
   std::shared_ptr<QueryResult> Execute(
       std::shared_ptr<RequestContext> ctx, const ValueProto& input,
@@ -96,6 +101,11 @@ class ModelHandler {
    */
   std::vector<std::pair<uint32_t, float> > backend_rates_;
   float total_throughput_;
+  /*! \brief Interval counter to count number of requests within each
+   *  interval.
+   */
+  std::shared_ptr<IntervalCounter> counter_;
+
   std::unordered_map<uint64_t, std::shared_ptr<RequestContext> > query_ctx_;
   std::mutex route_mu_;
   std::mutex query_ctx_mu_;

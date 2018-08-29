@@ -38,6 +38,7 @@ void Frontend::Run(QueryProcessor* qp, size_t nthreads) {
     workers_.push_back(std::move(worker));
   }
   running_ = true;
+  daemon_thread_ = std::thread(&Frontend::Daemon, this);
   LOG(INFO) << "Frontend server (id: " << node_id_ << ") is listening on " <<
       address();
   io_service_.run();
@@ -153,7 +154,6 @@ void Frontend::HandleError(std::shared_ptr<Connection> conn,
 
 void Frontend::UpdateModelRoutes(const ModelRouteUpdates& request,
                                  RpcReply* reply) {
-  std::lock_guard<std::mutex> lock(model_pool_mu_);
   int success = true;
   for (auto model_route : request.model_route()) {
     if (!UpdateBackendPoolAndModelRoute(model_route)) {
@@ -191,11 +191,9 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
   }
   auto model_handler = std::make_shared<ModelHandler>(
       reply.model_route().model_session_id(), backend_pool_);
-  {
-    std::lock_guard<std::mutex> lock(model_pool_mu_);
-    model_pool_.emplace(model_handler->model_session_id(), model_handler);
-    UpdateBackendPoolAndModelRoute(reply.model_route());
-  }
+  // Only happens at Setup stage, so no concurrent modification to model_pool_
+  model_pool_.emplace(model_handler->model_session_id(), model_handler);
+  UpdateBackendPoolAndModelRoute(reply.model_route());
 
   return model_handler;
 }
@@ -326,6 +324,41 @@ void Frontend::RegisterUser(
   }
   reply->set_user_id(uid);
   reply->set_status(CTRL_OK);
+}
+
+void Frontend::Daemon() {
+  while (running_) {
+    auto next_time = Clock::now() + std::chrono::seconds(beacon_interval_sec_);
+    WorkloadStatsProto workload_stats;
+    workload_stats.set_node_id(node_id_);
+    for (auto const& iter : model_pool_) {
+      auto model_session_id = iter.first;
+      auto history = iter.second->counter()->GetHistory();
+      auto model_stats = workload_stats.add_model_stats();
+      model_stats->set_model_session_id(model_session_id);
+      for (auto nreq : history) {
+        model_stats->add_num_requests(nreq);
+      }
+    }
+    ReportWorkload(workload_stats);
+    std::this_thread::sleep_until(next_time);
+  }
+}
+
+void Frontend::ReportWorkload(const WorkloadStatsProto& request) {
+  grpc::ClientContext context;
+  RpcReply reply;
+  grpc::Status status = sch_stub_->ReportWorkload(&context, request,
+                                                  &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  CtrlStatus ret = reply.status();
+  if (ret != CTRL_OK) {
+    LOG(ERROR) << "ReportWorkload error: " << CtrlStatus_Name(ret);
+  }
 }
 
 } // namespace app

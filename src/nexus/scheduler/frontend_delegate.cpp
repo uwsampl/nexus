@@ -15,7 +15,7 @@ FrontendDelegate::FrontendDelegate(uint32_t node_id, const std::string& ip,
     server_port_(server_port),
     rpc_port_(rpc_port),
     beacon_sec_(beacon_sec),
-    timeout_ms_(beacon_sec * 2 * 1000) {
+    timeout_ms_(beacon_sec * 3 * 1000) {
   std::stringstream rpc_addr;
   rpc_addr << ip_ << ":" << rpc_port_;
   auto channel = grpc::CreateChannel(rpc_addr.str(),

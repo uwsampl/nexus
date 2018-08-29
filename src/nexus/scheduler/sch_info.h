@@ -6,45 +6,88 @@
 #include <unordered_set>
 #include <vector>
 
+DECLARE_int32(avg_interval);
+
 namespace nexus {
 namespace scheduler {
 
 using SessionGroup = std::vector<ModelSession>;
-
-inline void RemoveFromSessionGroup(SessionGroup* sessions,
-                                   const std::string model_session_id) {
-  for (auto iter = sessions->begin(); iter != sessions->end(); ++iter) {
-    if (ModelSessionToString(*iter) == model_session_id) {
-      sessions->erase(iter);
-      return;
-    }
-  }
-}
+using ServerList = std::unordered_set<uint32_t>;
 
 struct SessionInfo {
-  SessionGroup model_sessions;
-  /*! \brief Mapping from backend id to throughput */
-  std::unordered_map<uint32_t, double> backend_weights;
-  /*! \brief Workload request rate history */
-  std::deque<double> rps_history;
-  /*! \brief Gap between workload and throughput */
-  double unassigned_workload;
-  /*! \brief Whether there is a static workload for this session */
-  bool has_static_workload;
-
-  std::unordered_set<uint32_t> backup_backends;
-
   SessionInfo() :
-      unassigned_workload(0),
-      has_static_workload(false) {}
+      has_static_workload(false),
+      unassigned_workload(0) {}
 
-  double total_throughput() const {
+  double TotalThroughput() const {
     double total = 0.;
     for (auto iter : backend_weights) {
       total += iter.second;
     }
     return total;
   }
+
+  void SubscribeModelSession(uint32_t frontend_id,
+                             const std::string& model_sess_id) {
+    if (session_subscribers.count(model_sess_id) == 0) {
+      session_subscribers.emplace(model_sess_id, ServerList{frontend_id});
+    } else {
+      session_subscribers.at(model_sess_id).insert(frontend_id);
+    }
+    workloads.emplace(frontend_id,
+                      std::make_shared<EWMA>(1, FLAGS_avg_interval));
+  }
+
+  bool UnsubscribleModelSession(
+      uint32_t frontend_id, const std::string& model_sess_id) {
+    session_subscribers.at(model_sess_id).erase(frontend_id);
+    workloads.erase(frontend_id);
+    if (has_static_workload || !session_subscribers.at(model_sess_id).empty()) {
+      return false;
+    }
+    // Remove this model session
+    session_subscribers.erase(model_sess_id);
+    for (auto iter = model_sessions.begin(); iter != model_sessions.end();
+         ++iter) {
+      if (ModelSessionToString(*iter) == model_sess_id) {
+        model_sessions.erase(iter);
+        break;
+      }
+    }
+    return true;
+  }
+
+  void UpdateWorkload(uint32_t frontend_id, const ModelStatsProto& model_stats) {
+    auto iter = workloads.find(frontend_id);
+    if (iter == workloads.end()) {
+      LOG(ERROR) << "Cannot find rps for " << frontend_id << " in " <<
+          model_stats.model_session_id();
+      return;
+    }
+    auto rps = iter->second;
+    for (auto num_requests : model_stats.num_requests()) {
+      if (rps->rate() < 0 && num_requests == 0) {
+        continue;
+      }
+      rps->AddSample(num_requests);
+    }
+  }
+
+  SessionGroup model_sessions;
+  /*! \brief Mapping from backend id to throughput */
+  std::unordered_map<uint32_t, double> backend_weights;
+
+  std::unordered_set<uint32_t> backup_backends;
+  /*! \brief Whether there is a static workload for this session */
+  bool has_static_workload;
+
+  std::unordered_map<std::string, ServerList> session_subscribers;
+  /*! \brief Map from frontend id to workload */
+  std::unordered_map<uint32_t, std::shared_ptr<EWMA> > workloads;
+  /*! \brief Workload request rate history */
+  std::deque<double> rps_history;
+  /*! \brief Gap between workload and throughput */
+  double unassigned_workload;
 };
 
 struct InstanceInfo {

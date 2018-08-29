@@ -27,7 +27,8 @@ void BackendRpcService::HandleRpcs() {
       &service_, cq_.get(),
       [this](const grpc::ServerContext&, const ModelTableConfig& req,
              RpcReply* reply) {
-        std::thread (&BackendServer::UpdateModelTable, backend_, req).detach();
+        //std::thread (&BackendServer::UpdateModelTable, backend_, req).detach();
+        backend_->UpdateModelTableAsync(req);
         reply->set_status(CTRL_OK);
       });
   new CheckAlive_Call(

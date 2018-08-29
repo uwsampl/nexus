@@ -74,8 +74,6 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     }
     LOG(INFO) << "IO thread is pinned on CPU " << core;
   }
-  // Init node id and register backend to global scheduler
-  Register();
 }
 
 BackendServer::~BackendServer() {
@@ -86,7 +84,10 @@ BackendServer::~BackendServer() {
 
 void BackendServer::Run() {
   running_ = true;
+  // Init node id and register backend to global scheduler
+  Register();
   // Start the daemon thread
+  model_table_thread_ = std::thread(&BackendServer::ModelTableDaemon, this);
   daemon_thread_ = std::thread(&BackendServer::Daemon, this);
   LOG(INFO) << "Backend server (id: " << node_id_ << ") is listening on " <<
       address();
@@ -115,6 +116,9 @@ void BackendServer::Stop() {
   // Stop daemon thread
   if (daemon_thread_.joinable()) {
     daemon_thread_.join();
+  }
+  if (model_table_thread_.joinable()) {
+    model_table_thread_.join();
   }
   // Stop RPC service
   rpc_service_.Stop();
@@ -160,6 +164,12 @@ void BackendServer::HandleError(std::shared_ptr<Connection> conn,
   conn->Stop();
 }
 
+void BackendServer::UpdateModelTableAsync(const ModelTableConfig& request) {
+  auto cfg = std::make_shared<ModelTableConfig>();
+  cfg->CopyFrom(request);
+  model_table_requests_.push(std::move(cfg));
+}
+
 void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
   // Update backend pool
   std::unordered_set<uint32_t> backend_list;
@@ -175,10 +185,43 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
     backend_pool_.AddBackend(std::make_shared<BackupClient>(
         backend_infos.at(backend_id), io_service_, this));
   }
-  
-  // Update model table
-  std::lock_guard<std::mutex> lock(model_table_mu_);
+
+  // Count all sessions in model table
   std::unordered_set<std::string> all_sessions;
+  for (auto const& config : request.model_instance_config()) {
+    for (auto const& model_sess : config.model_session()) {
+      all_sessions.insert(ModelSessionToString(model_sess));
+    }
+  }
+
+  // Start to update model table
+  std::lock_guard<std::mutex> lock(model_table_mu_);
+  // Remove unused model instances
+  std::vector<std::string> to_remove;
+  for (auto iter : model_table_) {
+    if (all_sessions.count(iter.first) == 0) {
+      to_remove.push_back(iter.first);
+    }
+  }
+  for (auto session_id : to_remove) {
+    auto model = model_table_.at(session_id);
+    model_table_.erase(session_id);
+    if (!model->IsSharePrefixModel()) {
+      LOG(INFO) << "Remove model instance " << session_id;
+      gpu_executor_->RemoveModel(model);
+    } else {
+      auto sp_internal = dynamic_cast<SharePrefixModel*>(model->model());
+      LOG(INFO) << "Remove model session " << session_id <<
+          " from prefix model " << sp_internal->model_session_id();
+      sp_internal->RemoveModelSession(session_id);
+      if (sp_internal->num_model_sessions() == 0) {
+        LOG(INFO) << "Remove prefix model instance " << session_id;
+        gpu_executor_->RemoveModel(model);
+      }
+    }
+  }
+  
+  // Add new models and update model batch size
   for (auto config : request.model_instance_config()) {
     if (config.model_session_size() > 1) {
       std::shared_ptr<ModelExecutor> sp_model = nullptr;
@@ -207,7 +250,6 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
         gpu_executor_->AddModel(model);
         for (auto model_sess : config.model_session()) {
           std::string session_id = ModelSessionToString(model_sess);
-          all_sessions.insert(session_id);
           model_table_.emplace(session_id, model);
         }
       } else {
@@ -222,7 +264,6 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
         }
         for (auto model_sess : config.model_session()) {
           std::string session_id = ModelSessionToString(model_sess);
-          all_sessions.insert(session_id);
           if (!sp_internal->HasModelSession(session_id)) {
             LOG(INFO) << "Add model session " << session_id <<
                 " to prefix model " << sp_internal->model_session_id();
@@ -236,7 +277,6 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
       // Regular model session
       auto model_sess = config.model_session(0);
       std::string session_id = ModelSessionToString(model_sess);
-      all_sessions.insert(session_id);
       auto model_iter = model_table_.find(session_id);
       if (model_iter == model_table_.end()) {
         // Load new model instance
@@ -258,34 +298,10 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
       }
     }
   }
-  std::vector<std::string> to_remove;
-  for (auto iter : model_table_) {
-    if (all_sessions.count(iter.first) == 0) {
-      to_remove.push_back(iter.first);
-    }
-  }
-  for (auto session_id : to_remove) {
-    auto model = model_table_.at(session_id);
-    model_table_.erase(session_id);
-    if (!model->IsSharePrefixModel()) {
-      LOG(INFO) << "Remove model instance " << session_id;
-      gpu_executor_->RemoveModel(model);
-    } else {
-      auto sp_internal = dynamic_cast<SharePrefixModel*>(model->model());
-      LOG(INFO) << "Remove model session " << session_id <<
-          " from prefix model " << sp_internal->model_session_id();
-      sp_internal->RemoveModelSession(session_id);
-      if (sp_internal->num_model_sessions() == 0) {
-        LOG(INFO) << "Remove prefix model instance " << session_id;
-        gpu_executor_->RemoveModel(model);
-      }
-    }
-  }
   
   // Update duty cycle
   gpu_executor_->SetDutyCycle(request.duty_cycle_us());
   LOG(INFO) << "Duty cycle: " << request.duty_cycle_us() << " us";
-  //reply->set_status(CTRL_OK);
 }
 
 ModelExecutorPtr BackendServer::GetModel(const std::string& model_session_id) {
@@ -315,22 +331,19 @@ std::shared_ptr<BackupClient> BackendServer::GetBackupClient(
 void BackendServer::Daemon() {
   while (running_) {
     auto next_time = Clock::now() + std::chrono::seconds(beacon_interval_sec_);
-    auto model_table = GetModelTable();
-    BackendStatsProto backend_stats;
-    backend_stats.set_node_id(node_id_);
-    for (auto iter : model_table) {
-      auto model_session_id = iter.first;
-      auto model = iter.second;
-      auto history = model->counter()->GetHistory();
-      auto model_stats = backend_stats.add_model_stats();
-      model_stats->set_model_session_id(model_session_id);
-      for (auto nreq : history) {
-        model_stats->add_num_requests(nreq);
-      }
-    }
-    // LOG(INFO) << "Current utilization: " << gpu_executor_->CurrentUtilization();
-    UpdateBackendStats(backend_stats);
+    KeepAlive();
     std::this_thread::sleep_until(next_time);
+  }
+}
+
+void BackendServer::ModelTableDaemon() {
+  auto timeout = std::chrono::milliseconds(500);
+  while (running_) {
+    auto model_table_cfg = model_table_requests_.pop(timeout);
+    if (model_table_cfg == nullptr) {
+      continue;
+    }
+    UpdateModelTable(*model_table_cfg);
   }
 }
 
@@ -393,11 +406,13 @@ void BackendServer::Unregister() {
   }
 }
 
-void BackendServer::UpdateBackendStats(const BackendStatsProto& request) {
+void BackendServer::KeepAlive() {
   grpc::ClientContext context;
+  KeepAliveRequest req;
+  req.set_node_type(BACKEND_NODE);
+  req.set_node_id(node_id_);
   RpcReply reply;
-  grpc::Status status = sch_stub_->UpdateBackendStats(&context, request,
-                                                      &reply);
+  grpc::Status status = sch_stub_->KeepAlive(&context, req, &reply);
   if (!status.ok()) {
     LOG(ERROR) << "Failed to connect to scheduler: " <<
         status.error_message() << "(" << status.error_code() << ")";
@@ -405,7 +420,7 @@ void BackendServer::UpdateBackendStats(const BackendStatsProto& request) {
   }
   CtrlStatus ret = reply.status();
   if (ret != CTRL_OK) {
-    LOG(ERROR) << "UpdateBackendStats error: " << CtrlStatus_Name(ret);
+    LOG(ERROR) << "KeepAlive error: " << CtrlStatus_Name(ret);
   }
 }
 
