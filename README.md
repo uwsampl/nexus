@@ -3,6 +3,8 @@ Nexus
 Nexus is a scalable and efficient serving system for DNN applications on GPU
 cluster.
 
+This is a joint research project between University of Washington and Microsoft Research.
+
 Compile and Deploy Nexus
 ========================
 
