@@ -25,8 +25,8 @@ def load_model_db(path):
 
 def find_max_batch(framework, model_name):
     global args
-    cmd_base = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s' % (
-        _profiler, args.model_root, args.dataset, args.gpu, framework, model_name)
+    cmd_base = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -model_version %s' % (
+        _profiler, args.model_root, args.dataset, args.gpu, framework, model_name, args.version)
     if args.height > 0 and args.width > 0:
         cmd_base += ' -height %s -width %s' % (args.height, args.width)
     if args.prefix:
@@ -96,8 +96,8 @@ def profile_model(framework, model_name):
     print('Max batch: %s' % max_batch)
 
     output = str(uuid.uuid4()) + '.txt'
-    cmd = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -max_batch %s -output %s' % (
-        _profiler, args.model_root, args.dataset, args.gpu, framework, model_name,
+    cmd = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -model_version %s -max_batch %s -output %s' % (
+        _profiler, args.model_root, args.dataset, args.gpu, framework, model_name, args.version,
         max_batch, output)
     if args.height > 0 and args.width > 0:
         cmd += ' -height %s -width %s' % (args.height, args.width)
