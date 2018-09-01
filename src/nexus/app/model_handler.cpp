@@ -135,7 +135,6 @@ void ModelHandler::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(route_mu_);
   backend_rates_.clear();
   total_throughput_ = 0.;
-  LOG(INFO) << "Update model route for " << model_session_id_;
   
   for (auto itr : route.backend_rate()) {
     backend_rates_.emplace_back(itr.info().node_id(), itr.throughput());

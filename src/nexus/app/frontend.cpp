@@ -274,7 +274,7 @@ void Frontend::KeepAlive() {
 bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
   auto& model_session_id = route.model_session_id();
   LOG(INFO) << "Update model route for " << model_session_id;
-  LOG(INFO) << route.DebugString();
+  // LOG(INFO) << route.DebugString();
   auto iter = model_pool_.find(model_session_id);
   if (iter == model_pool_.end()) {
     LOG(ERROR) << "Cannot find model handler for " << model_session_id;
@@ -282,24 +282,32 @@ bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
   }
   auto model_handler = iter->second;
   // Update backend pool first
-  auto old_backends = model_handler->BackendList();
-  std::unordered_set<uint32_t> new_backends;
-  for (auto backend : route.backend_rate()) {
-    uint32_t backend_id = backend.info().node_id();
-    if (backend_sessions_.count(backend_id) == 0) {
-      backend_sessions_.emplace(
-          backend_id, std::unordered_set<std::string>{model_session_id});
-      backend_pool_.AddBackend(std::make_shared<BackendSession>(
-          backend.info(), io_service_, this));
+  {
+    std::lock_guard<std::mutex> lock(backend_sessions_mu_);
+    auto old_backends = model_handler->BackendList();
+    std::unordered_set<uint32_t> new_backends;
+    // Add new backends
+    for (auto backend : route.backend_rate()) {
+      uint32_t backend_id = backend.info().node_id();
+      if (backend_sessions_.count(backend_id) == 0) {
+        backend_sessions_.emplace(
+            backend_id, std::unordered_set<std::string>{model_session_id});
+        backend_pool_.AddBackend(std::make_shared<BackendSession>(
+            backend.info(), io_service_, this));
+      } else {
+        backend_sessions_.at(backend_id).insert(model_session_id);
+      }
+      new_backends.insert(backend_id);
     }
-    new_backends.insert(backend_id);
-  }
-  for (auto backend_id : old_backends) {
-    if (new_backends.count(backend_id) == 0) {
-      backend_sessions_.at(backend_id).erase(model_session_id);
-      if (backend_sessions_.at(backend_id).empty()) {
-        backend_pool_.RemoveBackend(backend_id);
-        backend_sessions_.erase(backend_id);
+    // Remove unused backends
+    for (auto backend_id : old_backends) {
+      if (new_backends.count(backend_id) == 0) {
+        backend_sessions_.at(backend_id).erase(model_session_id);
+        if (backend_sessions_.at(backend_id).empty()) {
+          LOG(INFO) << "Remove backend " << backend_id;
+          backend_sessions_.erase(backend_id);
+          backend_pool_.RemoveBackend(backend_id);
+        }
       }
     }
   }

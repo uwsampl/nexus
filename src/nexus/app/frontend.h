@@ -95,7 +95,7 @@ class Frontend : public ServerBase, public MessageHandler {
   BackendPool backend_pool_;
   /*!
    * \brief Map from backend ID to model sessions servered at this backend.
-   * Guarded by model_pool_mu_
+   * Guarded by backend_sessions_mu_
    */
   std::unordered_map<uint32_t,
                      std::unordered_set<std::string> > backend_sessions_;
@@ -115,6 +115,8 @@ class Frontend : public ServerBase, public MessageHandler {
   std::thread daemon_thread_;
   /*! \brief Mutex for connection_pool_ and user_sessions_ */
   std::mutex user_mutex_;
+
+  std::mutex backend_sessions_mu_;
   /*! \brief Random number generator */
   std::random_device rd_;
   std::mt19937 rand_gen_;
