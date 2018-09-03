@@ -8,21 +8,41 @@
 namespace nexus {
 namespace backend {
 
+DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
+DEFINE_int32(avg_interval, 5, "Moving average interval in sec");
+
 ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
                              BlockPriorityQueue<Task>& task_queue) :
     backup_(config.backup()),
     task_queue_(task_queue),
     batch_id_(0),
-    open_requests_(0) {
+    open_requests_(0),
+    rps_(FLAGS_count_interval, FLAGS_avg_interval) {
   // Create ModelInstance
   CreateModelInstance(gpu_id, config, &model_);
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(gpu_id);
   profile_ = ModelDatabase::Singleton().GetModelProfile(
       gpu_device->device_name(), model_->profile_id());
+  counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
+      FLAGS_count_interval);
   input_array_ = model_->CreateInputGpuArray();
   for (auto const& info : config.backup_backend()) {
     backup_backends_.push_back(info.node_id());
   }
+}
+
+ModelExecutor::~ModelExecutor() {
+  MetricRegistry::Singleton().RemoveMetric(counter_);
+}
+
+double ModelExecutor::GetRequestRate() {
+  for (auto nreq : counter_->GetHistory()) {
+    if (rps_.rate() < 0 && nreq == 0) {
+      continue;
+    }
+    rps_.AddSample(nreq);
+  }
+  return rps_.rate();
 }
 
 bool ModelExecutor::IsSharePrefixModel() const {
@@ -56,6 +76,7 @@ bool ModelExecutor::Preprocess(std::shared_ptr<Task> task, bool force) {
   if (!IncreaseOpenRequests(cnt, limit)) {
     return false;
   }
+  counter_->Increase(cnt);
   
   model_->Preprocess(task);
   if (task->result.status() != CTRL_OK) {
@@ -76,6 +97,7 @@ bool ModelExecutor::AddPreprocessedTask(std::shared_ptr<Task> task,
   if (!IncreaseOpenRequests(cnt, limit)) {
     return false;
   }
+  counter_->Increase(cnt);
   std::lock_guard<std::mutex> lock(task_mu_);
   processing_tasks_.emplace(task->task_id, task);
   for (auto input : task->inputs) {

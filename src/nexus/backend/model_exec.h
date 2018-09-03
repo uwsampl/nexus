@@ -18,6 +18,8 @@ class ModelExecutor {
   ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
                 BlockPriorityQueue<Task>& task_queue);
 
+  ~ModelExecutor();
+
   ModelInstance* model() { return model_.get(); }
 
   const ModelInstance* model() const { return model_.get(); }
@@ -27,6 +29,8 @@ class ModelExecutor {
   const ModelProfile* profile() const { return profile_; }
 
   void SetBatch(uint32_t batch) { model_->set_batch(batch); }
+
+  double GetRequestRate();
 
   bool IsSharePrefixModel() const;
 
@@ -80,6 +84,11 @@ class ModelExecutor {
   std::atomic<uint64_t> batch_id_;
   /*! \brief Number of open requests. */
   std::atomic<int> open_requests_;
+  /*! \brief Interval counter to count number of requests within each interval.
+   */
+  std::shared_ptr<IntervalCounter> counter_;
+
+  EWMA rps_;
 
   std::vector<uint32_t> backup_backends_;
   /*!

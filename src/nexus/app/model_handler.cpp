@@ -239,8 +239,8 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackendWeightedRoundRobin() {
 std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
   std::lock_guard<std::mutex> lock(route_mu_);
   for (int i = 0; i < backends_.size(); ++i) {
-    int idx = backend_idx_.fetch_add(1, std::memory_order_relaxed) %
-              backends_.size();
+    uint32_t idx = backend_idx_.fetch_add(1, std::memory_order_relaxed) %
+                   backends_.size();
     uint32_t backend_id = backends_[idx];
     if (backend_quantums_.at(backend_id) > 0) {
       auto backend = backend_pool_.GetBackend(backend_id);

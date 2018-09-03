@@ -131,7 +131,7 @@ class ModelHandler {
   std::mutex route_mu_;
   std::mutex query_ctx_mu_;
   /*! \brief random number generator */
-  std::atomic<int> backend_idx_;
+  std::atomic<uint32_t> backend_idx_;
   std::random_device rd_;
   std::mt19937 rand_gen_;
 

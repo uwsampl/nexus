@@ -63,17 +63,6 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     }
     workers_.push_back(std::move(worker));
   }
-  if (cores.size() > 0) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    int core = cores[num_workers % cores.size()];
-    CPU_SET(core, &cpuset);
-    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    if (rc != 0) {
-      LOG(ERROR) << "Error calling pthread_setaffinity_np: " << rc << "\n";
-    }
-    LOG(INFO) << "IO thread is pinned on CPU " << core;
-  }
 }
 
 BackendServer::~BackendServer() {
@@ -332,6 +321,17 @@ void BackendServer::Daemon() {
   while (running_) {
     auto next_time = Clock::now() + std::chrono::seconds(beacon_interval_sec_);
     KeepAlive();
+    ModelTable model_table;
+    {
+      std::lock_guard<std::mutex> lock(model_table_mu_);
+      model_table = model_table_;
+    }
+    for (auto iter : model_table) {
+      double rps = iter.second->GetRequestRate();
+      if (rps > 0) {
+        LOG(INFO) << iter.first << " request rate: " << rps;
+      }
+    }
     std::this_thread::sleep_until(next_time);
   }
 }
