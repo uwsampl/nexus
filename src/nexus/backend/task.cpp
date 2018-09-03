@@ -35,7 +35,11 @@ void Task::DecodeQuery(std::shared_ptr<Message> message) {
   message->DecodeBody(&query);
   ModelSession sess;
   ParseModelSession(query.model_session_id(), &sess);
-  SetDeadline(std::chrono::milliseconds(sess.latency_sla()));
+  uint32_t budget = sess.latency_sla();
+  if (query.slack_ms() > 0) {
+    budget += query.slack_ms();
+  }
+  SetDeadline(std::chrono::milliseconds(budget));
 }
 
 void Task::AppendInput(ArrayPtr arr) {

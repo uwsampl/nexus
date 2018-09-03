@@ -820,7 +820,7 @@ void Scheduler::EpochSchedule() {
           adjust_backends.push_back(iter);
         }
       }
-      // Second sort the backends based on throughput
+      // Second sort the backends based on throughput in descending order
       std::sort(adjust_backends.begin(), adjust_backends.end(),
                 [](std::pair<uint32_t, double> a,
                    std::pair<uint32_t, double> b) {

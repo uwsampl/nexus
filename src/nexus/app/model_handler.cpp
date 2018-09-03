@@ -73,18 +73,27 @@ void QueryResult::SetError(uint32_t status, const std::string& error_msg) {
 std::atomic<uint64_t> ModelHandler::global_query_id_(0);
 
 ModelHandler::ModelHandler(const std::string& model_session_id,
-                           BackendPool& pool) :
+                           BackendPool& pool, LoadBalancePolicy lb_policy) :
     model_session_id_(model_session_id),
     backend_pool_(pool),
+    lb_policy_(lb_policy),
     total_throughput_(0.),
     rand_gen_(rd_()) {
   ParseModelSession(model_session_id, &model_session_);
   counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
       FLAGS_count_interval);
+  if (lb_policy_ == LB_DeficitRR) {
+    running_ = true;
+    deficit_thread_ = std::thread(&ModelHandler::DeficitDaemon, this);
+  }
 }
 
 ModelHandler::~ModelHandler() {
   MetricRegistry::Singleton().RemoveMetric(counter_);
+  if (deficit_thread_.joinable()) {
+    running_ = false;
+    deficit_thread_.join();
+  }
 }
 
 std::shared_ptr<QueryResult> ModelHandler::Execute(
@@ -112,6 +121,9 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
   for (auto rect : windows) {
     query.add_window()->CopyFrom(rect);
   }
+  if (ctx->slack_ms() > 0) {
+    query.set_slack_ms(int(floor(ctx->slack_ms())));
+  }
   ctx->RecordQuerySend(qid);
   {
     std::lock_guard<std::mutex> lock(query_ctx_mu_);
@@ -133,16 +145,29 @@ void ModelHandler::HandleReply(const QueryResultProto& result) {
 
 void ModelHandler::UpdateRoute(const ModelRouteProto& route) {
   std::lock_guard<std::mutex> lock(route_mu_);
+  backends_.clear();
   backend_rates_.clear();
   total_throughput_ = 0.;
   
   for (auto itr : route.backend_rate()) {
-    backend_rates_.emplace_back(itr.info().node_id(), itr.throughput());
+    uint32_t backend_id = itr.info().node_id();
+    backends_.push_back(backend_id);
+    backend_rates_.emplace(backend_id, itr.throughput());
     total_throughput_ += itr.throughput();
-    LOG(INFO) << "- backend " << itr.info().node_id() << ": " <<
-        itr.throughput();
+    LOG(INFO) << "- backend " << backend_id << ": " << itr.throughput();
+    if (backend_quantums_.count(backend_id) == 0) {
+      backend_quantums_.emplace(backend_id, 0.);
+    }
   }
   LOG(INFO) << "Total throughput: " << total_throughput_;
+  std::sort(backends_.begin(), backends_.end());
+  for (auto iter = backend_quantums_.begin(); iter != backend_quantums_.end();) {
+    if (backend_rates_.count(iter->first) == 0) {
+      iter = backend_quantums_.erase(iter);
+    } else {
+      ++iter;
+    }
+  }
 }
 
 std::vector<uint32_t> ModelHandler::BackendList() {
@@ -155,15 +180,46 @@ std::vector<uint32_t> ModelHandler::BackendList() {
 }
 
 std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
-  std::lock_guard<std::mutex> lock(route_mu_);
+  switch (lb_policy_) {
+    case LB_WeightedRR: {
+      return GetBackendWeightedRoundRobin();
+    }
+    case LB_DeficitRR: {
+      auto backend = GetBackendDeficitRoundRobin();
+      if (backend != nullptr) {
+        return backend;
+      }
+      return GetBackendWeightedRoundRobin();
+    }
+    case LB_Query: {
+      auto candidate1 = GetBackendWeightedRoundRobin();
+      if (candidate1 == nullptr) {
+        return nullptr;
+      }
+      auto candidate2 = GetBackendWeightedRoundRobin();
+      if (candidate1 == candidate2) {
+        return candidate1;
+      }
+      if (candidate1->GetUtilization() <= candidate2->GetUtilization()) {
+        return candidate1;
+      }
+      return candidate2;
+    }
+    default:
+      return nullptr;
+  }
+}
+
+std::shared_ptr<BackendSession> ModelHandler::GetBackendWeightedRoundRobin() {
   std::uniform_real_distribution<float> dis(0, total_throughput_);
   float select = dis(rand_gen_);
   uint i = 0;
-  for (; i < backend_rates_.size(); ++i) {
-    float rate = backend_rates_[i].second;
+  for (; i < backends_.size(); ++i) {
+    uint32_t backend_id = backends_[i];
+    float rate = backend_rates_.at(backend_id);
     select -= rate;
     if (select < 0) {
-      auto backend_sess = backend_pool_.GetBackend(backend_rates_[i].first);
+      auto backend_sess = backend_pool_.GetBackend(backend_id);
       if (backend_sess != nullptr) {
         return backend_sess;
       }
@@ -171,13 +227,43 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
     }
   }
   ++i;
-  for (uint j = 0; j < backend_rates_.size(); ++j, ++i) {
-    auto backend_sess = backend_pool_.GetBackend(backend_rates_[i].first);
+  for (uint j = 0; j < backends_.size(); ++j, ++i) {
+    auto backend_sess = backend_pool_.GetBackend(backends_[i]);
     if (backend_sess != nullptr) {
       return backend_sess;
     }
   }
   return nullptr;
+}
+
+std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
+  std::lock_guard<std::mutex> lock(route_mu_);
+  for (int i = 0; i < backends_.size(); ++i) {
+    int idx = backend_idx_.fetch_add(1, std::memory_order_relaxed) %
+              backends_.size();
+    uint32_t backend_id = backends_[idx];
+    if (backend_quantums_.at(backend_id) > 0) {
+      auto backend = backend_pool_.GetBackend(backend_id);
+      if (backend != nullptr) {
+        --backend_quantums_[backend_id];
+        return backend;
+      }
+    }
+  }
+  return nullptr;
+}
+
+void ModelHandler::DeficitDaemon() {
+  std::chrono::milliseconds gap(200); // 200 ms
+  std::unique_lock<std::mutex> lock(route_mu_, std::defer_lock);
+  while (running_) {
+    lock.lock();
+    for (auto backend_id : backends_) {
+      backend_quantums_[backend_id] = backend_rates_[backend_id] * .2;
+    }
+    lock.unlock();
+    std::this_thread::sleep_for(gap);
+  }
 }
 
 } // namespace app

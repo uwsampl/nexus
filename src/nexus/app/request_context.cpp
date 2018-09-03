@@ -1,5 +1,6 @@
 #include "nexus/app/exec_block.h"
 #include "nexus/app/request_context.h"
+#include "nexus/common/model_def.h"
 
 namespace nexus {
 namespace app {
@@ -10,7 +11,8 @@ RequestContext::RequestContext(std::shared_ptr<UserSession> user_sess,
     DeadlineItem(),
     user_session_(user_sess),
     req_pool_(req_pool),
-    state_(kUninitialized) {
+    state_(kUninitialized),
+    slack_ms_(0.) {
   SetDeadline(std::chrono::milliseconds(50));
   //beg_ = Clock::now();
   msg->DecodeBody(&request_);
@@ -104,12 +106,17 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
   uint64_t qid = result.query_id();
 
   auto query_latency = reply_.add_query_latency();
+  auto recv_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      Clock::now() - begin_).count();
   query_latency->set_query_id(qid);
   query_latency->set_model_session_id(result.model_session_id());
   query_latency->set_frontend_send_timestamp_us(query_send_.at(qid));
-  query_latency->set_frontend_recv_timestamp_us(
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          Clock::now() - begin_).count());
+  query_latency->set_frontend_recv_timestamp_us(recv_ts);
+  
+  double latency = recv_ts - query_send_.at(qid);
+  ModelSession model_sess;
+  ParseModelSession(result.model_session_id(), &model_sess);
+  slack_ms_ += model_sess.latency_sla() - latency / 1e3;
   query_send_.erase(qid);
 
   if (result.status() != CTRL_OK) {

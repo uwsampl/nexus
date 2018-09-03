@@ -66,9 +66,19 @@ class QueryResult {
 
 class RequestContext;
 
+enum LoadBalancePolicy {
+  // Weighted round robin
+  LB_WeightedRR = 1,
+  // Deficit round robin
+  LB_DeficitRR = 2,
+  // Query 2 backends and pick one with lowest utilization
+  LB_Query = 3,
+};
+
 class ModelHandler {
  public:
-  ModelHandler(const std::string& model_session_id, BackendPool& pool);
+  ModelHandler(const std::string& model_session_id, BackendPool& pool,
+               LoadBalancePolicy lb_policy = LB_DeficitRR);
 
   ~ModelHandler();
 
@@ -89,17 +99,28 @@ class ModelHandler {
 
  private:
   std::shared_ptr<BackendSession> GetBackend();
+  
+  std::shared_ptr<BackendSession> GetBackendWeightedRoundRobin();
+
+  std::shared_ptr<BackendSession> GetBackendDeficitRoundRobin();
+
+  void DeficitDaemon();
 
   ModelSession model_session_;
   std::string model_session_id_;
   BackendPool& backend_pool_;
+  LoadBalancePolicy lb_policy_;
   static std::atomic<uint64_t> global_query_id_;
+
+  std::vector<uint32_t> backends_;
   /*!
    * \brief Mapping from backend id to its serving rate,
    *
    *   Guarded by route_mu_
    */
-  std::vector<std::pair<uint32_t, float> > backend_rates_;
+  std::unordered_map<uint32_t, double> backend_rates_;
+
+  std::unordered_map<uint32_t, double> backend_quantums_;
   float total_throughput_;
   /*! \brief Interval counter to count number of requests within each
    *  interval.
@@ -110,8 +131,12 @@ class ModelHandler {
   std::mutex route_mu_;
   std::mutex query_ctx_mu_;
   /*! \brief random number generator */
+  std::atomic<int> backend_idx_;
   std::random_device rd_;
   std::mt19937 rand_gen_;
+
+  std::atomic<bool> running_;
+  std::thread deficit_thread_;
 };
 
 } // namespace app

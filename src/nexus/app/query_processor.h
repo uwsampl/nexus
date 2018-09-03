@@ -10,7 +10,15 @@ namespace app {
 class QueryProcessor {
  public:
   QueryProcessor(std::vector<ExecBlock*> blocks) :
-      blocks_(blocks) {}
+      blocks_(blocks) {
+    std::unordered_set<int> block_ids;
+    for (auto block : blocks) {
+      if (block_ids.count(block->id()) > 0) {
+        LOG(FATAL) << "Block id " << block->id() << " already exists";
+      }
+      block_ids.insert(block->id());
+    }
+  }
 
   void Process(std::shared_ptr<RequestContext> ctx) {
     if (ctx->state() == kUninitialized) {

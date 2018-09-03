@@ -39,7 +39,14 @@ class Variable {
 
   std::string name() const { return name_; }
 
-  std::shared_ptr<QueryResult> result() const { return data_.at(0); }
+  size_t count() const { return data_.size(); }
+
+  std::shared_ptr<QueryResult> result() const {
+    if (data_.empty()) {
+      return nullptr;
+    }
+    return data_.at(0);
+  }
 
   std::shared_ptr<QueryResult> operator[](int idx) const {
     return data_.at(idx);
@@ -96,6 +103,8 @@ class RequestContext : public DeadlineItem,
 
   bool finished();
 
+  double slack_ms() const { return slack_ms_; }
+
   void SetState(RequestState state);
 
   void SetExecBlocks(std::vector<ExecBlock*> blocks);
@@ -124,8 +133,8 @@ class RequestContext : public DeadlineItem,
   RequestPool& req_pool_;
   RequestProto request_;
   ReplyProto reply_;
-  //TimePoint beg_;
   std::atomic<RequestState> state_;
+  double slack_ms_;
   
   std::deque<ExecBlock*> ready_blocks_;
   std::unordered_map<int, ExecBlock*> pending_blocks_;

@@ -102,7 +102,7 @@ message ModelSession {
   string model_name = 2;
   // Model version
   uint32 version = 3;
-  // Latency SLA in millisecond
+  // Latency SLA in milliseconds
   uint32 latency_sla = 4;
   // Specify image height and width for models whose input are resizable,
   // otherwise ignored
@@ -125,6 +125,8 @@ message QueryProto {
   repeated string output_field = 12;
   // Threshold for confidence, default is 0
   repeated ValueProto filter = 13;
+  // Latency slack in milliseconds
+  int32 slack_ms = 40;
   // Show breakdown latency in the result
   bool debug = 100;
 }

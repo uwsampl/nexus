@@ -5,7 +5,8 @@
 #include <unordered_map>
 
 #include "nexus/common/connection.h"
-#include "nexus/proto/control.pb.h"
+#include "nexus/common/time_util.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 
@@ -31,6 +32,8 @@ class BackendSession : public Connection {
 
   virtual void Stop();
 
+  double GetUtilization();
+
  protected:
   /*! \brief Asynchronously connect to backend server. */
   void DoConnect();
@@ -42,6 +45,10 @@ class BackendSession : public Connection {
   std::string server_port_;
   std::string rpc_port_;
   std::atomic_bool running_;
+  std::unique_ptr<BackendCtrl::Stub> stub_;
+  double utilization_;
+  TimePoint expire_;
+  std::mutex util_mu_;
 };
 
 class BackendPool {

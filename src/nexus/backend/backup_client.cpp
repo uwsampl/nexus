@@ -8,35 +8,7 @@ namespace backend {
 BackupClient::BackupClient(const BackendInfo& info,
                            boost::asio::io_service& io_service,
                            MessageHandler* handler) :
-    BackendSession(info, io_service, handler),
-    utilization_(-1.) {
-  std::stringstream rpc_addr;
-  rpc_addr << ip_ << ":" << rpc_port_;
-  auto channel = grpc::CreateChannel(rpc_addr.str(),
-                                     grpc::InsecureChannelCredentials());
-  stub_ = BackendCtrl::NewStub(channel);
-}
-
-double BackupClient::GetUtilization() {
-  std::lock_guard<std::mutex> lock(util_mu_);
-  if (utilization_ >= 0 && Clock::now() <= expire_) {
-    return utilization_;
-  }
-  UtilizationRequest request;
-  UtilizationReply reply;
-  request.set_node_id(node_id_);
-  grpc::ClientContext ctx;
-  grpc::Status status = stub_->CurrentUtilization(&ctx, request, &reply);
-  if (!status.ok()) {
-    LOG(ERROR) << status.error_code() << ": " << status.error_message();
-    utilization_ = -1.;
-    return -1.;
-  }
-  utilization_ = reply.utilization();
-  expire_ = Clock::now() + std::chrono::milliseconds(reply.valid_ms());
-  LOG(INFO) << "Backup " << node_id_ << " utilization " << utilization_;
-  return utilization_;
-}
+    BackendSession(info, io_service, handler) {}
 
 void BackupClient::Forward(std::shared_ptr<Task> task) {
   uint64_t qid = task->query.query_id();
