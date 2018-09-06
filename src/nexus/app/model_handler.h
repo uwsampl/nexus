@@ -69,16 +69,15 @@ class RequestContext;
 enum LoadBalancePolicy {
   // Weighted round robin
   LB_WeightedRR = 1,
-  // Deficit round robin
-  LB_DeficitRR = 2,
   // Query 2 backends and pick one with lowest utilization
-  LB_Query = 3,
+  LB_Query = 2,
+  // Deficit round robin
+  LB_DeficitRR = 3,
 };
 
 class ModelHandler {
  public:
-  ModelHandler(const std::string& model_session_id, BackendPool& pool,
-               LoadBalancePolicy lb_policy = LB_DeficitRR);
+  ModelHandler(const std::string& model_session_id, BackendPool& pool);
 
   ~ModelHandler();
 

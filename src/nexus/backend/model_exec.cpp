@@ -8,8 +8,8 @@
 namespace nexus {
 namespace backend {
 
-DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
-DEFINE_int32(avg_interval, 5, "Moving average interval in sec");
+DEFINE_int32(backend_count_interval, 1, "Interval to count number of requests in sec");
+DEFINE_int32(backend_avg_interval, 5, "Moving average interval in sec");
 
 ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
                              BlockPriorityQueue<Task>& task_queue) :
@@ -17,14 +17,14 @@ ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
     task_queue_(task_queue),
     batch_id_(0),
     open_requests_(0),
-    rps_(FLAGS_count_interval, FLAGS_avg_interval) {
+    rps_(FLAGS_backend_count_interval, FLAGS_backend_avg_interval) {
   // Create ModelInstance
   CreateModelInstance(gpu_id, config, &model_);
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(gpu_id);
   profile_ = ModelDatabase::Singleton().GetModelProfile(
       gpu_device->device_name(), model_->profile_id());
   counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
-      FLAGS_count_interval);
+      FLAGS_backend_count_interval);
   input_array_ = model_->CreateInputGpuArray();
   for (auto const& info : config.backup_backend()) {
     backup_backends_.push_back(info.node_id());

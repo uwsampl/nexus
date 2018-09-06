@@ -6,6 +6,8 @@
 #include "nexus/common/model_def.h"
 
 DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
+DEFINE_int32(load_balance, 3, "Load balance policy (1: random, 2: choice of 2, "
+             "3: deficit round robin)");
 
 namespace nexus {
 namespace app {
@@ -73,15 +75,16 @@ void QueryResult::SetError(uint32_t status, const std::string& error_msg) {
 std::atomic<uint64_t> ModelHandler::global_query_id_(0);
 
 ModelHandler::ModelHandler(const std::string& model_session_id,
-                           BackendPool& pool, LoadBalancePolicy lb_policy) :
+                           BackendPool& pool) :
     model_session_id_(model_session_id),
     backend_pool_(pool),
-    lb_policy_(lb_policy),
+    lb_policy_(LoadBalancePolicy(FLAGS_load_balance)),
     total_throughput_(0.),
     rand_gen_(rd_()) {
   ParseModelSession(model_session_id, &model_session_);
   counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
       FLAGS_count_interval);
+  LOG(INFO) << "Load balance policy: " << lb_policy_;
   if (lb_policy_ == LB_DeficitRR) {
     running_ = true;
     deficit_thread_ = std::thread(&ModelHandler::DeficitDaemon, this);
@@ -242,7 +245,7 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
     uint32_t idx = backend_idx_.fetch_add(1, std::memory_order_relaxed) %
                    backends_.size();
     uint32_t backend_id = backends_[idx];
-    if (backend_quantums_.at(backend_id) > 0) {
+    if (backend_quantums_.at(backend_id) >= 1) {
       auto backend = backend_pool_.GetBackend(backend_id);
       if (backend != nullptr) {
         --backend_quantums_[backend_id];
