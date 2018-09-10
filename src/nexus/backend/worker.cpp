@@ -82,8 +82,9 @@ void Worker::Process(std::shared_ptr<Task> task) {
             }
           }
           if (best_backup != nullptr) {
-            LOG(INFO) << "Relay request to backup " <<
-                best_backup->node_id() << " with utilization " << min_util;
+            // LOG(INFO) << "Relay request " << task->query.model_session_id() <<
+            //     " to backup " << best_backup->node_id() <<
+            //     " with utilization " << min_util;
             best_backup->Forward(std::move(task));
           } else {
             LOG(INFO) << "All backup servers are full";

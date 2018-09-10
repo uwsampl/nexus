@@ -8,12 +8,15 @@
 #include "nexus/backend/gpu_executor.h"
 #include "nexus/common/device.h"
 
+DECLARE_int32(occupancy_valid);
+
 namespace nexus {
 namespace backend {
 
 GpuExecutorMultiBatching::GpuExecutorMultiBatching(int gpu_id) : 
     gpu_id_(gpu_id),
-    running_(false) {
+    running_(false),
+    utilization_(-1.) {
 }
 
 void GpuExecutorMultiBatching::Start(int core) {
@@ -60,14 +63,30 @@ void GpuExecutorMultiBatching::RemoveModel(
 }
 
 double GpuExecutorMultiBatching::CurrentUtilization() {
+  std::lock_guard<std::mutex> util_lock(util_mu_);
+  auto now = Clock::now();
+  if (utilization_ >= 0) {
+    auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - last_check_time_).count();
+    if (elapse < FLAGS_occupancy_valid) {
+      return utilization_;
+    }
+  }
+  last_check_time_ = now;
   if (duty_cycle_us_ == 0) {
     // No model loaded so far
+    utilization_ = 0;
     return 0.;
   }
-  std::lock_guard<std::mutex> lock(models_mu_);
-  auto now = Clock::now();
+  std::vector<std::shared_ptr<ModelExecutor> > models;
+  std::vector<std::shared_ptr<ModelExecutor> > backup_models;
+  {
+    //std::lock_guard<std::mutex> model_lock(models_mu_);
+    models = models_;
+    backup_models = backup_models_;
+  }
   double exec_cycle = 0.;
-  for (auto& model : models_) {
+  for (auto& model : models) {
     int curr_queue_len = model->NumberOfOpenRequests();
     TimePoint last_exec_time = model->LastExecuteFinishTime();
     double elapse = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -80,16 +99,16 @@ double GpuExecutorMultiBatching::CurrentUtilization() {
       exec_cycle += model->profile()->GetForwardLatency(est_queue_len);
     }
   }
-  for (auto& model : backup_models_) {
+  for (auto& model : backup_models) {
     int queue_len = model->NumberOfOpenRequests();
     if (queue_len > 0) {
       exec_cycle += model->profile()->GetForwardLatency(queue_len);
     }
   }
-  double util = exec_cycle / duty_cycle_us_;
-  LOG(INFO) << "Utilization: " << util << " (exec/duty: " << exec_cycle <<
-      " / " << duty_cycle_us_ << " us)";
-  return exec_cycle / duty_cycle_us_;
+  utilization_ = exec_cycle / duty_cycle_us_;
+  LOG(INFO) << "Utilization: " << utilization_ << " (exec/duty: " <<
+      exec_cycle << " / " << duty_cycle_us_ << " us)";
+  return utilization_;
 }
 
 void GpuExecutorMultiBatching::Run() {
@@ -100,7 +119,6 @@ void GpuExecutorMultiBatching::Run() {
 #endif
 
   NEXUS_CUDA_CHECK(cudaSetDevice(gpu_id_));
-  //auto min_cycle = std::chrono::microseconds(50);
   double min_cycle_us = 50.; // us
   LOG(INFO) << "GpuExecutor started";
   while (running_) {

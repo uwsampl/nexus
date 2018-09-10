@@ -57,6 +57,9 @@ class GpuExecutorMultiBatching : public GpuExecutor {
   std::vector<std::shared_ptr<ModelExecutor> > models_;
   std::vector<std::shared_ptr<ModelExecutor> > backup_models_;
   std::mutex models_mu_;
+  double utilization_;
+  TimePoint last_check_time_;
+  std::mutex util_mu_;
 };
 
 class GpuExecutorNoMultiBatching : public GpuExecutor {

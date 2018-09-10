@@ -78,7 +78,6 @@ bool ModelExecutor::Preprocess(std::shared_ptr<Task> task, bool force) {
     return false;
   }
   counter_->Increase(cnt);
-  
   model_->Preprocess(task);
   if (task->result.status() != CTRL_OK) {
     return false;
@@ -180,25 +179,21 @@ TimePoint ModelExecutor::LastExecuteFinishTime() {
 
 bool ModelExecutor::IncreaseOpenRequests(int cnt, bool limit_max_batch) {
   if (!limit_max_batch) {
-    int prev = open_requests_.fetch_add(cnt, std::memory_order_relaxed);
+    open_requests_.fetch_add(cnt, std::memory_order_relaxed);
     return true;
   }
-  int curr_val = open_requests_.load();
-  while (true) {
-    int new_val = curr_val + cnt;
-    if (new_val > model_->max_batch()) {
-      return false;
-    }
-    if (open_requests_.compare_exchange_strong(curr_val, new_val)) {
-      break;
-    }
+  // opportunistic
+  int nreqs = open_requests_.load(std::memory_order_relaxed);
+  if (nreqs + cnt > model_->batch()) {
+    return false;
   }
+  open_requests_.fetch_add(cnt, std::memory_order_relaxed);
   return true;
 }
 
 void ModelExecutor::DecreaseOpenRequests(int cnt) {
   int prev = open_requests_.fetch_sub(cnt, std::memory_order_relaxed);
-  CHECK_GE(prev, cnt) << "Negative value in open requests";
+  //CHECK_GE(prev, cnt) << "Negative value in open requests";
 }
 
 std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
@@ -214,8 +209,6 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
   if (expect_batch_size == 0) {
     return {batch_task, 0};
   }
-  LOG(INFO) << model_->model_session_id() << " expect batch " <<
-      expect_batch_size;
 
   std::lock_guard<std::mutex> lock(task_mu_);
   TimePoint now = Clock::now();
@@ -235,7 +228,9 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
     task->timer.Record("exec");
     if (task->result.status() != CTRL_OK ||
         (profile_ != nullptr && input->deadline() < finish)) {
-      LOG(INFO) << "Drop task " << task->task_id << "/" << input->index;
+      VLOG(1) << model_->model_session_id() << " drops task " <<
+          task->task_id << "/" << input->index << ", waiting time " <<
+          task->timer.GetLatencyMicros("begin", "exec") << " us";
       if (task->AddVirtualOutput(input->index)) {
         RemoveTask(task);
       }
@@ -252,7 +247,6 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
     int est_max_batch = current_batch + input_queue_.size();
     if (profile_ != nullptr && expect_batch_size > est_max_batch) {
       expect_batch_size = est_max_batch;
-      LOG(INFO) << model_->model_session_id() << " expect batch " <<
       expect_batch_size;
       float latency = profile_->GetForwardLatency(expect_batch_size);
       finish = now + std::chrono::microseconds(int(latency));
@@ -266,7 +260,8 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
       ss << task->task_id << " ";
     }
   }
-  LOG(INFO) << "Batch size " << batch_task->batch_size() << ": " << ss.str();
+  VLOG(1) << model_->model_session_id() << " batch size " <<
+      batch_task->batch_size() << ": " << ss.str();
   return {batch_task, dequeue_cnt};
 }
 

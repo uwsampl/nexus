@@ -34,8 +34,8 @@ void BackupClient::Reply(std::shared_ptr<Message> message) {
   }
   uint64_t qid = qid_iter->second;
   result.set_query_id(qid);
-  LOG(INFO) << "Convert " << result.model_session_id() << " tid " << tid <<
-      " to qid " << qid;
+  // LOG(INFO) << "Convert " << result.model_session_id() << " tid " << tid <<
+  //     " to qid " << qid;
   auto reply_msg = std::make_shared<Message>(kBackendReply,
                                              result.ByteSizeLong());
   reply_msg->EncodeBody(result);
