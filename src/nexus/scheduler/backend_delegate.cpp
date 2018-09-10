@@ -272,8 +272,8 @@ void BackendDelegate::AddBackupForModel(const std::string& model_sess_id,
   if (inst_info->backup_backends.count(info.node_id()) > 0) {
     return;
   }
-  LOG(INFO) << "Add backup server " << info.node_id() << " for " <<
-      model_sess_id;
+  LOG(INFO) << "Backend " << node_id_ << " add backup server " <<
+      info.node_id() << " for " << model_sess_id;
   inst_info->backup_backends.emplace(info.node_id(), info);
   dirty_model_table_ = true;
 }

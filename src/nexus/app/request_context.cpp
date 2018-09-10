@@ -112,6 +112,9 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
   query_latency->set_model_session_id(result.model_session_id());
   query_latency->set_frontend_send_timestamp_us(query_send_.at(qid));
   query_latency->set_frontend_recv_timestamp_us(recv_ts);
+  query_latency->set_backend_latency_us(result.latency_us());
+  query_latency->set_backend_queuing_us(result.queuing_us());
+  query_latency->set_use_backup(result.use_backup());
   
   double latency = recv_ts - query_send_.at(qid);
   ModelSession model_sess;
@@ -125,9 +128,6 @@ void RequestContext::HandleQueryResult(const QueryResultProto& result) {
     HandleErrorLocked(result.status(), result.error_message());
     return;
   }
-
-  query_latency->set_backend_latency_us(result.latency_us());
-  query_latency->set_backend_queuing_us(result.queuing_us());
 
   auto qid_itr = qid_var_map_.find(qid);
   if (qid_itr == qid_var_map_.end()) {

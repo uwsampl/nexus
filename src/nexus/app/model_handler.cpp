@@ -141,7 +141,13 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
 void ModelHandler::HandleReply(const QueryResultProto& result) {
   std::lock_guard<std::mutex> lock(query_ctx_mu_);
   uint64_t qid = result.query_id();
-  auto ctx = query_ctx_.at(qid);
+  auto iter = query_ctx_.find(qid);
+  if (iter == query_ctx_.end()) {
+    LOG(FATAL) << model_session_id_ << " cannot find query context for query " <<
+        qid;
+    return;
+  }
+  auto ctx = iter->second;
   ctx->HandleQueryResult(result);
   query_ctx_.erase(qid);
 }

@@ -380,6 +380,7 @@ void Scheduler::AddBackend(BackendDelegatePtr backend) {
     }
   }
   if (assign_load_id >= 0) {
+    // Assign static workload
     LOG(INFO) << "Assign workload " << assign_load_id << " to backend " <<
         backend->node_id();
     auto workload = static_workloads_[assign_load_id];
@@ -390,7 +391,7 @@ void Scheduler::AddBackend(BackendDelegatePtr backend) {
     changed_backends.insert(backend);
 
     // Update session info
-    for (auto& model_sess_id : backend->GetModelSessions()) {
+    for (auto const& model_sess_id : backend->GetModelSessions()) {
       if (session_table_.find(model_sess_id) == session_table_.end()) {
         auto session_info = std::make_shared<SessionInfo>();
         session_info->has_static_workload = true;
@@ -403,33 +404,41 @@ void Scheduler::AddBackend(BackendDelegatePtr backend) {
       session_info->backend_weights.emplace(
           backend->node_id(), backend->GetModelWeight(model_sess_id));
       changed_sessions.insert(session_info);
+      for (auto backup_id : session_info->backup_backends) {
+        auto backup_backend = GetBackend(backup_id);
+        if (backup_backend != nullptr) {
+          BackendInfo backup_info;
+          backup_backend->GetInfo(&backup_info);
+          backend->AddBackupForModel(model_sess_id, backup_info);
+        }
+      }
     }
     // Add backup model to session info
+    BackendInfo backend_info;
+    backend->GetInfo(&backend_info);
     for (auto& model_sess_id : backend->GetBackupModelSessions()) {
       LOG(INFO) << "backup model session: " << model_sess_id;
-      auto iter = session_table_.find(model_sess_id);
-      if (iter == session_table_.end()) {
-        LOG(ERROR) << "Cannot find backup model session " << model_sess_id <<
-            " in the session table";
-        continue;
+      if (session_table_.find(model_sess_id) == session_table_.end()) {
+        auto session_info = std::make_shared<SessionInfo>();
+        session_info->has_static_workload = true;
+        ModelSession model_sess;
+        ParseModelSession(model_sess_id, &model_sess);
+        session_info->model_sessions.push_back(model_sess);
+        session_table_.emplace(model_sess_id, session_info);
       }
-      auto session_info = iter->second;
+      auto session_info = session_table_.at(model_sess_id);
       if (session_info->backup_backends.count(backend->node_id()) > 0) {
         continue;
       }
       session_info->backup_backends.insert(backend->node_id());
-      LOG(INFO) << "a";
-      BackendInfo info;
-      backend->GetInfo(&info);
       for (auto iter : session_info->backend_weights) {
         auto b = GetBackend(iter.first);
         if (b == nullptr) {
           continue;
         }
-        b->AddBackupForModel(model_sess_id, info);
+        b->AddBackupForModel(model_sess_id, backend_info);
         changed_backends.insert(b);
       }
-      LOG(INFO) << "b";
     }
   } else {
     // 2. Check if there are unassigned workloads
@@ -491,21 +500,11 @@ void Scheduler::RemoveBackend(BackendDelegatePtr backend) {
           " to backend " << assigned->node_id();
     }
     changed_backends.insert(assigned);
-    // Update backup models to session info
+    // Remove backup models to session info
     for (auto& model_sess_id : backend->GetBackupModelSessions()) {
       auto session_info = session_table_.at(model_sess_id);
-      bool remove = false;
-      bool insert = false;
-      if (session_info->backup_backends.erase(backend->node_id()) > 0) {
-        remove = true;
-      }
-      if (session_info->backup_backends.count(assigned->node_id()) == 0) {
-        session_info->backup_backends.insert(assigned->node_id());
-        insert = true;
-      }
-      if (!remove && !insert) {
-        continue;
-      }
+      session_info->backup_backends.erase(backend->node_id());
+      session_info->backup_backends.insert(assigned->node_id());
       BackendInfo info;
       assigned->GetInfo(&info);
       for (auto iter : session_info->backend_weights) {

@@ -328,7 +328,7 @@ void BackendServer::Daemon() {
     }
     for (auto iter : model_table) {
       double rps = iter.second->GetRequestRate();
-      if (rps > 0) {
+      if (rps > 0.1) {
         LOG(INFO) << iter.first << " request rate: " << rps;
       }
     }

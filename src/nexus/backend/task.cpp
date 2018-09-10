@@ -38,6 +38,7 @@ void Task::DecodeQuery(std::shared_ptr<Message> message) {
   uint32_t budget = sess.latency_sla();
   if (query.slack_ms() > 0) {
     budget += query.slack_ms();
+    LOG(INFO) << "slack " << query.slack_ms() << " ms";
   }
   SetDeadline(std::chrono::milliseconds(budget));
 }

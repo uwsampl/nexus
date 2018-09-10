@@ -1,4 +1,5 @@
 #include <gflags/gflags.h>
+#include <sstream>
 
 #include "nexus/backend/model_exec.h"
 #include "nexus/backend/model_ins.h"
@@ -151,7 +152,8 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
       t3 - t2).count();
   LOG(INFO) << model_->model_session_id() << " forwards batch " <<
       batch_task->batch_id() << ", size " << batch_task->batch_size() <<
-      ", memcpy " << memcpy_lat << " us, forward " << forward_lat << " us";
+      ", memcpy lat " << memcpy_lat << " us, forward lat " << forward_lat <<
+      " us, drop " << dequeue_cnt - batch_task->batch_size() << " requests";
 
   auto outputs = batch_task->outputs();
   auto tasks = batch_task->tasks();
@@ -212,6 +214,8 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
   if (expect_batch_size == 0) {
     return {batch_task, 0};
   }
+  LOG(INFO) << model_->model_session_id() << " expect batch " <<
+      expect_batch_size;
 
   std::lock_guard<std::mutex> lock(task_mu_);
   TimePoint now = Clock::now();
@@ -231,6 +235,7 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
     task->timer.Record("exec");
     if (task->result.status() != CTRL_OK ||
         (profile_ != nullptr && input->deadline() < finish)) {
+      LOG(INFO) << "Drop task " << task->task_id << "/" << input->index;
       if (task->AddVirtualOutput(input->index)) {
         RemoveTask(task);
       }
@@ -247,16 +252,21 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
     int est_max_batch = current_batch + input_queue_.size();
     if (profile_ != nullptr && expect_batch_size > est_max_batch) {
       expect_batch_size = est_max_batch;
+      LOG(INFO) << model_->model_session_id() << " expect batch " <<
+      expect_batch_size;
       float latency = profile_->GetForwardLatency(expect_batch_size);
       finish = now + std::chrono::microseconds(int(latency));
     }
   }
+  std::stringstream ss;
   for (auto const& iter : model_inputs) {
     for (auto input : iter.second) {
       auto task = processing_tasks_.at(input->task_id);
       batch_task->AppendInput(input, task);
+      ss << task->task_id << " ";
     }
   }
+  LOG(INFO) << "Batch size " << batch_task->batch_size() << ": " << ss.str();
   return {batch_task, dequeue_cnt};
 }
 

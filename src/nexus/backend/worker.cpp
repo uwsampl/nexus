@@ -82,10 +82,11 @@ void Worker::Process(std::shared_ptr<Task> task) {
             }
           }
           if (best_backup != nullptr) {
-            LOG(INFO) << "Forward request to backup " <<
+            LOG(INFO) << "Relay request to backup " <<
                 best_backup->node_id() << " with utilization " << min_util;
             best_backup->Forward(std::move(task));
           } else {
+            LOG(INFO) << "All backup servers are full";
             task->model->Preprocess(task, true);
           }
         }
@@ -112,6 +113,11 @@ void Worker::SendReply(std::shared_ptr<Task> task) {
   task->result.set_model_session_id(task->query.model_session_id());
   task->result.set_latency_us(task->timer.GetLatencyMicros("begin", "end"));
   task->result.set_queuing_us(task->timer.GetLatencyMicros("begin", "exec"));
+  if (task->model->backup()) {
+    task->result.set_use_backup(true);
+  } else {
+    task->result.set_use_backup(false);
+  }
   MessageType reply_type = kBackendReply;
   if (task->msg_type == kBackendRelay) {
     reply_type = kBackendRelayReply;

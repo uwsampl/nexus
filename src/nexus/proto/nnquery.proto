@@ -145,6 +145,8 @@ message QueryResultProto {
   // Latency
   uint64 latency_us = 20;
   uint64 queuing_us = 21;
+
+  bool use_backup = 22;
 }
 
 message QueryLatency {
@@ -161,4 +163,6 @@ message QueryLatency {
   uint64 backend_latency_us = 5;
   // Backend queuing latency
   uint64 backend_queuing_us = 6;
+
+  bool use_backup = 7;
 }

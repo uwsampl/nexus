@@ -57,7 +57,8 @@ void Message::DecodeBody(google::protobuf::Message* message) const {
 }
 
 void Message::EncodeBody(const google::protobuf::Message& message) {
-  CHECK_GT(body_length_, 0) << "Body length hasn't been initialized";
+  CHECK_GE(body_length_, message.ByteSizeLong()) << "Buffer is too small to "
+      "store the message";
   message.SerializeToArray(body(), body_length_);
 }
 

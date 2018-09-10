@@ -34,10 +34,13 @@ void BackupClient::Reply(std::shared_ptr<Message> message) {
   }
   uint64_t qid = qid_iter->second;
   result.set_query_id(qid);
-  message->EncodeBody(result);
-  message->set_type(kBackendReply);
+  LOG(INFO) << "Convert " << result.model_session_id() << " tid " << tid <<
+      " to qid " << qid;
+  auto reply_msg = std::make_shared<Message>(kBackendReply,
+                                             result.ByteSizeLong());
+  reply_msg->EncodeBody(result);
   auto conn_iter = conns_.find(tid);
-  conn_iter->second->Write(std::move(message));
+  conn_iter->second->Write(std::move(reply_msg));
   qid_lookup_.erase(qid_iter);
   conns_.erase(conn_iter);
 }
