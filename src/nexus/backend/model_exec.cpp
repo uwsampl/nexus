@@ -18,13 +18,16 @@ ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
     task_queue_(task_queue),
     batch_id_(0),
     open_requests_(0),
-    rps_(FLAGS_backend_count_interval, FLAGS_backend_avg_interval) {
+    req_rate_(FLAGS_backend_count_interval, FLAGS_backend_avg_interval),
+    drop_rate_(FLAGS_backend_count_interval, FLAGS_backend_avg_interval) {
   // Create ModelInstance
   CreateModelInstance(gpu_id, config, &model_);
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(gpu_id);
   profile_ = ModelDatabase::Singleton().GetModelProfile(
       gpu_device->device_name(), model_->profile_id());
-  counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
+  req_counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
+      FLAGS_backend_count_interval);
+  drop_counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
       FLAGS_backend_count_interval);
   input_array_ = model_->CreateInputGpuArray();
   for (auto const& info : config.backup_backend()) {
@@ -33,17 +36,28 @@ ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
 }
 
 ModelExecutor::~ModelExecutor() {
-  MetricRegistry::Singleton().RemoveMetric(counter_);
+  MetricRegistry::Singleton().RemoveMetric(req_counter_);
+  MetricRegistry::Singleton().RemoveMetric(drop_counter_);
 }
 
 double ModelExecutor::GetRequestRate() {
-  for (auto nreq : counter_->GetHistory()) {
-    if (rps_.rate() < 0 && nreq == 0) {
+  for (auto nreq : req_counter_->GetHistory()) {
+    if (req_rate_.rate() < 0 && nreq == 0) {
       continue;
     }
-    rps_.AddSample(nreq);
+    req_rate_.AddSample(nreq);
   }
-  return rps_.rate();
+  return req_rate_.rate();
+}
+
+double ModelExecutor::GetDropRate() {
+  for (auto nreq : drop_counter_->GetHistory()) {
+    if (drop_rate_.rate() < 0 && nreq == 0) {
+      continue;
+    }
+    drop_rate_.AddSample(nreq);
+  }
+  return drop_rate_.rate();
 }
 
 bool ModelExecutor::IsSharePrefixModel() const {
@@ -77,7 +91,7 @@ bool ModelExecutor::Preprocess(std::shared_ptr<Task> task, bool force) {
   if (!IncreaseOpenRequests(cnt, limit)) {
     return false;
   }
-  counter_->Increase(cnt);
+  req_counter_->Increase(cnt);
   model_->Preprocess(task);
   if (task->result.status() != CTRL_OK) {
     return false;
@@ -97,7 +111,7 @@ bool ModelExecutor::AddPreprocessedTask(std::shared_ptr<Task> task,
   if (!IncreaseOpenRequests(cnt, limit)) {
     return false;
   }
-  counter_->Increase(cnt);
+  req_counter_->Increase(cnt);
   std::lock_guard<std::mutex> lock(task_mu_);
   processing_tasks_.emplace(task->task_id, task);
   for (auto input : task->inputs) {
@@ -120,6 +134,10 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
   auto t1 = std::chrono::high_resolution_clock::now();
   std::tie(batch_task, dequeue_cnt) = GetBatchTask(batch);
   auto t2 = std::chrono::high_resolution_clock::now();
+  
+  int num_drops = dequeue_cnt - batch_task->batch_size();
+  drop_counter_->Increase(num_drops);
+  
   if (batch_task->batch_size() == 0) {
     DecreaseOpenRequests(dequeue_cnt);
     std::lock_guard<std::mutex> lock(time_mu_);
@@ -127,9 +145,9 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         t2 - t1).count();
   }
+
   uint64_t batch_id = batch_id_.fetch_add(1, std::memory_order_relaxed);
   batch_task->set_batch_id(batch_id);
-  
   // Each time recompute output sizes because it might change for prefix model
   std::unordered_map<std::string, size_t> output_sizes;
   for (auto iter : model_->OutputShapes()) {
@@ -152,7 +170,7 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
   LOG(INFO) << model_->model_session_id() << " forwards batch " <<
       batch_task->batch_id() << ", size " << batch_task->batch_size() <<
       ", memcpy lat " << memcpy_lat << " us, forward lat " << forward_lat <<
-      " us, drop " << dequeue_cnt - batch_task->batch_size() << " requests";
+      " us, drop " << num_drops << " requests";
 
   auto outputs = batch_task->outputs();
   auto tasks = batch_task->tasks();

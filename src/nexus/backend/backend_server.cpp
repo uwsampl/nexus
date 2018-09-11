@@ -9,7 +9,7 @@
 #include "nexus/backend/share_prefix_model.h"
 
 DEFINE_bool(multi_batch, true, "Enable multi batching");
-DEFINE_int32(occupancy_valid, 50, "Backup backend occupancy valid time in ms");
+DEFINE_int32(occupancy_valid, 10, "Backup backend occupancy valid time in ms");
 
 namespace nexus {
 namespace backend {
@@ -339,8 +339,10 @@ void BackendServer::Daemon() {
     }
     for (auto iter : model_table) {
       double rps = iter.second->GetRequestRate();
+      double drop_rate = iter.second->GetDropRate();
       if (rps > 0.1) {
-        LOG(INFO) << iter.first << " request rate: " << rps;
+        LOG(INFO) << iter.first << " request rate: " << rps <<
+            ", drop rate: " << drop_rate;
       }
     }
     std::this_thread::sleep_until(next_time);

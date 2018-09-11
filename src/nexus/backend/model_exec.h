@@ -32,6 +32,8 @@ class ModelExecutor {
 
   double GetRequestRate();
 
+  double GetDropRate();
+
   bool IsSharePrefixModel() const;
 
   bool HasBackup();
@@ -86,9 +88,11 @@ class ModelExecutor {
   std::atomic<int> open_requests_;
   /*! \brief Interval counter to count number of requests within each interval.
    */
-  std::shared_ptr<IntervalCounter> counter_;
+  std::shared_ptr<IntervalCounter> req_counter_;
+  std::shared_ptr<IntervalCounter> drop_counter_;
 
-  EWMA rps_;
+  EWMA req_rate_;
+  EWMA drop_rate_;
 
   std::vector<uint32_t> backup_backends_;
   /*!

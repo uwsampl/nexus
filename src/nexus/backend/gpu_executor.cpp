@@ -63,16 +63,16 @@ void GpuExecutorMultiBatching::RemoveModel(
 }
 
 double GpuExecutorMultiBatching::CurrentUtilization() {
-  std::lock_guard<std::mutex> util_lock(util_mu_);
   auto now = Clock::now();
-  if (utilization_ >= 0) {
-    auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - last_check_time_).count();
-    if (elapse < FLAGS_occupancy_valid) {
-      return utilization_;
-    }
-  }
-  last_check_time_ = now;
+  // std::lock_guard<std::mutex> util_lock(util_mu_);
+  // if (utilization_ >= 0) {
+  //   auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(
+  //       now - last_check_time_).count();
+  //   if (elapse < FLAGS_occupancy_valid) {
+  //     return utilization_;
+  //   }
+  // }
+  // last_check_time_ = now;
   if (duty_cycle_us_ == 0) {
     // No model loaded so far
     utilization_ = 0;
@@ -105,10 +105,13 @@ double GpuExecutorMultiBatching::CurrentUtilization() {
       exec_cycle += model->profile()->GetForwardLatency(queue_len);
     }
   }
-  utilization_ = exec_cycle / duty_cycle_us_;
-  LOG(INFO) << "Utilization: " << utilization_ << " (exec/duty: " <<
+  // utilization_ = exec_cycle / duty_cycle_us_;
+  // LOG(INFO) << "Utilization: " << utilization_ << " (exec/duty: " <<
+  //     exec_cycle << " / " << duty_cycle_us_ << " us)";
+  double utilization = exec_cycle / duty_cycle_us_;
+  LOG(INFO) << "Utilization: " << utilization << " (exec/duty: " <<
       exec_cycle << " / " << duty_cycle_us_ << " us)";
-  return utilization_;
+  return utilization;
 }
 
 void GpuExecutorMultiBatching::Run() {
