@@ -85,7 +85,7 @@ def find_max_batch(framework, model_name):
     return left - 2
 
 
-def profile_model(framework, model_name):
+def profile_model(framework, model_name, max_batch_limit=0):
     global args
     prof_id = '%s:%s:%s' % (framework, model_name, args.version)
     if args.height > 0 and args.width > 0:
@@ -93,6 +93,8 @@ def profile_model(framework, model_name):
     print('Profile %s' % prof_id)
 
     max_batch = find_max_batch(framework, model_name)
+    if max_batch_limit > 0 and max_batch > max_batch_limit:
+        max_batch = max_batch_limit
     print('Max batch: %s' % max_batch)
 
     output = str(uuid.uuid4()) + '.txt'
@@ -145,6 +147,8 @@ def main():
     parser.add_argument('--width', type=int, default=0, help='Image width')
     parser.add_argument('--prefix', action='store_true',
                         help='Enable prefix batching')
+    parser.add_argument('--max_batch', type=int, default=0,
+                        help='Limit the max batch size (default: 0)')
     parser.add_argument('-f', '--force', action='store_true',
                         help='Overwrite the existing model profile in model DB')
     global args
@@ -155,7 +159,7 @@ def main():
         sys.stderr.write('%s:%s not found in model DB\n' % (args.framework, args.model))
         return
 
-    profile_model(args.framework, args.model)
+    profile_model(args.framework, args.model, args.max_batch)
     
 
 if __name__ == '__main__':

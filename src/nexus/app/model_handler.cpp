@@ -6,7 +6,7 @@
 #include "nexus/common/model_def.h"
 
 DEFINE_int32(count_interval, 1, "Interval to count number of requests in sec");
-DEFINE_int32(load_balance, 3, "Load balance policy (1: random, 2: choice of 2, "
+DEFINE_int32(load_balance, 1, "Load balance policy (1: random, 2: choice of 2, "
              "3: deficit round robin)");
 
 namespace nexus {

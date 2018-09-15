@@ -46,16 +46,16 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     gpu_executor_->Start(cores.back());
     cores.pop_back();
     // Pin IO thread to core
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    int io_core = cores.back();
-    CPU_SET(io_core, &cpuset);
-    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    if (rc != 0) {
-      LOG(ERROR) << "Error calling pthread_setaffinity_np: " << rc << "\n";
-    }
-    LOG(INFO) << "IO thread is pinned on CPU " << io_core;
-    cores.pop_back();
+    // cpu_set_t cpuset;
+    // CPU_ZERO(&cpuset);
+    // int io_core = cores.back();
+    // CPU_SET(io_core, &cpuset);
+    // int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    // if (rc != 0) {
+    //   LOG(ERROR) << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    // }
+    // LOG(INFO) << "IO thread is pinned on CPU " << io_core;
+    // cores.pop_back();
   }
   // Init workers
   if (num_workers == 0) {
