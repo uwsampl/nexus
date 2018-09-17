@@ -114,7 +114,7 @@ void Worker::SendReply(std::shared_ptr<Task> task) {
   task->result.set_model_session_id(task->query.model_session_id());
   task->result.set_latency_us(task->timer.GetLatencyMicros("begin", "end"));
   task->result.set_queuing_us(task->timer.GetLatencyMicros("begin", "exec"));
-  if (task->model->backup()) {
+  if (task->model != nullptr && task->model->backup()) {
     task->result.set_use_backup(true);
   } else {
     task->result.set_use_backup(false);
