@@ -31,7 +31,7 @@ Scheduler::Scheduler(std::string port, size_t nthreads) :
     epoch_interval_sec_(FLAGS_epoch),
     enable_epoch_schedule_(FLAGS_epoch_schedule),
     enable_prefix_batch_(FLAGS_prefix_batch) {
-  history_len_ = (FLAGS_avg_interval * 2 + beacon_interval_sec_ - 1) /
+  history_len_ = (FLAGS_avg_interval * 3 + beacon_interval_sec_ - 1) /
                  beacon_interval_sec_;
   if (!enable_epoch_schedule_) {
     LOG(INFO) << "Epoch scheduling is off";
@@ -1024,12 +1024,17 @@ void Scheduler::DisplayModelTable() {
     for (auto iter : session_table_) {
       auto const& model_sess_id = iter.first;
       auto session_info = iter.second;
+      double total_gpu_share = 0.;
       ss1 << model_sess_id << ":";
       for (auto backend_iter : session_info->backend_weights) {
-        ss1 << " " << backend_iter.first << "/" << backend_iter.second;
+        auto backend = GetBackend(backend_iter.first);
+        double share = backend->GetModelGPUShare(model_sess_id);
+        total_gpu_share += share;
+        ss1 << " " << backend_iter.first << "/" << backend_iter.second << "/" <<
+            share;
         used_backends.insert(backend_iter.first);
       }
-      ss1 << "\n";
+      ss1 << ", total share: " << total_gpu_share << "\n";
     }
     VLOG(1) << "Model table: \n" << ss1.str();
   }

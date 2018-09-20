@@ -424,6 +424,17 @@ double BackendDelegate::GetModelThroughput(const std::string& model_sess_id)
   return session_model_map_.at(model_sess_id)->throughput;
 }
 
+double BackendDelegate::GetModelGPUShare(const std::string& model_sess_id)
+    const {
+  auto iter = session_model_map_.find(model_sess_id);
+  if (iter == session_model_map_.end()) {
+    return 0.;
+  }
+  auto model_inst = iter->second;
+  double model_exec_cycle = model_inst->fwd_latency_us;
+  return model_exec_cycle / exec_cycle_us_;
+}
+
 double BackendDelegate::GetModelWeight(const std::string& model_sess_id)
     const {
   return session_model_map_.at(model_sess_id)->GetWeight();

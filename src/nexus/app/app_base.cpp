@@ -24,7 +24,7 @@ void AppBase::Start() {
 std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
     const std::string& framework, const std::string& model_name,
     uint32_t version, uint64_t latency_sla, float estimate_workload,
-    std::vector<uint32_t> image_size) {
+    std::vector<uint32_t> image_size, LoadBalancePolicy lb_policy) {
   LoadModelRequest req;
   req.set_node_id(node_id());
   auto model_sess = req.mutable_model_session();
@@ -48,7 +48,7 @@ std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
     req.set_estimate_workload(estimate_workload);
   }
 
-  auto model_handler = LoadModel(req);
+  auto model_handler = LoadModel(req, lb_policy);
   if (model_handler == nullptr) {
     // TODO: load model failed, should retry after some time,
     // or wait for callback from scheduler

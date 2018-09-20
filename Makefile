@@ -143,7 +143,7 @@ backend: build/bin/backend
 
 scheduler: build/bin/scheduler
 
-tools: build/bin/profiler
+tools: build/bin/profiler build/bin/test_pb
 
 test: build/bin/runtest
 
@@ -163,6 +163,10 @@ build/bin/scheduler: $(CXX_COMMON_OBJS) $(CXX_SCHEDULER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS)
 
 build/bin/profiler: $(CXX_LIB_OBJS) build/obj/tools/profiler/profiler.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
+
+build/bin/test_pb: $(CXX_LIB_OBJS) build/obj/tools/profiler/test_pb.o
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
 

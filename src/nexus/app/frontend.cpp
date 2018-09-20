@@ -3,6 +3,8 @@
 #include "nexus/app/frontend.h"
 #include "nexus/common/config.h"
 
+DECLARE_int32(load_balance);
+
 namespace nexus {
 namespace app {
 
@@ -177,6 +179,11 @@ std::shared_ptr<UserSession> Frontend::GetUserSession(uint32_t uid) {
 }
 
 std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
+  return LoadModel(req, LoadBalancePolicy(FLAGS_load_balance));
+}
+
+std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req,
+                                                  LoadBalancePolicy lb_policy) {
   LoadModelReply reply;
   grpc::ClientContext context;
   grpc::Status status = sch_stub_->LoadModel(&context, req, &reply);
@@ -190,7 +197,7 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
     return nullptr;
   }
   auto model_handler = std::make_shared<ModelHandler>(
-      reply.model_route().model_session_id(), backend_pool_);
+      reply.model_route().model_session_id(), backend_pool_, lb_policy);
   // Only happens at Setup stage, so no concurrent modification to model_pool_
   model_pool_.emplace(model_handler->model_session_id(), model_handler);
   UpdateBackendPoolAndModelRoute(reply.model_route());

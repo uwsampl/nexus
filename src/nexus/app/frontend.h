@@ -64,6 +64,9 @@ class Frontend : public ServerBase, public MessageHandler {
 
   std::shared_ptr<ModelHandler> LoadModel(const LoadModelRequest& req);
 
+  std::shared_ptr<ModelHandler> LoadModel(const LoadModelRequest& req,
+                                          LoadBalancePolicy lb_policy);
+
  private:
   void Register();
 

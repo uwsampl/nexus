@@ -75,16 +75,16 @@ void QueryResult::SetError(uint32_t status, const std::string& error_msg) {
 std::atomic<uint64_t> ModelHandler::global_query_id_(0);
 
 ModelHandler::ModelHandler(const std::string& model_session_id,
-                           BackendPool& pool) :
+                           BackendPool& pool, LoadBalancePolicy lb_policy) :
     model_session_id_(model_session_id),
     backend_pool_(pool),
-    lb_policy_(LoadBalancePolicy(FLAGS_load_balance)),
+    lb_policy_(lb_policy),
     total_throughput_(0.),
     rand_gen_(rd_()) {
   ParseModelSession(model_session_id, &model_session_);
   counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
       FLAGS_count_interval);
-  LOG(INFO) << "Load balance policy: " << lb_policy_;
+  LOG(INFO) << model_session_id_ << " load balance policy: " << lb_policy_;
   if (lb_policy_ == LB_DeficitRR) {
     running_ = true;
     deficit_thread_ = std::thread(&ModelHandler::DeficitDaemon, this);

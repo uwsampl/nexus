@@ -77,7 +77,8 @@ enum LoadBalancePolicy {
 
 class ModelHandler {
  public:
-  ModelHandler(const std::string& model_session_id, BackendPool& pool);
+  ModelHandler(const std::string& model_session_id, BackendPool& pool,
+               LoadBalancePolicy lb_policy);
 
   ~ModelHandler();
 

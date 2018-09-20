@@ -90,6 +90,8 @@ class BackendDelegate {
 
   double GetModelThroughput(const std::string& model_sess_id) const;
 
+  double GetModelGPUShare(const std::string& model_sess_id) const;
+
   double GetModelWeight(const std::string& model_sess_id) const;
 
   bool IsAlive();
