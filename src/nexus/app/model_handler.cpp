@@ -78,7 +78,7 @@ ModelHandler::ModelHandler(const std::string& model_session_id,
     rand_gen_(rd_()) {
   ParseModelSession(model_session_id, &model_session_);
 }
-ModelHandler::count() {
+uint32_t ModelHandler::count() {
   uint32_t ret = num_;
   num_ = 0;
   return ret;

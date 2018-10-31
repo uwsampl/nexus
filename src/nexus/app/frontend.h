@@ -36,7 +36,7 @@ class Frontend : public ServerBase, public MessageHandler {
   //virtual void Process(const RequestProto& request, ReplyProto* reply) = 0;
 
   //Report rps
-  void report();
+  void report(uint32_t interval_);
   
   uint32_t node_id() const { return node_id_; }
 

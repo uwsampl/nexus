@@ -128,29 +128,12 @@ message LoadModelReply {
   ModelRouteProto model_route = 2;
 }
 
-message Edge {
-  ModelSession v1 = 101;
-  ModelSession v2 = 102;
-}
-
 message LoadDependencyRequest {
-  uint32 node_id = 1;
-  uint32 n = 2;
-  uint32 m = 3;
-  double latency;
-  repeated ModelSession models = 100;
-  repeated Edge edges = 200;
+  LoadDependencyProto dependency = 1;
 }
 
-message ModelRps {
-  string model = 100;
-  double rps = 2;
-}
 message CurRpsRequest {
-  uint32 node_id = 1;
-  uint32 n = 2;
-  double interval = 3;
-  repeated ModelRps model_rps = 100; 
+  CurRpsProto cur_rps = 1;
 }
 message ModelInstanceConfig {
   repeated ModelSession model_session = 1;

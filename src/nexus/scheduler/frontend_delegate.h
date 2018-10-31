@@ -7,7 +7,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+
 #include "nexus/proto/control.grpc.pb.h"
+#include "nexus/scheduler/complex_query.h"
 
 namespace nexus {
 namespace scheduler {
@@ -36,9 +38,9 @@ class FrontendDelegate {
 
   CtrlStatus UpdateModelRoutesRpc(const ModelRouteUpdates& request);
   
-  CtrlStatus LoadDependency(const LoadDependencyRequest& request);
+  CtrlStatus LoadDependency(const LoadDependencyProto& request);
   
-  CtrlStatus CurrentRps(const CurRpsRequest& request);
+  CtrlStatus CurrentRps(const CurRpsProto& request);
   
   bool containComplexQuery() {return complexQuery_;}
  private:

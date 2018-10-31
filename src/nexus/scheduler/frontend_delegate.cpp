@@ -58,12 +58,12 @@ bool FrontendDelegate::IsAlive() {
 void FrontendDelegate::SubscribeModel(const std::string& model_session_id) {
   subscribe_models_.insert(model_session_id);
 }
-CtrlStatus FrontDelegate::LoadDepedency(const LoadDependencyRequest& request) {
+CtrlStatus FrontDelegate::LoadDepedency(const LoadDependencyProto& request) {
   complexQuery_ = true;
   return query_.init(request, common_gpu_);
 }
 
-void FrontendDelegate::CurrentRps(const CurRpsRequest& request){
+void FrontendDelegate::CurrentRps(const CurRpsProto& request){
   query_.addRecord(request);
 } 
 CtrlStatus FrontendDelegate::UpdateModelRoutesRpc(

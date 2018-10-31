@@ -23,7 +23,7 @@ INSTANTIATE_RPC_CALL(AsyncService, UpdateBackendStats, BackendStatsProto,
                      RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, LoadDependency, LoadDependencyRequest, RpcReply);
-INSTANTIATE_RPC_CALL(AsyncService, CurRpsRequest, RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, CurRps, CurRpsRequest, RpcReply);
 
 Scheduler::Scheduler(std::string port, size_t nthreads) :
     AsyncRpcServiceBase(port, nthreads),
@@ -129,7 +129,7 @@ void Scheduler::LoadDependency(const grpc::ServerContext ctx,
     reply->set_status(FRONTEND_NOT_FOUND);
     return;
   }        
-  return frontend.loadDependency(request);                       
+  return frontend.loadDependency(request.depdency);                       
 }
 
 void Scheduler::CurrentRps(const grpc::ServerContest& ctx,
@@ -141,7 +141,7 @@ void Scheduler::CurrentRps(const grpc::ServerContest& ctx,
     reply->set_status(FRONTEND_NOT_FOUND);
     return;
   }        
-  return frontend.CurrentRps(request);  
+  return frontend.CurrentRps(request.curRps);  
 }
 void Scheduler::LoadModel(const grpc::ServerContext& ctx,
                           const LoadModelRequest& request,

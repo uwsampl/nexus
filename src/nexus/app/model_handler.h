@@ -70,6 +70,8 @@ class ModelHandler {
  public:
   ModelHandler(const std::string& model_session_id, BackendPool& pool);
 
+  uint32_t count();
+  
   std::string model_session_id() const { return model_session_id_; }
 
   std::shared_ptr<QueryResult> Execute(
