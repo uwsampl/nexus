@@ -22,6 +22,7 @@ FrontendDelegate::FrontendDelegate(uint32_t node_id, const std::string& ip,
                                      grpc::InsecureChannelCredentials());
   stub_ = FrontendCtrl::NewStub(channel);
   last_time_ = std::chrono::system_clock::now();
+  rpsRecord()
 }
 
 std::time_t FrontendDelegate::LastAliveTime() {
@@ -57,7 +58,14 @@ bool FrontendDelegate::IsAlive() {
 void FrontendDelegate::SubscribeModel(const std::string& model_session_id) {
   subscribe_models_.insert(model_session_id);
 }
+CtrlStatus FrontDelegate::LoadDepedency(const LoadDependencyRequest& request) {
+  complexQuery_ = true;
+  return query_.init(request, common_gpu_);
+}
 
+void FrontendDelegate::CurrentRps(const CurRpsRequest& request){
+  query_.addRecord(request);
+} 
 CtrlStatus FrontendDelegate::UpdateModelRoutesRpc(
     const ModelRouteUpdates& request) {
   RpcReply reply;

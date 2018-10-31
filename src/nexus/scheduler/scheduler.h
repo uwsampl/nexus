@@ -70,6 +70,14 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   void Unregister(const grpc::ServerContext& ctx,
                   const UnregisterRequest& request, RpcReply* reply);
+                  
+  void Scheduler::CurrentRps(const grpc::ServerContest& ctx,
+                           const CurRpsRequest& request,
+                           RpcReply* reply);
+  
+  void Scheduler::LoadDependency(const grpc::ServerContext ctx,
+                               const LoadDependencyRequest& request,
+                               RpcReply reply)
   /*!
    * \brief Handles LoadModel RPC.
    *
@@ -278,6 +286,8 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<std::string, ServerList> session_subscribers_;
   /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
+  
+  std::string common_gpu_;
 };
 
 } // namespace scheduler

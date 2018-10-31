@@ -23,6 +23,10 @@ Frontend::Frontend(std::string port, std::string rpc_port,
   sch_stub_ = SchedulerCtrl::NewStub(channel);
   // Init Node ID and register frontend to scheduler
   Register();
+  interval_ = 5000;
+  begin_ = std::clock();
+  thread t(report, interval_);
+  t.detach();
 }
 
 Frontend::~Frontend() {
@@ -31,6 +35,35 @@ Frontend::~Frontend() {
   }
 }
 
+void Frontend::report() {
+  while(true) {
+    auto begin = std::chrono::high_resolution_clock::now();
+    std::this_thread::sleep_for(std::chrono::milliseconds(interval_));
+    if(!complexQuery_) continue;
+    CurRpsRequest request;
+    request.set_node_id(node_id());
+    auto end = std::chrono::high_resolution_clock::now();
+    auto int_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin);
+    request.set_interval(ins_ms.count());
+    request.set_n(model_pool_.size());
+    for (auto it = model_pool_.begin(); it != model_pool_.end(); ++it) {
+      std::string name = it->first;
+      auto modelHandler = it->second;
+      modelHandler->count();
+      ModelRps modelRps;
+      modelRps.set_model(name);
+      modelRps.set_rps(count);
+      request.add_model_rps(modelRps);      
+    }
+    RpcReply reply;
+    // Inovke RPC CheckAlive
+    grpc::ClientContext context;
+    grpc::Status status = stub_->CurrentRps(&context, request, &reply);
+    if (!reply.status.ok()) {
+      LOG(ERROR) << status.error_code() << ": " << status.error_message();
+    }
+  }
+}
 void Frontend::Run(QueryProcessor* qp, size_t nthreads) {
   for (size_t i = 0; i < nthreads; ++i) {
     std::unique_ptr<Worker> worker(new Worker(qp, request_pool_));
@@ -77,6 +110,7 @@ void Frontend::HandleAccept() {
 
 void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
                              std::shared_ptr<Message> message) {
+  if(begin_)
   switch (message->type()) {
     case kUserRegister: {
       auto user_sess = std::dynamic_pointer_cast<UserSession>(conn);

@@ -27,6 +27,7 @@ class QueryResult {
    */
   QueryResult(uint64_t qid);
 
+  uint32_t count();
   bool ready() const { return ready_; }
   
   uint64_t query_id() const { return qid_; }
@@ -102,6 +103,7 @@ class ModelHandler {
   /*! \brief random number generator */
   std::random_device rd_;
   std::mt19937 rand_gen_;
+  uint32_t num_;
 };
 
 } // namespace app

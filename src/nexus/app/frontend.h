@@ -7,6 +7,7 @@
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
+#include <ctime>
 
 #include "nexus/app/model_handler.h"
 #include "nexus/app/query_processor.h"
@@ -34,6 +35,9 @@ class Frontend : public ServerBase, public MessageHandler {
 
   //virtual void Process(const RequestProto& request, ReplyProto* reply) = 0;
 
+  //Report rps
+  void report();
+  
   uint32_t node_id() const { return node_id_; }
 
   std::string rpc_port() const { return rpc_service_.port(); }
@@ -115,6 +119,8 @@ class Frontend : public ServerBase, public MessageHandler {
   /*! \brief Random number generator */
   std::random_device rd_;
   std::mt19937 rand_gen_;
+  uint32_t interval_;
+  bool complexQuery_;
 };
 
 } // namespace app

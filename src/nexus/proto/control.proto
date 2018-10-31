@@ -11,6 +11,8 @@ service SchedulerCtrl {
   rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
   rpc UpdateBackendStats(BackendStatsProto) returns (RpcReply) {}
   rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
+  rpc LoadDependency(LoadDependencyRequest) returns (RpcReply) {}
+  rpc CurrentRps(CurRpsRequest) returns (RpcReply) {}
 }
 
 service FrontendCtrl {
@@ -37,6 +39,8 @@ enum CtrlStatus {
   SERVICE_UNAVAILABLE = 1;
   // Model not found
   MODEL_NOT_FOUND = 2;
+  //Frontend not found
+  FRONTEND_NOT_FOUND = 8;
   // No available backends
   NOT_ENOUGH_BACKENDS = 3;
   // Model session not loaded
@@ -58,6 +62,8 @@ enum CtrlStatus {
 
   CTRL_FRONTEND_NODE_ID_CONFLICT = 300;
   CTRL_INVALID_LOAD_MODEL_REQUEST = 301;
+  
+  CTRL_PROFILER_UNAVALIABLE = 302;
 }
 
 message RpcReply {
@@ -122,6 +128,30 @@ message LoadModelReply {
   ModelRouteProto model_route = 2;
 }
 
+message Edge {
+  ModelSession v1 = 101;
+  ModelSession v2 = 102;
+}
+
+message LoadDependencyRequest {
+  uint32 node_id = 1;
+  uint32 n = 2;
+  uint32 m = 3;
+  double latency;
+  repeated ModelSession models = 100;
+  repeated Edge edges = 200;
+}
+
+message ModelRps {
+  string model = 100;
+  double rps = 2;
+}
+message CurRpsRequest {
+  uint32 node_id = 1;
+  uint32 n = 2;
+  double interval = 3;
+  repeated ModelRps model_rps = 100; 
+}
 message ModelInstanceConfig {
   repeated ModelSession model_session = 1;
   uint32 batch = 2;
