@@ -1,7 +1,8 @@
 #include "nexus/scheduler/complex_query.h"
-
+namespace nexus {
+namespace scheduler {
 void RpsRecord::init(std::map<std::string, uint32_t> models_id, double split) {
-  this.models_id = models_id;
+  this->models_id = models_id;
   max_size = 30;
   begin = end = 0;
   int n = models_id.size();
@@ -18,13 +19,13 @@ void RpsRecord::init(std::map<std::string, uint32_t> models_id, double split) {
   }
 }
 void RpsRecord::add(const CurRpsProto& request) {
-  double interval = request.interval;
-  uint32_t n = request.n;
-  models_rps[0].push(interval);
+  double interval = request.interval();
+  uint32_t n = request.n();
+  models_rps[0].push_back(interval);
   end += 1;
   for (int i = 0; i < n; i++) {
-    uint32_t id = models_id[request.model_rps(i).model];
-    models_rps[id][end] = request.model_rps(i).rps;
+    uint32_t id = models_id[request.model_rps(i).model()];
+    models_rps[id][end] = request.model_rps(i).rps();
   }
   len++;
   if(len > max_size) {
@@ -53,7 +54,7 @@ std::vector<double> RpsRecord::getRecord() {
   for (int i = 1; i <= n; i++) {
     double mean = 0.0, std = 0.0;
     for (int j = begin; j <= end; j++) {
-      mean += models_rps[i][j] * models[0][j];
+      mean += models_rps[i][j] * models_rps[0][j];
     }
     mean /= total;
     for (int j = begin; j <= end; j++) {
@@ -72,11 +73,11 @@ void QuerySplit::addModel(ModelSession model, double lat) {
 }
 void QuerySplit::updateLatencys(std::vector<uint32_t> latencys) {
   for (int i = 0; i < models_.size(); i++) {
-    last_latencys_ = latencys_[i];
+    last_latencys_[i] = latencys_[i];
     latencys_[i] = latencys[i];
   }
 }
-void QuerySplit::constructSplit(std::vector<uint32_t> latencys) {
+std::vector<ModelSession> QuerySplit::constructSplit(std::vector<uint32_t> latencys) {
   std::vector<ModelSession> ret;
   for (int i = 0; i < models_.size(); i++) {
     ModelSession tmp = models_[i];
@@ -89,7 +90,7 @@ std::vector<ModelSession> QuerySplit::last_subscribe_models() {
   std::vector<ModelSession> ret;
   for (int i = 0; i < models_.size(); i++) {
     ModelSession tmp = models_[i];
-    tmp.set_latency_sla(last_latencys[i]);
+    tmp.set_latency_sla(last_latencys_[i]);
     ret.push_back(tmp);
   }
   return ret;
@@ -99,37 +100,31 @@ std::vector<ModelSession> QuerySplit::cur_subscribe_models() {
   std::vector<ModelSession> ret;
   for (int i = 0; i < models_.size(); i++) {
     ModelSession tmp = models_[i];
-    tmp.set_latency_sla(latencys[i]);
+    tmp.set_latency_sla(latencys_[i]);
     ret.push_back(tmp);
   }
   return ret;
-}
-void QuerySplit::set_state(bool state) {
-  state_ = state;
-}
-bool QuerySplit::get_state() {
-  return state_;
 }
 
 double ComplexQuery::structure(int n) {   
   for (int i = 0; i <= n; i++) {
     depth_.push_back(0);
     if(i != 0 && degrees_[i] == 0) {
-      redges[i].push_back(0);
-      edges[0].push_back(i);
+      redges_[i].push_back(0);
+      edges_[0].push_back(i);
       degrees_[i] ++;
     }
   }
-  l = -1, r = 0;
-  vector<uint32_t> deg(degrees_);
+  int l = -1, r = 0;
+  std::vector<uint32_t> deg(degrees_);
   node_.resize(n + 1);
   node_[0] = 0;
   uint32_t maxn = 0;
   while(l != r) {
     uint32_t x = node_[++l];
     maxn = std::max(depth_[x], maxn);
-    for (int i = 0; i < edges[x].size(); i++) {
-      uint32_t y = edges[x][i];
+    for (int i = 0; i < edges_[x].size(); i++) {
+      uint32_t y = edges_[x][i];
       deg[y] --;
       if(deg[y] == 0) {
         r++;
@@ -149,14 +144,15 @@ double ComplexQuery::gpu_need(std::vector<ModelSession> sess, std::vector<double
   }
   return ret;
 }
-ComplexQuery* ComplexQuery::split() {
+QuerySplit* ComplexQuery::split() {
+  double max_float = 10000000.0;
   std::vector<double>alpha = rps.getRecord();
   int m = latency_ / step_;
   std::vector<std::vector<double> > f, g, last_batch, last_lat;
   std::vector<int> q;
   std::vector<bool> visit;
   std::vector<double> lats;
-  std::vector<double> split;
+  std::vector<uint32_t> split;
   for (int i = 0; i <= n; i++) {
     visit.push_back(false);
     split.push_back(0.0);
@@ -164,7 +160,7 @@ ComplexQuery* ComplexQuery::split() {
     g.push_back(std::vector<double>());
     //last_batch.push_back(std::vector<double>());
     last_lat.push_back(std::vector<double>());
-    last.push_back(vector)
+    
     if(i == 0) {
       for (int j = 0; j <= m; j++) {
         f[i].push_back(0.0);
@@ -178,7 +174,7 @@ ComplexQuery* ComplexQuery::split() {
     for (int j = 0; j <= m; j++) {
       g[i].push_back(0.0);
       //last_batch[i].push_back(0.0);
-      last_lat.push_back(0.0);
+      lats.push_back(0.0);
     }
   }
   for (int i = 1; i <= n; i++) {
@@ -186,12 +182,12 @@ ComplexQuery* ComplexQuery::split() {
     for(int j = 0; j <= m; j++) {
       for (int k = 0; k < redges_[now].size(); k++) {
         int x = redges_[now][k];
-        g[now][j] = max(g[now][j], f[x][j]);
+        g[now][j] = std::max(g[now][j], f[x][j]);
           
       }
       for (int k = 0; k <= m; k++) {
-        throughput = max_throughput_[now][j - k].first;
-        batch = max_throughput_[now][j - k].second;
+        double throughput = max_throughputs_[now][j - k].first;
+        uint32_t batch = max_throughputs_[now][j - k].second;
         double ngpu = throughput > 0 ? alpha[now] / throughput : max_float;
         double tmp = g[now][k] + ngpu;
         if(f[now][j] > tmp) {
@@ -209,7 +205,7 @@ ComplexQuery* ComplexQuery::split() {
   }
   int l = -1, r = -1;
   for (int i = 1; i <= n; i++) {
-    if (edge[i].size() == 0) {
+    if (edges_[i].size() == 0) {
       r ++;
       q.push_back(i);
       lats.push_back(m);
@@ -224,8 +220,8 @@ ComplexQuery* ComplexQuery::split() {
       break;
     }
     split[now - 1] = last_lat[now][lat];
-    for (int i = 0; i < redge[now].size(); i++) {
-      int x = redge[now][i];
+    for (int i = 0; i < redges_[now].size(); i++) {
+      int x = redges_[now][i];
       if(visit[x] == false) {
         visit[x] = true;
         r ++;
@@ -236,25 +232,25 @@ ComplexQuery* ComplexQuery::split() {
   }
   //check: if current split is 10% better than last split
   double n1 = gpu_need(qs.cur_subscribe_models(), alpha);
-  double n2 = gpu_need(qs.construct_split(split), alpha);
+  double n2 = gpu_need(qs.constructSplit(split), alpha);
   if(n1 > n2 * 1.1) {
-    qs.set_state(true);
+    qs.setState(true);
     qs.updateLatencys(split);
   }
   else {
     qs.setState(false);
   }
-  return qs;
+  return &qs;
 }
 
 CtrlStatus ComplexQuery::init(const LoadDependencyProto& request, std::string common_gpu) {
   common_gpu_ = common_gpu;
   models_.push_back("");
-  n = request.n;
-  m = request.m;
-  latency = request.latency;
+  n = request.n();
+  int m = request.m();
+  latency = request.latency();
   for (int i = 0; i < n; i++) {
-    std::model = ModelSessionToString(request.models(i));
+    std::string model = ModelSessionToString(request.models(i));
     model_sessions_.push_back(request.models(i));
     models_id_[model] = i + 1;
     models_.push_back(model);
@@ -262,34 +258,34 @@ CtrlStatus ComplexQuery::init(const LoadDependencyProto& request, std::string co
   edges_.resize(n + 1);
   redges_.resize(n + 1);
 
-  degrees.resize(n + 1);
+  degrees_.resize(n + 1);
   for (int i = 0; i <= n; i++) {
     degrees_[i] = 0;
   }
   for (int i = 0; i < m; i++) {
-    std::model1 = ModelSessionToString(request.edges(i).v1);
-    std::model2 = ModelSessionToString(request.edges(i).v2);
+    std::string model1 = ModelSessionToString(request.edges(i).v1());
+    std::string model2 = ModelSessionToString(request.edges(i).v2());
     int v1 = models_id_[model1], v2 = models_id_[model2];
-    edges[v1].push_back(v2);
-    redges[v2].push_back(v1);
+    edges_[v1].push_back(v2);
+    redges_[v2].push_back(v1);
     degrees_[v2] ++;
   }
-  step_ = std::max(std::ceil(100000000.0 / latency / latency), 1);
-  int m = latency / step;
-  latency_ = step * m;
-  max_throughput_.push_back(std::vector<std::pair<float, uint32_t>>());
+  step_ = std::max(std::ceil(100000000.0 / latency / latency), 1.0);
+  m = latency / step_;
+  latency_ = step_ * m;
+  max_throughputs_.push_back(std::vector<std::pair<float, uint32_t>>());
   for (int i = 0; i < n; i++) {
-    std::string profile_id = ModelSessionToProfileID(model_sess);
+    std::string profile_id = ModelSessionToProfileID(model_sessions_[i]);
     auto profile = ModelDatabase::Singleton().GetModelProfile(common_gpu_, profile_id);
     if (profile == nullptr) {
       // Cannot find model profile
-      return CTRL_PROFILER_UNAVALIABLE
+      return CTRL_PROFILER_UNAVALIABLE;
     }
-    max_throughput_.push_back(std::vector<std::pair<float, uint32_t>>());
-    max_throughput_[i].push_back(std::make_pair(0.0, 0));
+    max_throughputs_.push_back(std::vector<std::pair<float, uint32_t>>());
+    max_throughputs_[i].push_back(std::make_pair(0.0, 0));
     for (int j = 1; j <= m; j++) {
       int lat = j * step_;
-      max_throughput_[i].push_back(profile->GetMaxThroughput(lat));
+      max_throughputs_[i].push_back(profile->GetMaxThroughput(lat));
     }
   }
   double split = structure(n);
@@ -301,4 +297,6 @@ CtrlStatus ComplexQuery::init(const LoadDependencyProto& request, std::string co
 }
 void ComplexQuery::addRecord(const CurRpsProto& request) {
   rps.add(request);
+}
+}
 }

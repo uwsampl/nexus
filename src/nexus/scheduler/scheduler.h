@@ -71,13 +71,11 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void Unregister(const grpc::ServerContext& ctx,
                   const UnregisterRequest& request, RpcReply* reply);
                   
-  void Scheduler::CurrentRps(const grpc::ServerContest& ctx,
-                           const CurRpsRequest& request,
-                           RpcReply* reply);
+  void CurrentRps(const grpc::ServerContext& ctx,
+                           const CurRpsRequest& request, RpcReply* reply);
   
-  void Scheduler::LoadDependency(const grpc::ServerContext ctx,
-                               const LoadDependencyRequest& request,
-                               RpcReply reply)
+  void LoadDependency(const grpc::ServerContext ctx,
+                               const LoadDependencyRequest& request, RpcReply* reply);
   /*!
    * \brief Handles LoadModel RPC.
    *

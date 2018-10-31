@@ -9,6 +9,7 @@
 
 
 #include "nexus/proto/control.grpc.pb.h"
+#include "nexus/proto/nnquery.pb.h"
 #include "nexus/scheduler/complex_query.h"
 
 namespace nexus {

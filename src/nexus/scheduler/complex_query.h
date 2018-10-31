@@ -19,11 +19,13 @@
 #include "nexus/common/rpc_service_base.h"
 #include "nexus/common/config.h"
 #include "nexus/common/model_db.h"
+#include "nexus/common/model_def.h"
 #include "nexus/common/util.h"
 #include "nexus/proto/control.grpc.pb.h"
 #include "nexus/proto/nnquery.pb.h"
 
-
+namespace nexus {
+namespace scheduler {
 
 class RpsRecord {
  public:
@@ -39,22 +41,22 @@ class RpsRecord {
   std::vector<std::vector<double> > models_rps;
   //std::queue<double> intervals;
   uint32_t max_size, begin, end, len;
-}
+};
 class QuerySplit {
 
  public:
   QuerySplit() {}
   void addModel(ModelSession model, double lat);
   void updateLatencys(std::vector<uint32_t> latencys);
-  void constructSplit(std::vector<uint32_t> latencys);
+  std::vector<ModelSession> constructSplit(std::vector<uint32_t> latencys);
   
   std::vector<ModelSession> last_subscribe_models();
   
   std::vector<ModelSession> cur_subscribe_models();
-  void set_state(bool state) {
+  void setState(bool state) {
     state_ = state;
   }
-  bool get_state() {
+  bool getState() {
     return state_;
   }
  private:
@@ -63,14 +65,14 @@ class QuerySplit {
   std::vector<uint32_t> last_latencys_;
   bool state_;
   
-}
+};
 
 class ComplexQuery {
  public:
   ComplexQuery() {}
   double structure(int n);
   double gpu_need(std::vector<ModelSession> sess, std::vector<double> rps);
-  ComplexQuery* split();
+  QuerySplit* split();
   CtrlStatus init(const LoadDependencyProto& request, std::string common_gpu);
   void addRecord(const CurRpsProto& request);
  private:
@@ -88,8 +90,10 @@ class ComplexQuery {
   std::string common_gpu_;
   double latency_;
   int step_;  
-  std::vector<std::vector<std::pair<float, uint32_t>> > max_throughput_;
+  std::vector<std::vector<std::pair<float, uint32_t>> > max_throughputs_;
   RpsRecord rps;
   QuerySplit qs;
+};
+}
 }
 #endif 
