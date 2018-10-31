@@ -57,7 +57,7 @@ void Frontend::report(uint32_t interval_) {
     RpcReply reply;
     // Inovke RPC CheckAlive
     grpc::ClientContext context;
-    grpc::Status status = sch_stub_->CurrentRps(&context, request, &reply);
+    grpc::Status status = sch_stub_->CurRps(&context, request, &reply);
     if (reply.status() != CTRL_OK) {
       LOG(ERROR) << status.error_code() << ": " << status.error_message();
     }

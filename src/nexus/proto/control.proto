@@ -12,7 +12,7 @@ service SchedulerCtrl {
   rpc UpdateBackendStats(BackendStatsProto) returns (RpcReply) {}
   rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
   rpc LoadDependency(LoadDependencyRequest) returns (RpcReply) {}
-  rpc CurrentRps(CurRpsRequest) returns (RpcReply) {}
+  rpc CurRps(CurRpsRequest) returns (RpcReply) {}
 }
 
 service FrontendCtrl {

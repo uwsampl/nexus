@@ -98,7 +98,7 @@ void Scheduler::Register(const grpc::ServerContext& ctx,
         request.node_id(), ip, request.server_port(), request.rpc_port(),
         request.gpu_device_name(), request.gpu_available_memory(),
         beacon_interval_sec_, epoch_interval_sec_);
-    common_gpu_ = gpu_device;
+    common_gpu_ = request.gpu_device_name();
     RegisterBackend(std::move(backend), reply);
   } else { // FRONTEND_NODE
     auto frontend = std::make_shared<FrontendDelegate>(
@@ -119,29 +119,28 @@ void Scheduler::Unregister(const grpc::ServerContext& ctx,
   }
   reply->set_status(CTRL_OK);
 }
-
 void Scheduler::LoadDependency(const grpc::ServerContext ctx,
                                const LoadDependencyRequest& request,
-                               RpcReply reply) {
-  uint32_t node_id = request.node_id;
-  auto frontend = GetFrontend(request.node_id);
+                               RpcReply* reply) {
+  uint32_t node_id = request.dependency().node_id();
+  auto frontend = GetFrontend(node_id);
   if(frontend == nullptr) {
     reply->set_status(FRONTEND_NOT_FOUND);
     return;
   }        
-  return frontend.loadDependency(request.depdency);                       
+  reply->set_status(frontend->LoadDependency(request.dependency()));                       
 }
 
-void Scheduler::CurrentRps(const grpc::ServerContest& ctx,
+void Scheduler::CurrentRps(const grpc::ServerContext& ctx,
                            const CurRpsRequest& request,
                            RpcReply* reply) {
-  uint32_t node_id = request.node_id;
-  auto frontend = GetFrontend(request.node_id);
+  uint32_t node_id = request.cur_rps().node_id();
+  auto frontend = GetFrontend(node_id);
   if(frontend == nullptr) {
     reply->set_status(FRONTEND_NOT_FOUND);
     return;
   }        
-  return frontend.CurrentRps(request.curRps);  
+  frontend->CurrentRps(request.cur_rps());  
 }
 void Scheduler::LoadModel(const grpc::ServerContext& ctx,
                           const LoadModelRequest& request,

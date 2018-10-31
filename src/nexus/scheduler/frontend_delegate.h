@@ -41,7 +41,7 @@ class FrontendDelegate {
   
   CtrlStatus LoadDependency(const LoadDependencyProto& request);
   
-  CtrlStatus CurrentRps(const CurRpsProto& request);
+  void CurrentRps(const CurRpsProto& request);
   
   bool containComplexQuery() {return complexQuery_;}
  private:
