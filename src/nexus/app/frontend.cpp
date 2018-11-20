@@ -23,7 +23,7 @@ Frontend::Frontend(std::string port, std::string rpc_port,
   sch_stub_ = SchedulerCtrl::NewStub(channel);
   // Init Node ID and register frontend to scheduler
   Register();
-  interval_ = 5000;
+  interval_ = 20000;
   std::thread t(&Frontend::report, this, interval_);
   t.detach();
 }
@@ -38,7 +38,7 @@ void Frontend::report(uint32_t interval_) {
   while(true) {
     auto begin = std::chrono::high_resolution_clock::now();
     std::this_thread::sleep_for(std::chrono::milliseconds(interval_));
-    if(!complexQuery_) continue;
+    if(!complex_query_) continue;
     CurRpsRequest request;
     auto proto = request.mutable_cur_rps();
     proto->set_node_id(node_id());
@@ -139,7 +139,13 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
     case kBackendReply: {
       QueryResultProto result;
       message->DecodeBody(&result);
-      std::string model_session_id = result.model_session_id();
+      std::string real_model_session_id = result.model_session_id();
+      std::string model_session_id = real_model_session_id;
+      if(complex_query_) {
+        LOG(INFO) << "[---real_model_session_id---]"<<real_model_session_id;
+        model_session_id = ModelSessionDelLatency(real_model_session_id);
+        LOG(INFO) << "[---model_session_id---]"<< model_session_id;
+      }
       auto itr = model_pool_.find(model_session_id);
       if (itr == model_pool_.end()) {
         LOG(ERROR) << "Cannot find model handler for " << model_session_id;
@@ -221,8 +227,12 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
     LOG(ERROR) << "Load model error: " << CtrlStatus_Name(reply.status());
     return nullptr;
   }
+  auto model_session_id = reply.model_route().model_session_id();
+  if(req.complex_query()) {
+    model_session_id = ModelSessionDelLatency(model_session_id);
+  }
   auto model_handler = std::make_shared<ModelHandler>(
-      reply.model_route().model_session_id(), backend_pool_);
+      model_session_id, backend_pool_);
   {
     std::lock_guard<std::mutex> lock(model_pool_mu_);
     model_pool_.emplace(model_handler->model_session_id(), model_handler);
@@ -230,6 +240,25 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
   }
 
   return model_handler;
+}
+
+void Frontend::LoadDependency(LoadDependencyRequest& req) {
+  LOG(INFO) << "[---Load model dependency---]";
+  complex_query_ = true;
+  RpcReply reply;
+  req.set_node_id(node_id_);
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->LoadDependency(&context, req, &reply);
+  LOG(INFO) << "[---Model dependency Loaded---]";
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
+    return ;
+  }
+  if (reply.status() != CTRL_OK) {
+    LOG(ERROR) << "Load dependency error: " << CtrlStatus_Name(reply.status());
+    return ;
+  }
 }
 
 void Frontend::Register() {
@@ -306,16 +335,37 @@ void Frontend::KeepAlive() {
 }
 
 bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
-  auto& model_session_id = route.model_session_id();
-  LOG(INFO) << "Update model route for " << model_session_id;
+  std::string real_model_session_id = route.model_session_id();
+  LOG(INFO) << "Update model route for " << real_model_session_id;
   LOG(INFO) << route.DebugString();
+  std::string model_session_id = real_model_session_id;
+  if(complex_query_) {
+    model_session_id = ModelSessionDelLatency(real_model_session_id);
+  }
+  LOG(INFO) << "[---Update model route for---] " << model_session_id;
+  uint32_t latency = LatencyOfModelSession(real_model_session_id);
   auto iter = model_pool_.find(model_session_id);
   if (iter == model_pool_.end()) {
     LOG(ERROR) << "Cannot find model handler for " << model_session_id;
     return false;
   }
+  if(complex_query_) {
+    latency_pool_[model_session_id] = latency;
+    model_session_pool_[model_session_id] = real_model_session_id;
+  }
+  LOG(INFO) << "[---updated model session pool and latency pool---]";
   auto model_handler = iter->second;
+  LOG(INFO) << "[---updated model session pool and latency pool---1---]";
+  if(complex_query_) {
+    LOG(INFO) << "[---updated model session pool and latency pool---2---]";
+    if (model_handler == nullptr) {
+      LOG(INFO) << "[---model_handler is null---]";
+    }
+    model_handler -> SetRealModelSessionId(real_model_session_id);
+  }
+  LOG(INFO) << "[---updated model session id---]";
   // Update backend pool first
+  LOG(INFO) << "[---update backendList ing---add new---]";
   auto old_backends = model_handler->BackendList();
   std::unordered_set<uint32_t> new_backends;
   for (auto backend : route.backend_rate()) {
@@ -328,6 +378,7 @@ bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
     }
     new_backends.insert(backend_id);
   }
+  LOG(INFO) << "[---delete old---]";
   for (auto backend_id : old_backends) {
     if (new_backends.count(backend_id) == 0) {
       backend_sessions_.at(backend_id).erase(model_session_id);

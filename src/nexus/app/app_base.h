@@ -20,7 +20,7 @@ class AppBase : public Frontend {
   //virtual void Process(const RequestProto& request, ReplyProto* reply) {}
 
  protected:
-  std::shared_ptr<ModelHandler> GetModelHandler(
+  std::shared_ptr<ModelHandler> GetModelHandler(const bool complex_query,
       const std::string& framework, const std::string& model_name,
       uint32_t version, uint64_t latency_sla, float estimate_workload=0.,
       std::vector<uint32_t> image_size={});

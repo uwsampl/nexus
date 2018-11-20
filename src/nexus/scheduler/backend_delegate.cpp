@@ -80,14 +80,18 @@ bool BackendDelegate::Assign(const BackendDelegate& other) {
 bool BackendDelegate::PrepareLoadModel(
     const ModelSession& model_sess, float workload,
     InstanceInfo* inst_info, float* occupancy) const {
+  LOG(INFO) << "[---PrepareLoadModel---]";
+  LOG(INFO) << "[---model sla---]" << model_sess.latency_sla();
   if (workload_id_ >= 0 || Occupancy() == 1.0) {
     // Static configured backend or fully occupied backend cannot load a new
     // model
+    LOG(INFO) << "[---workload id >= 0---]";
     return false;
   }
   std::string model_sess_id = ModelSessionToString(model_sess);
   if (session_model_map_.count(model_sess_id) > 0) {
     // Already load this model session
+    LOG(INFO) << "[---model_sess exist---]";
     return false;
   }
   std::string profile_id = ModelSessionToProfileID(model_sess);
@@ -95,6 +99,7 @@ bool BackendDelegate::PrepareLoadModel(
                                                             profile_id);
   if (profile == nullptr) {
     // Cannot find model profile for this GPU
+    LOG(INFO) << "[---profile not exist---]";
     return false;
   }
   inst_info->model_sessions.push_back(model_sess);
@@ -102,6 +107,7 @@ bool BackendDelegate::PrepareLoadModel(
   // Compute the best batch size for the workload
   ComputeBatchSize(inst_info, workload);
   if (inst_info->batch == 0) {
+    LOG(INFO) << "[---batch == 0---]";
     return false;
   }
   // Compute new duty cycle and new exec cycle if we load this model
@@ -123,6 +129,7 @@ bool BackendDelegate::PrepareLoadModel(
   }
   if (new_exec_cycle > new_duty_cycle) {
     // Doesn't have enough spare cycles to load this workload
+    LOG(INFO) << "[---new_exec_cycle > new_duty_cycle---]";
     return false;
   }
   *occupancy = new_exec_cycle / new_duty_cycle;
@@ -473,12 +480,14 @@ bool BackendDelegate::IsIdle() const {
 void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
                                        float workload) const {
   // 1. Compute the max batch and throughput to saturate an empty GPU
+  LOG(INFO) << "[---ComputeBatchSize---]";
   uint32_t batch, max_batch;
   float max_throughput;
   max_batch = inst_info->profile->GetMaxBatch(
       inst_info->model_sessions[0].latency_sla());
   max_throughput = max_batch * 1e6 / inst_info->profile->GetForwardLatency(
       max_batch);
+  LOG(INFO) << "[---max_batch & max_thput---]"<<max_batch<<" "<<max_throughput;
   // std::tie(batch, max_throughput) = inst_info->profile->GetMaxThroughput(
   //     inst_info->model_session.latency_sla());
   if (workload == 0 || workload >= max_throughput) {
@@ -498,19 +507,25 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
   float postprocess = inst_info->profile->GetPostprocessLatency();
   batch = 1;
   for (; batch <= max_batch; ++batch) {
+    
     float fwd_lat = inst_info->profile->GetForwardLatency(batch);
     // because batch = ceil(workload * duty_cycle),
     // duty_cycle >= (batch - 1) / workload
     float min_duty_cycle = (batch - 1) * 1e6 / workload;
+    LOG(INFO) << "[---latency_sla---]" << latency_sla_us;
+    LOG(INFO) << "[---data---]" <<min_duty_cycle + fwd_lat + preprocess + postprocess;
+    LOG(INFO) << "[---fwd_lat & min_duty_cycle---]" << fwd_lat << " " << min_duty_cycle;
     if (min_duty_cycle + fwd_lat + preprocess + postprocess > latency_sla_us) {
       break;
     }
+    
   }
   --batch;
   if (batch == 0) {
     // This GPU is too slow so that exec latency of batch 1 is too large to
     // satisfy latency_sla
     inst_info->batch = 0;
+    LOG(INFO) << "[---GPU is too slow---]";
     return;
   }
   inst_info->batch = batch;

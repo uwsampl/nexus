@@ -30,29 +30,34 @@ namespace scheduler {
 class RpsRecord {
  public:
   RpsRecord() {}
-  void init(std::map<std::string, uint32_t> models_id, double split);
+  void init(std::map<std::string, uint32_t> models_id);
   void add(const CurRpsProto& request);
-  double sqr(double x) {
+  float sqr(float x) {
     return x * x;
   }
-  std::vector<double> getRecord();
+  std::vector<float> getRecord();
  private:
-  std::map<std::string, uint32_t> models_id;
-  std::vector<std::vector<double> > models_rps;
-  //std::queue<double> intervals;
-  uint32_t max_size, begin, end, len;
+  std::map<std::string, uint32_t> models_id_;
+  std::vector<std::vector<float> > models_rps_;
+  uint32_t max_size_, begin_, end_, len_;
 };
 class QuerySplit {
 
  public:
   QuerySplit() {}
-  void addModel(ModelSession model, double lat);
+  void init(int n);
+  void addModel(ModelSession model, float lat);
   void updateLatencys(std::vector<uint32_t> latencys);
+  
+  void updateWorkloads(std::vector<float> workloads);
   std::vector<ModelSession> constructSplit(std::vector<uint32_t> latencys);
   
   std::vector<ModelSession> last_subscribe_models();
   
   std::vector<ModelSession> cur_subscribe_models();
+  
+  std::vector<float> cur_workloads();
+  
   void setState(bool state) {
     state_ = state;
   }
@@ -63,6 +68,7 @@ class QuerySplit {
   std::vector<ModelSession> models_;
   std::vector<uint32_t> latencys_;
   std::vector<uint32_t> last_latencys_;
+  std::vector<float> workloads_;
   bool state_;
   
 };
@@ -70,29 +76,31 @@ class QuerySplit {
 class ComplexQuery {
  public:
   ComplexQuery() {}
-  double structure(int n);
-  double gpu_need(std::vector<ModelSession> sess, std::vector<double> rps);
+  float structure(int n);
+  float gpu_need(std::vector<ModelSession> sess, std::vector<float> rps);
   QuerySplit* split();
   CtrlStatus init(const LoadDependencyProto& request, std::string common_gpu);
   void addRecord(const CurRpsProto& request);
  private:
-  uint32_t n;
-  double latency;
+  uint32_t ori_latency_;
+  uint32_t n_;
   std::vector<ModelSession> model_sessions_;
   std::map<std::string, uint32_t> models_id_;
   std::vector<std::vector<uint32_t> > edges_;
   std::vector<std::vector<uint32_t> > redges_;
+  std::vector<std::vector<uint32_t> > layers_;
   std::vector<std::string> models_;
-  std::vector<double> intervals_;
+  std::vector<float> intervals_;
   std::vector<uint32_t> degrees_;
   std::vector<uint32_t> depth_;
   std::vector<uint32_t> node_; 
   std::string common_gpu_;
-  double latency_;
-  int step_;  
+  uint32_t latency_;
+  uint32_t step_;
+  uint32_t diameter_;  
   std::vector<std::vector<std::pair<float, uint32_t>> > max_throughputs_;
-  RpsRecord rps;
-  QuerySplit qs;
+  RpsRecord rps_record_;
+  QuerySplit query_split_;
 };
 }
 }

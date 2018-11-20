@@ -18,6 +18,7 @@ service SchedulerCtrl {
 service FrontendCtrl {
   rpc UpdateModelRoutes(ModelRouteUpdates) returns (RpcReply) {}
   rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
+  //rpc UpdateModelLatencies(ModelLatencyUpdates) returns (RpcReply) {}
 }
 
 service BackendCtrl {
@@ -120,6 +121,8 @@ message LoadModelRequest {
   uint32 node_id = 1;
   ModelSession model_session = 2;
   float estimate_workload = 3;
+  bool complex_query = 4;
+  uint32 estimate_latency = 5;
   //uint32 num_gpus = 4;
 }
 
@@ -129,7 +132,8 @@ message LoadModelReply {
 }
 
 message LoadDependencyRequest {
-  LoadDependencyProto dependency = 1;
+  uint32 node_id = 1;
+  LoadDependencyProto dependency = 2;
 }
 
 message CurRpsRequest {

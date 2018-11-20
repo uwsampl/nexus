@@ -72,7 +72,16 @@ class ModelHandler {
 
   uint32_t count();
   
-  std::string model_session_id() const { return model_session_id_; }
+  std::string model_session_id() const { 
+    if(real_model_session_id_ == "") {
+      return model_session_id_; 
+    }
+    return real_model_session_id_;
+  }
+  
+  void SetRealModelSessionId(std::string real_model_session_id) {
+    real_model_session_id_ = real_model_session_id;
+  }
 
   std::shared_ptr<QueryResult> Execute(
       std::shared_ptr<RequestContext> ctx, const ValueProto& input,
@@ -84,11 +93,16 @@ class ModelHandler {
   void UpdateRoute(const ModelRouteProto& route);
 
   std::vector<uint32_t> BackendList();
+  
+  ModelSession GetModelSession() {
+    return model_session_;
+  }
 
  private:
   std::shared_ptr<BackendSession> GetBackend();
 
   ModelSession model_session_;
+  std::string real_model_session_id_;
   std::string model_session_id_;
   BackendPool& backend_pool_;
   static std::atomic<uint64_t> global_query_id_;

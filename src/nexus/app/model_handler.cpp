@@ -77,6 +77,7 @@ ModelHandler::ModelHandler(const std::string& model_session_id,
     total_throughput_(0.),
     rand_gen_(rd_()) {
   ParseModelSession(model_session_id, &model_session_);
+  real_model_session_id_ = "";
 }
 uint32_t ModelHandler::count() {
   uint32_t ret = num_;
@@ -97,7 +98,7 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
   }
   QueryProto query;
   query.set_query_id(qid);
-  query.set_model_session_id(model_session_id_);
+  query.set_model_session_id(model_session_id());
   query.mutable_input()->CopyFrom(input);
   for (auto field : output_fields) {
     query.add_output_field(field);

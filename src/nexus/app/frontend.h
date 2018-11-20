@@ -63,10 +63,16 @@ class Frontend : public ServerBase, public MessageHandler {
                    boost::system::error_code ec) final;
 
   void UpdateModelRoutes(const ModelRouteUpdates& request, RpcReply* reply);
+  
+  //void UpdateModelLatencies(const ModelRouteLatencies& request, RpcReply* reply);
 
   std::shared_ptr<UserSession> GetUserSession(uint32_t uid);
 
   std::shared_ptr<ModelHandler> LoadModel(const LoadModelRequest& req);
+  
+  void LoadDependency(LoadDependencyRequest& req);
+  
+  void SetComplexQuery() { complex_query_ = true; }
 
  private:
   void Register();
@@ -112,6 +118,16 @@ class Frontend : public ServerBase, public MessageHandler {
    * Guarded by model_pool_mu_.
    */
   std::unordered_map<std::string, std::shared_ptr<ModelHandler> > model_pool_;
+  /*!
+   * \brief Map from model session ID to model latency (complex query)
+   * Guarded by model_pool_mu_.
+   */
+  std::unordered_map<std::string, uint32_t> latency_pool_;
+  /*!
+   * \brief Map from model session ID to real model session ID (contains latency)
+   * Guarded by model_pool_mu.
+   */
+  std::unordered_map<std::string, std::string> model_session_pool_; 
   /*! \brief Mutex for connection_pool_ and user_sessions_ */
   std::mutex user_mutex_;
   /*! \brief Mutex for model_pool_ */
@@ -120,7 +136,7 @@ class Frontend : public ServerBase, public MessageHandler {
   std::random_device rd_;
   std::mt19937 rand_gen_;
   uint32_t interval_;
-  bool complexQuery_;
+  bool complex_query_;
 };
 
 } // namespace app

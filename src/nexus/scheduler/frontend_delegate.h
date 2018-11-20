@@ -21,7 +21,7 @@ class FrontendDelegate {
  public:
   FrontendDelegate(uint32_t node_id, const std::string& ip,
                    const std::string& server_port, const std::string& rpc_addr,
-                   int beacon_sec);
+                   int beacon_sec, std::string common_gpu);
 
   uint32_t node_id() const { return node_id_; }
 
@@ -44,6 +44,8 @@ class FrontendDelegate {
   void CurrentRps(const CurRpsProto& request);
   
   bool containComplexQuery() {return complexQuery_;}
+  
+  QuerySplit* split();
  private:
   uint32_t node_id_;
   std::string ip_;

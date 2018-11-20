@@ -74,7 +74,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void CurRps(const grpc::ServerContext& ctx,
                            const CurRpsRequest& request, RpcReply* reply);
   
-  void LoadDependency(const grpc::ServerContext ctx,
+  void LoadDependency(const grpc::ServerContext& ctx,
                                const LoadDependencyRequest& request, RpcReply* reply);
   /*!
    * \brief Handles LoadModel RPC.
