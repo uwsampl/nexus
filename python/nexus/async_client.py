@@ -1,6 +1,7 @@
 import struct
 import socket
 import asyncio
+from datetime import datetime
 
 from .proto import nnquery_pb2 as npb
 
@@ -17,7 +18,7 @@ class AsyncClient:
         self._server_addr = server_addr
         self._user_id = user_id
         self._req_id = 0
-        self._lock = asyncio.Lock()
+        self._reader_lock = asyncio.Lock()
         self._replies = {}
 
     async def __aenter__(self):
@@ -27,6 +28,7 @@ class AsyncClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         self._writer.close()
+        await self._writer.wait_closed()
 
     async def register(self):
         req = npb.RequestProto(user_id=self.user_id)
@@ -35,7 +37,7 @@ class AsyncClient:
         self._writer.write(msg)
         await self._writer.drain()
 
-        reply = await self._wait_reply(req.req_id)
+        reply, time = await self._wait_reply(req.req_id)
         assert reply.status == 0
 
     async def request(self, img):
@@ -45,8 +47,8 @@ class AsyncClient:
         self._writer.write(msg)
         await self._writer.drain()
 
-        reply = await self._wait_reply(req.req_id)
-        return reply
+        reply, recv_time = await self._wait_reply(req.req_id)
+        return reply, recv_time
 
     def _prepare_req(self, img):
         req = npb.RequestProto()
@@ -66,7 +68,7 @@ class AsyncClient:
 
     async def _wait_reply(self, req_id):
         while True:
-            async with self._lock:
+            async with self._reader_lock:
                 reply = self._replies.pop(req_id, None)
                 if reply is not None:
                     return reply
@@ -79,4 +81,9 @@ class AsyncClient:
                 buf = await self._reader.readexactly(body_length)
                 reply = npb.ReplyProto()
                 reply.ParseFromString(buf)
-                self._replies[reply.req_id] = reply
+                self._replies[reply.req_id] = (reply, datetime.now())
+
+                # return early to avoid lock competition
+                reply = self._replies.pop(req_id, None)
+                if reply is not None:
+                    return reply
