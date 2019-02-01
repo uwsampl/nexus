@@ -10,7 +10,7 @@ Download nexus and sample models
 --------------
 
 ### Download Nexus
- 
+
 Download nexus and framworks it supports from github
 ```
 $ git clone --recursive https://github.com/uwsaml/nexus.git
@@ -66,7 +66,7 @@ To build nexus docker images and deploy Nexus, following packages are required
 Set Config for Nexus
 --------------------
 
-There is a file names Makefile.config in the nexus folder. You can config the CUDA and CUDNN library path in the config file. $(CUDA_PATH) should be set as CUDA/library/path, and $(CUDNN_PATH) should be set as CUDNN/library/path. 
+There is a file names Makefile.config in the nexus folder. You can config the CUDA and CUDNN library path in the config file. $(CUDA_PATH) should be set as CUDA/library/path, and $(CUDNN_PATH) should be set as CUDNN/library/path.
 
 Other varaibles such as $(USE_CAFFE) decide if the corresponding frameworks nexus need to support. Nexus is not able to support caffe and caffe2 at the same time.
 
@@ -79,6 +79,10 @@ Local Tests without Docker
 Nexus can be compiled from source with make command
 ```
 $ cd nexus
+$ cp frameworks/tf_configure.bazelrc frameworks/tensorflow/.tf_configure.bazelrc
+$ cd frameworks/tensorflow
+$ bazel --output_base=../../build/tensorflow build --config=opt //tensorflow:libtensorflow.so //tensorflow:libtensorflow_cc.so //tensorflow:libtensorflow_framework.so //tensorflow:install_headers
+$ cd ../..
 $ make all
 ```
 
@@ -121,8 +125,8 @@ Since we recommand to use docker, there are four docker images that needs to be 
 
 First you need to build the base docker image that installs all dependent libraries required for Nexus.
 
-Following docker build commands contain -t and -f options. -t option is followed 
-by name and optionally a tag in the ‘name:tag’ format. -f option is followed by 
+Following docker build commands contain -t and -f options. -t option is followed
+by name and optionally a tag in the ‘name:tag’ format. -f option is followed by
 name of the Dockerfile (Default is ‘PATH/Dockerfile’).
 
 ```
@@ -204,40 +208,40 @@ $ cd nexus/tools/profiler
 $ docker run --runtime=nvidia -t -v /path/to/nexus-models:/nexus-models -v /path/to/dataset:/dataset:ro nexus/backend \
 python /nexus/tools/profiler/profiler.py $(framework) $(model) /nexus-models /dataset
 ```
-The frameworks we currently support contain tensorflow, caffe, caffe2, and darknet. The value of $(framework) can be chosen from them. 
-$(model) represents name of the model. 
-$(model_root) is the path to model root directory. And $(dataset) is the path to the dataset. 
+The frameworks we currently support contain tensorflow, caffe, caffe2, and darknet. The value of $(framework) can be chosen from them.
+$(model) represents name of the model.
+$(model_root) is the path to model root directory. And $(dataset) is the path to the dataset.
 
 There is an example to generate a profile of model in our public model zoo
 ```
 $ docker run --runtime=nvidia -t -v /path/to/nexus-models:/nexus-models -v /path/to/dataset:/dataset:ro nexus/backend \
 python nexus/tools/profiler/profiler.py caffe2 vgg_face /nexus-models /dataset
-``` 
+```
 
-There are some optional arguments of profiler. 
+There are some optional arguments of profiler.
 
-Running with argument -h will show help message about arguments and exit. 
+Running with argument -h will show help message about arguments and exit.
 
-Running with --version VERSION argument will designate version of the model, default value of version is 1. 
+Running with --version VERSION argument will designate version of the model, default value of version is 1.
 
-Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT and --width WIDTH specify the size of the input image. 
+Running with --gpu GPU argument will designate the index of gpu. --height HEIGHT and --width WIDTH specify the size of the input image.
 
 Argument -f means to overwrite the existing model profile in model database.
- 
+
 If you add a new model, it is necessary to generate model profile for each GPU. If we add an new GPU, it is also necessary to generate model profile of each model on this new GPU.
- 
+
 ### Step 3: Start Nexus service
 
 First, we use docker to start the scheduler in a container.
 Usage of docker run command is `docker run [OPTIONS] IMAGE [COMMAND] [ARG...]`.
-The -d option means running container in background and printing container ID. And the -v option means to 
+The -d option means running container in background and printing container ID. And the -v option means to
 bind mount a volume with IMAGE.
 ```
 $ docker run [--network nexus-network] -d -v /path/to/nexus-models:/nexus-models:ro \
 --name scheduler nexus/scheduler scheduler -model_root /nexus-models
 ```
 
-After the scheduler starts, we need to retrieve the IP address of scheduler. 
+After the scheduler starts, we need to retrieve the IP address of scheduler.
 Use docker inspect command with -f option whose effect is to format the output using the given Go template.
 ```
 $ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' scheduler
@@ -251,7 +255,7 @@ $ docker run [--network nexus-network] --runtime=nvidia -d \
 ```
 
 Start an application serving at port 12345, e.g., object recognition.
--p 12345:9001 argument means to map local port 12345 to docker port 9001. 
+-p 12345:9001 argument means to map local port 12345 to docker port 9001.
 ```
 $ docker run [--network nexus-network] -d -p 12345:9001 --name obj_rec \
 nexus/obj_rec /app/bin/obj_rec -sch_addr $(scheduler IP)

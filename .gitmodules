@@ -14,3 +14,4 @@
 	path = frameworks/tensorflow
 	url = https://github.com/tensorflow/tensorflow.git
 	branch = master
+	shallow = true

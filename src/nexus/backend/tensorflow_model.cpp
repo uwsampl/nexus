@@ -9,7 +9,7 @@
 #include "nexus/common/image.h"
 // Tensorflow headers
 #include "tensorflow/core/common_runtime/direct_session.h"
-#include "tensorflow/core/common_runtime/gpu/process_state.h"
+#include "tensorflow/core/common_runtime/gpu/gpu_process_state.h"
 
 namespace fs = boost::filesystem;
 
@@ -35,7 +35,7 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
     gpu_opt->set_allow_growth(true);
   }
   (*cpu_option_.config.mutable_device_count())["GPU"] = 0;
-  
+
   // Init session and load model
   session_.reset(tf::NewSession(gpu_option_));
   fs::path model_dir = fs::path(model_info_["model_dir"].as<std::string>());
@@ -54,7 +54,7 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   if (!status.ok()) {
     LOG(FATAL) << "Failed to add graph to session: " << status.ToString();
   }
-  
+
   // Get the input and output shape
   if (model_session_.image_height() > 0) {
     image_height_ = model_session_.image_height();
@@ -85,9 +85,9 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   } else {
     input_data_type_ = DT_FLOAT;
   }
-  
+
   // Get the GPU allocator for creating input buffer
-  tf::ProcessState* process_state = tf::ProcessState::singleton();
+  tf::GPUProcessState* process_state = tf::GPUProcessState::singleton();
   gpu_allocator_ = process_state->GetGPUAllocator(
       gpu_option_.config.gpu_options(), tf::TfGpuId(0), 0);
 
