@@ -44,11 +44,12 @@ class AsyncClient:
         req = self._prepare_req(img)
         msg = self._prepare_message(MSG_USER_REQUEST, req)
 
+        send_time = datetime.now()
         self._writer.write(msg)
         await self._writer.drain()
 
         reply, recv_time = await self._wait_reply(req.req_id)
-        return reply, recv_time
+        return send_time, recv_time, reply
 
     def _prepare_req(self, img):
         req = npb.RequestProto()
