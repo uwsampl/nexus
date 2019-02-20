@@ -69,7 +69,6 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   // Setup backtrace on segfault
   google::InstallFailureSignalHandler();
-  signal(SIGINT, sigint_handler);
   // Decide server IP address
   LOG(INFO) << "Backend server: port " << FLAGS_port << ", rpc port " <<
       FLAGS_rpc_port << ", workers " << FLAGS_num_workers << ", gpu " <<

@@ -60,16 +60,12 @@ class AsyncRpcServiceBase {
     for (auto& thread : thread_pool_) {
       thread.join();
     }
-    for (auto rpc_call : rpc_handlers_)
-      delete rpc_call;
-    rpc_handlers_.clear();
 
     LOG(INFO) << "RPC service stopped";
   }
 
  protected:
   virtual void HandleRpcs() = 0;
-  std::vector<RpcCallBase*> rpc_handlers_;
 
  protected:
   std::string ip_;

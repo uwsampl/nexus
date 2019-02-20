@@ -1,4 +1,4 @@
-build:xla --define with_xla_support=true
+build:xla --define with_xla_support=false
 build --action_env TF_NEED_OPENCL_SYCL="0"
 build --action_env TF_NEED_ROCM="0"
 build --action_env TF_NEED_CUDA="1"

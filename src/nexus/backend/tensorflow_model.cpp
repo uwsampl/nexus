@@ -72,7 +72,7 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   }
   // Tensorflow uses NHWC by default. More details see
   // https://www.tensorflow.org/versions/master/performance/performance_guide
-  input_shape_.set_dims({max_batch_, image_height_, image_width_, 3});
+  input_shape_.set_dims({static_cast<int>(max_batch_), image_height_, image_width_, 3});
   input_size_ = input_shape_.NumElements(1);
   input_layer_ = model_info_["input_layer"].as<std::string>();
 

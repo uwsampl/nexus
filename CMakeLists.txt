@@ -135,7 +135,15 @@ endif()
 
 if(USE_TENSORFLOW)
     target_compile_definitions(backend PRIVATE USE_TENSORFLOW)
-    set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out/k8-opt)
+    set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
+    if(CMAKE_BUILD_TYPE MATCHES DEBUG)
+        set(TENSORFLOW_BUILD_ROOT ${TENSORFLOW_BUILD_ROOT}/k8-dbg)
+        set(TENSORFLOW_BUILD_OPT --compilation_mode=dbg --strip=never --copt="-DNDEBUG" --copt="-march=x86-64")
+    else()
+        set(TENSORFLOW_BUILD_ROOT ${TENSORFLOW_BUILD_ROOT}/k8-opt)
+        set(TENSORFLOW_BUILD_OPT --config=opt)
+    endif()
+
     set(TENSORFLOW_SO
             ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow.so
             ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow_cc.so
@@ -145,9 +153,14 @@ if(USE_TENSORFLOW)
         WORKING_DIRECTORY
             ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow
         COMMAND
-            cp ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tf_configure.bazelrc ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow/.tf_configure.bazelrc
+            cp  ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tf_configure.bazelrc
+                ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow/.tf_configure.bazelrc
         COMMAND
-            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow build --config=opt //tensorflow:libtensorflow.so //tensorflow:libtensorflow_cc.so //tensorflow:libtensorflow_framework.so //tensorflow:install_headers)
+            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow build ${TENSORFLOW_BUILD_OPT}
+                //tensorflow:libtensorflow.so
+                //tensorflow:libtensorflow_cc.so
+                //tensorflow:libtensorflow_framework.so
+                //tensorflow:install_headers)
     add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
     target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
     target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)

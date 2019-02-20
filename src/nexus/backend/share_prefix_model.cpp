@@ -85,7 +85,7 @@ Shape SharePrefixModel::InputShape() {
 
 std::unordered_map<std::string, Shape> SharePrefixModel::OutputShapes() {
   std::lock_guard<std::mutex> lock(suffix_mu_);
-  return {{"output", Shape({max_batch_, max_suffix_output_size_})}};
+  return {{"output", Shape({static_cast<int>(max_batch_), static_cast<int>(max_suffix_output_size_)})}};
 }
 
 ArrayPtr SharePrefixModel::CreateInputGpuArray() {

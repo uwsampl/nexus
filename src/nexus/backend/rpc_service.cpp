@@ -25,29 +25,29 @@ BackendRpcService::BackendRpcService(BackendServer* backend, std::string port,
 }
 
 void BackendRpcService::HandleRpcs() {
-  rpc_handlers_.emplace_back(new UpdateModelTable_Call(
+  new UpdateModelTable_Call(
       &service_, cq_.get(),
       [this](const grpc::ServerContext&, const ModelTableConfig& req,
              RpcReply* reply) {
         //std::thread (&BackendServer::UpdateModelTable, backend_, req).detach();
         backend_->UpdateModelTableAsync(req);
         reply->set_status(CTRL_OK);
-      }));
-  rpc_handlers_.emplace_back(new CheckAlive_Call(
+      });
+  new CheckAlive_Call(
       &service_, cq_.get(),
       [](const grpc::ServerContext&, const CheckAliveRequest&,
          RpcReply* reply) {
         reply->set_status(CTRL_OK);
-      }));
+      });
 #ifdef USE_GPU
-  rpc_handlers_.emplace_back(new CurrentUtilization_Call(
+  new CurrentUtilization_Call(
       &service_, cq_.get(),
       [this](const grpc::ServerContext&, const UtilizationRequest&,
          UtilizationReply* reply) {
         reply->set_node_id(backend_->node_id());
         reply->set_utilization(backend_->CurrentUtilization());
         reply->set_valid_ms(FLAGS_occupancy_valid);
-      }));
+      });
 #endif
   void* tag;
   bool ok;
