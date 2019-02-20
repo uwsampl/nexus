@@ -1,5 +1,6 @@
-#include <gflags/gflags.h>
 #include <sstream>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "nexus/backend/model_exec.h"
 #include "nexus/backend/model_ins.h"

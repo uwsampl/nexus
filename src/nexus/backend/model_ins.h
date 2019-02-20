@@ -28,29 +28,9 @@ class ModelInstance {
    * \param gpu_id GPU index
    * \param config Configuration of model instance
    */
-  ModelInstance(int gpu_id, const ModelInstanceConfig& config) :
-      gpu_id_(gpu_id),
-      model_session_(config.model_session(0)),
-      batch_(config.batch()),
-      max_batch_(config.max_batch()) {
-    CHECK_GT(batch_, 0) << "batch must be greater than 0";
-    CHECK_GE(max_batch_, batch_) << "max_batch must be greater than batch";
-    std::string model_id = ModelSessionToModelID(model_session_);
-    auto info = ModelDatabase::Singleton().GetModelInfo(model_id);
-    CHECK(info != nullptr) << "Model not found in the database";
-    model_info_ = *info;
-    model_session_id_ = ModelSessionToString(model_session_);
-    cpu_device_ = DeviceManager::Singleton().GetCPUDevice();
-#ifdef USE_GPU
-    gpu_device_ = DeviceManager::Singleton().GetGPUDevice(gpu_id);
-#endif
-    LOG(INFO) << "Construct model " << model_session_id_ << ", batch " <<
-        batch_ << ", max batch " << max_batch_;
-  }
+  ModelInstance(int gpu_id, const ModelInstanceConfig& config);
   /*! \brief Deconstructs ModelInstance. */
-  virtual ~ModelInstance() {
-    LOG(INFO) << "Deconstruct model " << model_session_id_;
-  }
+  virtual ~ModelInstance();
   /*! \brief Get GPU ID that model is allocated on. */
   int gpu_id() const { return gpu_id_; }
   /*! \brief Get the framework name. */
@@ -70,10 +50,7 @@ class ModelInstance {
    * max_batch.
    * \param batch Batch size.
    */
-  virtual void set_batch(size_t batch) {
-    CHECK_LE(batch, max_batch_) << "Batch size must be less than max_batch";
-    batch_.store(batch);
-  }
+  virtual void set_batch(size_t batch);
   /*! \brief Get the max batch size allowed according to latency SLA. */
   uint32_t max_batch() const { return max_batch_; }
   /*! \brief Get the profile ID for this model instance. */
@@ -106,17 +83,12 @@ class ModelInstance {
    * \return Array pointer enclosing the given pointer.
    */
   virtual ArrayPtr CreateInputGpuArrayWithRawPointer(float* ptr,
-                                                     size_t nfloats) {
-    LOG(ERROR) << "Don't support create input gpu array with raw pointer";
-    return nullptr;
-  }
+                                                     size_t nfloats);
   /*!
    * \brief Remove the input gpu array.
    * \param arr Input array geneated by CreateInputGpuArray or CreateInputGpuArrayWithRawPointer
    */
-  virtual void RemoveInputGpuArray(ArrayPtr arr) {
-    LOG(WARNING) << "Don't support remove input gpu array";
-  }
+  virtual void RemoveInputGpuArray(ArrayPtr arr);
   /*!
    * \brief Get output array in GPU memory for storing output data up to
    * max batch size. This function should be only called once.
@@ -136,14 +108,9 @@ class ModelInstance {
    */
   virtual void Forward(std::shared_ptr<BatchTask> batch_task) = 0;
 
-  virtual void ForwardAsync(std::shared_ptr<BatchTask> batch_task) {
-    LOG(WARNING) << "Don't support async forward";
-    Forward(batch_task);
-  }
+  virtual void ForwardAsync(std::shared_ptr<BatchTask> batch_task);
 
-  virtual void WaitOutput(std::shared_ptr<BatchTask> batch_task) {
-    LOG(WARNING) << "Don't support async forward";
-  }
+  virtual void WaitOutput(std::shared_ptr<BatchTask> batch_task);
   /*!
    * \brief Postprocess the query in the task.
    * \param task Pointer to task.

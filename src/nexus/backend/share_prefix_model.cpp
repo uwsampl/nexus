@@ -1,3 +1,5 @@
+#include <glog/logging.h>
+
 #include "nexus/backend/share_prefix_model.h"
 #include "nexus/common/model_db.h"
 

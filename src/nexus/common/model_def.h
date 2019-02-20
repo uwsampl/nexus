@@ -1,7 +1,6 @@
 #ifndef NEXUS_COMMON_MODEL_DEF_H_
 #define NEXUS_COMMON_MODEL_DEF_H_
 
-#include <glog/logging.h>
 #include <ostream>
 #include <sstream>
 #include <unordered_map>

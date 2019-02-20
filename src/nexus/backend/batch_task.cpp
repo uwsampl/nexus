@@ -1,5 +1,6 @@
 #include "nexus/backend/batch_task.h"
 #include "nexus/common/util.h"
+#include <glog/logging.h>
 
 namespace nexus {
 namespace backend {

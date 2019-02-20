@@ -3,6 +3,7 @@
 
 #include "nexus/app/exec_block.h"
 #include "nexus/app/request_context.h"
+#include <glog/logging.h>
 
 namespace nexus {
 namespace app {

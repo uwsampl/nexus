@@ -1,6 +1,7 @@
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "nexus/common/model_db.h"
 #include "nexus/common/model_def.h"

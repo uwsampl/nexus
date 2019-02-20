@@ -5,7 +5,6 @@
 
 #include "nexus/backend/model_ins.h"
 // Tensorflow headers
-#include "tensorflow/core/framework/allocator.h"
 #include "tensorflow/core/public/session.h"
 
 namespace tf = tensorflow;

@@ -54,11 +54,7 @@ class Buffer : public std::enable_shared_from_this<Buffer> {
 
   Device* device() const { return device_; }
 
-  std::shared_ptr<Buffer> Slice(size_t offset, size_t nbytes) {
-    CHECK_LE(offset + nbytes, nbytes_) << "Slice exceeds buffer boundary";
-    return std::shared_ptr<Buffer>(new Buffer(
-        shared_from_this(), offset, nbytes));
-  }
+  std::shared_ptr<Buffer> Slice(size_t offset, size_t nbytes);
   
  private:
   Buffer(std::shared_ptr<Buffer> origin, size_t offset, size_t nbytes) :

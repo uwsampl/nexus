@@ -1,4 +1,5 @@
 #include "nexus/common/data_type.h"
+#include <glog/logging.h>
 
 namespace nexus {
 

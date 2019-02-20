@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(nexus)
+project(nexus LANGUAGES CXX)
 list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 option(USE_GPU        "Use GPU"        ON )
@@ -10,8 +10,7 @@ option(USE_CAFFE      "Use Caffe"      OFF)
 if(USE_CAFFE2 AND USE_CAFFE)
     message(FATAL_ERROR "`USE_CAFFE2` and `USE_CAFFE` cannot be set at the same time.")
 endif()
-option(CUDA_PATH  "Path to the Cuda toolkit"  "/usr/local/cuda")
-option(CUDNN_PATH "Path to the CuDNN library" "/usr/local/cuda")
+set(CUDA_PATH "/usr/local/cuda" CACHE STRING "Path to the Cuda toolkit")
 
 set(GFLAGS_USE_TARGET_NAMESPACE ON)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
@@ -46,8 +45,10 @@ add_library(common OBJECT
         ${GRPC_CONTROL_CC}
         ${GRPC_CONTROL_H}
         src/nexus/common/backend_pool.cpp
+        src/nexus/common/buffer.cpp
         src/nexus/common/connection.cpp
         src/nexus/common/data_type.cpp
+        src/nexus/common/device.cpp
         src/nexus/common/image.cpp
         src/nexus/common/message.cpp
         src/nexus/common/metric.cpp
@@ -122,7 +123,18 @@ target_link_libraries(backend PRIVATE common
         Boost::filesystem Boost::system)
 
 
+if(USE_GPU)
+    target_compile_definitions(common  PUBLIC  USE_GPU)
+    target_include_directories(common  PUBLIC  ${CUDA_PATH}/include)
+    target_link_libraries(common PUBLIC
+            ${CUDA_PATH}/lib64/stubs/libcuda.so
+            ${CUDA_PATH}/lib64/libcudart.so
+            ${CUDA_PATH}/lib64/libcurand.so)
+endif()
+
+
 if(USE_TENSORFLOW)
+    target_compile_definitions(backend PRIVATE USE_TENSORFLOW)
     set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out/k8-opt)
     set(TENSORFLOW_SO
             ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow.so
@@ -137,7 +149,8 @@ if(USE_TENSORFLOW)
         COMMAND
             bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow build --config=opt //tensorflow:libtensorflow.so //tensorflow:libtensorflow_cc.so //tensorflow:libtensorflow_framework.so //tensorflow:install_headers)
     add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
-    target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/include)
+    target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
+    target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)
     target_link_libraries(backend PRIVATE ${TENSORFLOW_SO})
     add_dependencies(backend tensorflow)
 endif()
