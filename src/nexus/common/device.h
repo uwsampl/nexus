@@ -2,11 +2,14 @@
 #define NEXUS_COMMON_DEVICE_H_
 
 #include <algorithm>
-#include <cuda_runtime.h>
 #include <glog/logging.h>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifdef USE_GPU
+#include <cuda_runtime.h>
+#endif
 
 namespace nexus {
 
@@ -58,6 +61,8 @@ class CPUDevice : public Device {
   CPUDevice() : Device(kCPU) {}
   friend class DeviceManager;
 };
+
+#ifdef USE_GPU
 
 #define NEXUS_CUDA_CHECK(condition)                              \
   do {                                                          \
@@ -120,6 +125,8 @@ private:
   size_t total_memory_;
 };
 
+#endif
+
 class DeviceManager {
  public:
   static DeviceManager& Singleton() {
@@ -131,24 +138,30 @@ class DeviceManager {
     return cpu_device_;
   }
 
+#ifdef USE_GPU
   GPUDevice* GetGPUDevice(int gpu_id) const {
     CHECK_LT(gpu_id, gpu_devices_.size()) << "GPU id " << gpu_id <<
         " exceeds number of GPU devices (" << gpu_devices_.size() << ")";
     return gpu_devices_[gpu_id];
   }
+#endif
 
  private:
   DeviceManager() {
     cpu_device_ = new CPUDevice();
     int gpu_count;
+#ifdef USE_GPU
     NEXUS_CUDA_CHECK(cudaGetDeviceCount(&gpu_count));
     for (int i = 0; i < gpu_count; ++i) {
       gpu_devices_.push_back(new GPUDevice(i));
     }
+#endif
   }
 
   CPUDevice* cpu_device_;
+#ifdef USE_GPU
   std::vector<GPUDevice*> gpu_devices_;
+#endif
 };
 
 } // namespec nexus

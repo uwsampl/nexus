@@ -22,9 +22,11 @@ ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
     drop_rate_(FLAGS_backend_count_interval, FLAGS_backend_avg_interval) {
   // Create ModelInstance
   CreateModelInstance(gpu_id, config, &model_);
+#ifdef USE_GPU
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(gpu_id);
   profile_ = ModelDatabase::Singleton().GetModelProfile(
       gpu_device->device_name(), model_->profile_id());
+#endif
   req_counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
       FLAGS_backend_count_interval);
   drop_counter_ = MetricRegistry::Singleton().CreateIntervalCounter(

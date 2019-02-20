@@ -32,6 +32,8 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
   auto channel = grpc::CreateChannel(sch_addr,
                                      grpc::InsecureChannelCredentials());
   sch_stub_ = SchedulerCtrl::NewStub(channel);
+
+#ifdef UES_GPU
   // Init GPU executor
   if (FLAGS_multi_batch) {
     LOG(INFO) << "Multi-batching is enabled";
@@ -57,6 +59,10 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
     // LOG(INFO) << "IO thread is pinned on CPU " << io_core;
     // cores.pop_back();
   }
+#else
+  LOG(FATAL) << "backend needs the USE_GPU flag set at compile-time.";
+#endif
+
   // Init workers
   if (num_workers == 0) {
     if (cores.empty()) {
@@ -106,8 +112,10 @@ void BackendServer::Stop() {
     conn->Stop();
   }
   frontend_connections_.clear();
+#ifdef USE_GPU
   // Stop GPU executor
   gpu_executor_->Stop();
+#endif
   // Stop workers
   for (auto& worker : workers_) {
     worker->Stop();
@@ -171,6 +179,7 @@ void BackendServer::UpdateModelTableAsync(const ModelTableConfig& request) {
 }
 
 void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
+#ifdef USE_GPU
   // Update backend pool
   std::unordered_set<uint32_t> backend_list;
   std::unordered_map<uint32_t, BackendInfo> backend_infos;
@@ -302,6 +311,9 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
   // Update duty cycle
   gpu_executor_->SetDutyCycle(request.duty_cycle_us());
   LOG(INFO) << "Duty cycle: " << request.duty_cycle_us() << " us";
+#else
+  LOG(FATAL) << "backend needs the USE_GPU flag set at compile-time.";
+#endif
 }
 
 ModelExecutorPtr BackendServer::GetModel(const std::string& model_session_id) {
@@ -361,6 +373,7 @@ void BackendServer::ModelTableDaemon() {
 }
 
 void BackendServer::Register() {
+#ifdef USE_GPU
   // Init node id
   std::uniform_int_distribution<uint32_t> dis(
       1, std::numeric_limits<uint32_t>::max());
@@ -398,6 +411,9 @@ void BackendServer::Register() {
     node_id_ = dis(rand_gen_);
     request.set_node_id(node_id_);
   }
+#else
+  LOG(FATAL) << "backend needs the USE_GPU flag set at compile-time.";
+#endif
 }
 
 void BackendServer::Unregister() {

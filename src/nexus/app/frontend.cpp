@@ -1,4 +1,5 @@
 #include <limits>
+#include <gflags/gflags.h>
 
 #include "nexus/app/frontend.h"
 #include "nexus/common/config.h"

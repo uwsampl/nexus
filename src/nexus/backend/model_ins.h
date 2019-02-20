@@ -41,7 +41,9 @@ class ModelInstance {
     model_info_ = *info;
     model_session_id_ = ModelSessionToString(model_session_);
     cpu_device_ = DeviceManager::Singleton().GetCPUDevice();
+#ifdef USE_GPU
     gpu_device_ = DeviceManager::Singleton().GetGPUDevice(gpu_id);
+#endif
     LOG(INFO) << "Construct model " << model_session_id_ << ", batch " <<
         batch_ << ", max batch " << max_batch_;
   }
@@ -163,8 +165,10 @@ class ModelInstance {
   YAML::Node model_info_;
   /*! \brief Pointer to CPU device */
   CPUDevice* cpu_device_;
+#ifdef USE_GPU
   /*! \brief Pointer to GPU device */
   GPUDevice* gpu_device_;
+#endif
 };
 
 /*!

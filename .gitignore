@@ -10,3 +10,6 @@ lib/
 bin/
 build/
 python/nexus/proto/
+
+cmake-build*/
+.clion.source.upload.marker

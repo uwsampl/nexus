@@ -1,3 +1,5 @@
+#ifdef USE_GPU
+
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <pthread.h>
@@ -208,3 +210,5 @@ double GpuExecutorNoMultiBatching::CurrentUtilization() {
 
 } // namespace backend
 } // namespace nexus
+
+#endif // USE_GPU

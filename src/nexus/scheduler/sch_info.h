@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <gflags/gflags.h>
 
 DECLARE_int32(avg_interval);
 

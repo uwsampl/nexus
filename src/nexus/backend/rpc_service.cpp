@@ -13,8 +13,10 @@ namespace backend {
 INSTANTIATE_RPC_CALL(AsyncService, UpdateModelTable, ModelTableConfig,
                      RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, CheckAlive, CheckAliveRequest, RpcReply);
+#ifdef USE_GPU
 INSTANTIATE_RPC_CALL(AsyncService, CurrentUtilization, UtilizationRequest,
                      UtilizationReply);
+#endif
 
 BackendRpcService::BackendRpcService(BackendServer* backend, std::string port,
                                      size_t nthreads):
@@ -37,6 +39,7 @@ void BackendRpcService::HandleRpcs() {
          RpcReply* reply) {
         reply->set_status(CTRL_OK);
       });
+#ifdef USE_GPU
   new CurrentUtilization_Call(
       &service_, cq_.get(),
       [this](const grpc::ServerContext&, const UtilizationRequest&,
@@ -45,6 +48,7 @@ void BackendRpcService::HandleRpcs() {
         reply->set_utilization(backend_->CurrentUtilization());
         reply->set_valid_ms(FLAGS_occupancy_valid);
       });
+#endif
   void* tag;
   bool ok;
   while (running_) {

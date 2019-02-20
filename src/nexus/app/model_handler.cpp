@@ -1,4 +1,5 @@
 #include <glog/logging.h>
+#include <gflags/gflags.h>
 #include <typeinfo>
 
 #include "nexus/app/model_handler.h"

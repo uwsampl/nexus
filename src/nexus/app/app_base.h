@@ -1,6 +1,7 @@
 #ifndef NEXUS_APP_APP_BASE_H_
 #define NEXUS_APP_APP_BASE_H_
 
+#include <gflags/gflags.h>
 #include "nexus/app/frontend.h"
 
 DECLARE_int32(load_balance);

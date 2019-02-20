@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package nexus;
 
-import "google/protobuf/empty.proto";
 import "nnquery.proto";
 
 service SchedulerCtrl {
