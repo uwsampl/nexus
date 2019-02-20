@@ -1,8 +1,13 @@
-#include <gflags/gflags.h>
-#include <glog/logging.h>
+#include <signal.h>
+#include <unistd.h>
+
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "nexus/common/config.h"
 #include "nexus/common/util.h"
@@ -40,7 +45,22 @@ std::vector<int> ParseCores(std::string s) {
   return cores;
 }
 
+BackendServer *server_ptr;
+
+void sigint_handler(int _sig) {
+  if (server_ptr) {
+    server_ptr->Stop();
+  }
+  std::exit(0);
+}
+
 int main(int argc, char** argv) {
+  struct sigaction sig_handle;
+  sig_handle.sa_handler = sigint_handler;
+  sigemptyset(&sig_handle.sa_mask);
+  sig_handle.sa_flags = 0;
+  sigaction(SIGINT, &sig_handle, NULL);
+
   // log to stderr
   FLAGS_logtostderr = 1;
   // Init glog
@@ -49,6 +69,7 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   // Setup backtrace on segfault
   google::InstallFailureSignalHandler();
+  signal(SIGINT, sigint_handler);
   // Decide server IP address
   LOG(INFO) << "Backend server: port " << FLAGS_port << ", rpc port " <<
       FLAGS_rpc_port << ", workers " << FLAGS_num_workers << ", gpu " <<
@@ -57,6 +78,7 @@ int main(int argc, char** argv) {
   std::vector<int> cores = ParseCores(FLAGS_cores);
   BackendServer server(FLAGS_port, FLAGS_rpc_port, FLAGS_sch_addr,
                        FLAGS_gpu, FLAGS_num_workers, cores);
+  server_ptr = &server;
   server.Run();
   return 0;
 }

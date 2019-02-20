@@ -33,7 +33,7 @@ BackendServer::BackendServer(std::string port, std::string rpc_port,
                                      grpc::InsecureChannelCredentials());
   sch_stub_ = SchedulerCtrl::NewStub(channel);
 
-#ifdef UES_GPU
+#ifdef USE_GPU
   // Init GPU executor
   if (FLAGS_multi_batch) {
     LOG(INFO) << "Multi-batching is enabled";

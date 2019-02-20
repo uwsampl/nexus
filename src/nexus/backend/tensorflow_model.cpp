@@ -3,6 +3,7 @@
 #include <boost/filesystem.hpp>
 #include <opencv2/opencv.hpp>
 #include <glog/logging.h>
+#include "tensorflow/core/common_runtime/gpu/gpu_process_state.h"
 
 #include "nexus/backend/slice.h"
 #include "nexus/backend/tensorflow_model.h"
