@@ -1,6 +1,7 @@
 #include <boost/filesystem.hpp>
 #include <glog/logging.h>
 #include <unordered_set>
+#include <cmath>
 
 #include "nexus/common/config.h"
 #include "nexus/common/model_db.h"
@@ -493,7 +494,7 @@ void Scheduler::RemoveBackend(BackendDelegatePtr backend) {
       session_table_.at(model_sess_id)->backend_weights.emplace(
           assigned->node_id(), assigned->GetModelThroughput(model_sess_id));
     }
-    if (assigned->workload_id()) {
+    if (assigned->workload_id() >= 0) {
       assigned_static_workloads_.emplace(
           assigned->workload_id(), assigned->node_id());
       LOG(INFO) << "Reassign workload " << assigned->workload_id() <<
@@ -762,7 +763,7 @@ void Scheduler::EpochSchedule() {
     for (double rps : session_info->rps_history) {
       rps_std += (rps - rps_mean) * (rps - rps_mean);
     }
-    rps_std = sqrt(rps_std / (n - 1));
+    rps_std = std::sqrt(rps_std / (n - 1));
     // double estimate_rps = std::max(
     //     session_info->rps_history[n - 1] + rps_std, 0.1);
     //double estimate_rps = std::max(rps_mean + rps_std, 0.1);

@@ -60,7 +60,9 @@ target_include_directories(common PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
 target_compile_features(common PRIVATE cxx_std_11)
-target_link_libraries(common PUBLIC ${OpenCV_LIBS})
+target_link_libraries(common PUBLIC
+        yaml-cpp gflags::gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
+        ${OpenCV_LIBS} Boost::filesystem Boost::system)
 set_property(TARGET common PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 
@@ -74,9 +76,7 @@ target_include_directories(scheduler PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
 target_compile_features(scheduler PRIVATE cxx_std_11)
-target_link_libraries(scheduler PRIVATE common
-        yaml-cpp gflags::gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
-        Boost::filesystem Boost::system)
+target_link_libraries(scheduler PRIVATE common)
 
 
 
@@ -91,7 +91,7 @@ target_include_directories(nexus PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
 target_compile_features(nexus PRIVATE cxx_std_11)
-target_link_libraries(nexus PRIVATE common gflags::gflags glog::glog)
+target_link_libraries(nexus PUBLIC common)
 
 
 
@@ -118,9 +118,7 @@ target_include_directories(backend PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
 target_compile_features(backend PRIVATE cxx_std_11)
-target_link_libraries(backend PRIVATE common
-        yaml-cpp gflags::gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
-        Boost::filesystem Boost::system)
+target_link_libraries(backend PRIVATE common)
 
 
 if(USE_GPU)

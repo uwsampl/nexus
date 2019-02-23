@@ -1,5 +1,6 @@
-#include <glog/logging.h>
+#include <cmath>
 #include <sstream>
+#include <glog/logging.h>
 
 #include "nexus/common/model_db.h"
 #include "nexus/scheduler/backend_delegate.h"
