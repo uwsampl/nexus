@@ -704,15 +704,15 @@ bool Scheduler::BeaconCheck() {
     }
     dead_backends.push_back(backend);
   }
+  // Reassign workload of dead backends
+  for (auto backend : dead_backends) {
+    RemoveBackend(backend);
+  }
   for (auto backend : dead_backends) {
     std::time_t last_time = backend->LastAliveTime();
     LOG(INFO) << "Remove backend " << backend->node_id() <<
         ", last alive time: " << std::ctime(&last_time);
     backends_.erase(backend->node_id());
-  }
-  // Reassign workload of dead backends
-  for (auto backend : dead_backends) {
-    RemoveBackend(backend);
   }
 
   // 4. Check if need to trigger epoch schedule
