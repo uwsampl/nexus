@@ -54,6 +54,7 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
 
 float ModelProfile::GetForwardLatency(uint32_t batch) const {
   if (forward_lats_.find(batch) == forward_lats_.end()) {
+    LOG(FATAL) << "Cannot find forward latency: model=" << profile_id() << " batch=" << batch;
     return 0.;
   }
   auto entry = forward_lats_.at(batch);

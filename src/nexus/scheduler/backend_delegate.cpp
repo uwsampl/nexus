@@ -6,6 +6,13 @@
 #include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/scheduler.h"
 
+uint32_t CeilEps(double x, double eps) {
+  double floor = std::floor(x);
+  if (x - floor < eps)
+    return static_cast<uint32_t>(floor);
+  return static_cast<uint32_t>(std::ceil(x));
+}
+
 namespace nexus {
 namespace scheduler {
 
@@ -107,13 +114,15 @@ bool BackendDelegate::PrepareLoadModel(
     new_duty_cycle = inst_info->max_duty_cycle_us;
     new_exec_cycle = 0.;
     for (auto info : models_) {
-      uint32_t new_b = std::ceil(new_duty_cycle * info->throughput / 1e6);
+      uint32_t new_b = CeilEps(new_duty_cycle * info->throughput / 1e6, 1e-3);
+      CHECK_LE(new_b, info->max_batch);
       new_exec_cycle += info->profile->GetForwardLatency(new_b);
     }
     new_exec_cycle += inst_info->fwd_latency_us;
   } else { // max_duty_cycle >= duty_cycle_us_
     new_duty_cycle = duty_cycle_us_;
-    inst_info->batch = std::ceil(new_duty_cycle * inst_info->workload / 1e6);
+    inst_info->batch = CeilEps(new_duty_cycle * inst_info->workload / 1e6, 1e-3);
+    CHECK_NE(inst_info->batch, 0);
     inst_info->fwd_latency_us = profile->GetForwardLatency(inst_info->batch);
     inst_info->throughput = inst_info->batch * 1e6 / new_duty_cycle;
     new_exec_cycle = exec_cycle_us_ + inst_info->fwd_latency_us;
@@ -356,6 +365,7 @@ CtrlStatus BackendDelegate::UpdateModelTableRpc() {
     for (auto& model_sess : inst_info->model_sessions) {
       cfg->add_model_session()->CopyFrom(model_sess);
     }
+    CHECK_NE(inst_info->batch, 0);
     cfg->set_batch(inst_info->batch);
     cfg->set_max_batch(inst_info->max_batch);
     cfg->set_memory_usage(inst_info->memory_usage);
@@ -486,6 +496,7 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
     inst_info->max_duty_cycle_us = inst_info->fwd_latency_us;
     inst_info->throughput = max_throughput;
     inst_info->workload = max_throughput;
+    CHECK_GE(inst_info->workload, 1e-3);
     inst_info->memory_usage = inst_info->profile->GetMemoryUsage(max_batch);
     return;
   }
@@ -525,6 +536,7 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
   CHECK_GE(inst_info->throughput, workload - 1e-3) << "Throughput is less " <<
       "than workload";
   inst_info->workload = workload;
+  CHECK_GE(inst_info->workload, 1e-3);
   inst_info->memory_usage = inst_info->profile->GetMemoryUsage(max_batch);
 }
 
@@ -537,18 +549,14 @@ void BackendDelegate::UpdateCycle() {
     }
   }
   for (auto inst_info : models_) {
-    double batch = duty_cycle_us_ * inst_info->workload / 1e6;
-    if (batch - std::floor(batch) < 1e-3) {
-      inst_info->batch = std::floor(batch);
-    } else {
-      inst_info->batch = std::ceil(batch);
-    }
+    inst_info->batch = CeilEps(duty_cycle_us_ * inst_info->workload / 1e6, 1e-3);
     if (inst_info->batch > inst_info->max_batch) {
       overload_ = true;
       inst_info->batch = 0;
       inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
           inst_info->max_batch);
     } else {
+      CHECK_NE(inst_info->batch, 0);
       inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
           inst_info->batch);
     }
