@@ -622,7 +622,7 @@ void Scheduler::FindBestBackend(
     if (!backend->IsAlive() || backend->workload_id() >= 0) {
       continue;
     }
-    if (request_rate == 0 && !backend->IsIdle()) {
+    if (std::fabs(request_rate) < 1e-3 && !backend->IsIdle()) {
       continue;
     }
     InstanceInfo tmp_info;
@@ -641,7 +641,7 @@ void Scheduler::FindBestBackend(
       max_occ_load = std::make_tuple(backend, tmp_info, occupancy);
     }
   }
-  if (request_rate == 0) {
+  if (std::fabs(request_rate) < 1e-3) {
     // for request rate = 0, return backend that provides highest throughput
     *best_backend = std::get<0>(max_tp_load);
     *inst_info = std::get<1>(max_tp_load);
@@ -792,7 +792,7 @@ void Scheduler::EpochSchedule() {
                   return a.second > b.second;
                 });
       for (auto iter : adjust_backends) {
-        if (estimate_rps <= 0) {
+        if (estimate_rps < 1e-3) {
           auto backend = backends_.at(iter.first);
           backend->UnloadModel(model_sess_id);
           session_info->backend_weights.erase(iter.first);
