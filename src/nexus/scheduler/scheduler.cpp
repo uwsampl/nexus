@@ -903,7 +903,7 @@ void Scheduler::AllocateUnassignedWorkloads(
     auto const& sessions = session_info->model_sessions;
     // LOG(INFO) << "Try to assign workload " << model_sess_id << ", " <<
     //     request_rate << " req/s";
-    while (request_rate > 0) {
+    while (request_rate > 1e-3) {
       BackendDelegatePtr backend;
       InstanceInfo inst_info;
       FindBestBackend(sessions[0], request_rate, {}, &backend, &inst_info);
@@ -925,7 +925,9 @@ void Scheduler::AllocateUnassignedWorkloads(
         changed_backends->insert(backend);
       }
     }
-    session_info->unassigned_workload = std::max(0.d, request_rate);
+    if (std::fabs(request_rate) < 1e-3)
+      request_rate = 0.;
+    session_info->unassigned_workload = std::max(0., request_rate);
   }
 }
 
