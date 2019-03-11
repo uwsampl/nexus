@@ -86,6 +86,7 @@ set_property(TARGET common PROPERTY POSITION_INDEPENDENT_CODE ON)
 add_executable(scheduler
         src/nexus/scheduler/backend_delegate.cpp
         src/nexus/scheduler/frontend_delegate.cpp
+        src/nexus/scheduler/sch_info.cpp
         src/nexus/scheduler/scheduler.cpp
         src/nexus/scheduler/scheduler_main.cpp)
 target_include_directories(scheduler PRIVATE
@@ -172,6 +173,8 @@ if(USE_TENSORFLOW)
                 ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow/.tf_configure.bazelrc
         COMMAND
             bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow build ${TENSORFLOW_BUILD_OPT}
+                --action_env CUDA_TOOLKIT_PATH=${CUDA_PATH}
+                --action_env CUDNN_INSTALL_PATH=${CUDA_PATH}
                 //tensorflow:libtensorflow.so
                 //tensorflow:libtensorflow_cc.so
                 //tensorflow:libtensorflow_framework.so
@@ -194,8 +197,12 @@ if(USE_CAFFE2)
     add_custom_command(
         OUTPUT ${CAFFE2_SO}
         WORKING_DIRECTORY ${CAFFE2_BUILD_ROOT}
-        COMMAND ${CMAKE_COMMAND} -DUSE_NNPACK=OFF -DUSE_NCCL=OFF
-            -DBUILD_PYTHON=OFF -DBUILD_BINARY=OFF -DBUILD_TEST=OFF
+        COMMAND
+            patch -p1 -R --dry-run -d ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2 -i ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2-patch.diff
+            || patch -p1 -d ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2 -i ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2-patch.diff
+        COMMAND ${CMAKE_COMMAND} -DUSE_NNPACK=OFF -DUSE_NCCL=OFF -DUSE_MPI=OFF -DUSE_LMDB=OFF -DUSE_LEVELDB=OFF
+            -DUSE_NUMA=OFF -DUSE_MPI=OFF -DBUILD_PYTHON=OFF -DBUILD_BINARY=OFF -DBUILD_TEST=OFF
+            -DCUDA_TOOLKIT_ROOT_DIR=${CUDA_PATH}
             -DCMAKE_INSTALL_PREFIX=${CAFFE2_BUILD_ROOT}/install
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
             -DCMAKE_DEBUG_POSTFIX=""
@@ -245,7 +252,23 @@ endif()
 
 
 ###### tools/profiler ######
-add_executable(profiler
-        tools/profiler/profiler.cpp)
+add_executable(profiler tools/profiler/profiler.cpp)
 target_compile_features(profiler PRIVATE cxx_std_11)
 target_link_libraries(profiler PRIVATE common backend_obj)
+
+
+
+###### tools/test_pb ######
+add_executable(test_pb tools/profiler/test_pb.cpp)
+target_compile_features(test_pb PRIVATE cxx_std_11)
+target_link_libraries(test_pb PRIVATE common backend_obj)
+
+
+
+# FIXME ###### tests ######
+# add_executable(runtest
+#         tests/cpp/scheduler/backend_delegate_test.cpp
+#         tests/cpp/scheduler/scheduler_test.cpp
+#         tests/cpp/test_main.cpp)
+# target_compile_features(runtest PRIVATE cxx_std_11)
+# target_link_libraries(runtest PRIVATE common backend_obj)

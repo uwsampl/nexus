@@ -5,7 +5,13 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <memory>
 #include <gflags/gflags.h>
+#include "nexus/common/metric.h"
+#include "nexus/common/model_db.h"
+#include "nexus/common/model_def.h"
+#include "nexus/proto/nnquery.pb.h"
+#include "nexus/proto/control.pb.h"
 
 DECLARE_int32(avg_interval);
 
@@ -20,59 +26,14 @@ struct SessionInfo {
       has_static_workload(false),
       unassigned_workload(0) {}
 
-  double TotalThroughput() const {
-    double total = 0.;
-    for (auto iter : backend_weights) {
-      total += iter.second;
-    }
-    return total;
-  }
+  double TotalThroughput() const;
 
   void SubscribeModelSession(uint32_t frontend_id,
-                             const std::string& model_sess_id) {
-    if (session_subscribers.count(model_sess_id) == 0) {
-      session_subscribers.emplace(model_sess_id, ServerList{frontend_id});
-    } else {
-      session_subscribers.at(model_sess_id).insert(frontend_id);
-    }
-    workloads.emplace(frontend_id,
-                      std::make_shared<EWMA>(1, FLAGS_avg_interval));
-  }
+                             const std::string& model_sess_id);
 
-  bool UnsubscribleModelSession(
-      uint32_t frontend_id, const std::string& model_sess_id) {
-    session_subscribers.at(model_sess_id).erase(frontend_id);
-    workloads.erase(frontend_id);
-    if (has_static_workload || !session_subscribers.at(model_sess_id).empty()) {
-      return false;
-    }
-    // Remove this model session
-    session_subscribers.erase(model_sess_id);
-    for (auto iter = model_sessions.begin(); iter != model_sessions.end();
-         ++iter) {
-      if (ModelSessionToString(*iter) == model_sess_id) {
-        model_sessions.erase(iter);
-        break;
-      }
-    }
-    return true;
-  }
+  bool UnsubscribleModelSession(uint32_t frontend_id, const std::string& model_sess_id);
 
-  void UpdateWorkload(uint32_t frontend_id, const ModelStatsProto& model_stats) {
-    auto iter = workloads.find(frontend_id);
-    if (iter == workloads.end()) {
-      LOG(ERROR) << "Cannot find rps for " << frontend_id << " in " <<
-          model_stats.model_session_id();
-      return;
-    }
-    auto rps = iter->second;
-    for (auto num_requests : model_stats.num_requests()) {
-      if (rps->rate() < 0 && num_requests == 0) {
-        continue;
-      }
-      rps->AddSample(num_requests);
-    }
-  }
+  void UpdateWorkload(uint32_t frontend_id, const ModelStatsProto& model_stats);
 
   SessionGroup model_sessions;
   /*! \brief Mapping from backend id to throughput */
