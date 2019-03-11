@@ -1,6 +1,5 @@
 #include <glog/logging.h>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/opencv.hpp>
 #include <string>
 
 #include "nexus/common/image.h"
@@ -11,8 +10,7 @@ cv::Mat DecodeImage(const ImageProto& image, ChannelOrder order) {
   cv::Mat img_bgr;
   const std::string& data = image.data();
   std::vector<char> vec_data(data.c_str(), data.c_str() + data.size());
-  int cv_read_flag = (image.color() ? CV_LOAD_IMAGE_COLOR :
-                      CV_LOAD_IMAGE_GRAYSCALE);
+  int cv_read_flag = image.color() ? cv::IMREAD_COLOR : cv::IMREAD_GRAYSCALE;
   img_bgr = cv::imdecode(vec_data, cv_read_flag);
   if (!img_bgr.data) {
     LOG(ERROR) << "Could not decode image";

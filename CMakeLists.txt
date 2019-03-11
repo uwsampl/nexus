@@ -12,7 +12,6 @@ if(USE_CAFFE2 AND USE_CAFFE)
 endif()
 set(CUDA_PATH "/usr/local/cuda" CACHE STRING "Path to the Cuda toolkit")
 
-set(GFLAGS_USE_TARGET_NAMESPACE ON)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(Protobuf REQUIRED)
 find_package(gRPC REQUIRED)
@@ -20,7 +19,11 @@ find_package(glog REQUIRED)
 find_package(gflags REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(OpenCV REQUIRED)
+include(ProcessorCount)
+ProcessorCount(NPROC)
 
+
+###### protobuf & gRPC ######
 set(GENERATED_SRC_DIR ${CMAKE_CURRENT_BINARY_DIR}/gen)
 file(MAKE_DIRECTORY ${GENERATED_SRC_DIR}/src/nexus/proto)
 protobuf_generate_cpp(PROTO_NNQUERY_CC PROTO_NNQUERY_H
@@ -32,11 +35,23 @@ protobuf_generate_cpp(PROTO_CONTROL_CC PROTO_CONTROL_H
 grpc_generate_cpp(GRPC_CONTROL_CC GRPC_CONTROL_H
         ${GENERATED_SRC_DIR}/src/nexus/proto
         src/nexus/proto/control.proto)
-# TODO: nnquery.proto for Python
-# TODO: gtest
+set(GENERATED_PY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/python/nexus/proto)
+add_custom_command(
+    OUTPUT ${GENERATED_PY_DIR}/nnquery_pb2.py
+    COMMAND mkdir -p ${GENERATED_PY_DIR}
+    COMMAND touch ${GENERATED_PY_DIR}/__init__.py
+    COMMAND protobuf::protoc
+        --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/src/nexus/proto
+        --python_out=${GENERATED_PY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/nexus/proto/nnquery.proto
+    DEPENDS
+        protobuf::protoc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/nexus/proto/nnquery.proto)
+add_custom_target(python DEPENDS ${GENERATED_PY_DIR}/nnquery_pb2.py)
 
 
 
+###### common source files, headers, and linking options ######
 add_library(common OBJECT
         ${PROTO_NNQUERY_CC}
         ${PROTO_NNQUERY_H}
@@ -56,17 +71,18 @@ add_library(common OBJECT
         src/nexus/common/server_base.cpp
         src/nexus/common/time_util.cpp
         src/nexus/common/util.cpp)
-target_include_directories(common PRIVATE
+target_include_directories(common PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
-target_compile_features(common PRIVATE cxx_std_11)
+target_compile_features(common PUBLIC cxx_std_11)
 target_link_libraries(common PUBLIC
-        yaml-cpp gflags::gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
+        yaml-cpp gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
         ${OpenCV_LIBS} Boost::filesystem Boost::system)
 set_property(TARGET common PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 
 
+###### scheduler ######
 add_executable(scheduler
         src/nexus/scheduler/backend_delegate.cpp
         src/nexus/scheduler/frontend_delegate.cpp
@@ -80,6 +96,7 @@ target_link_libraries(scheduler PRIVATE common)
 
 
 
+###### frontend libnexus.so ######
 add_library(nexus SHARED
         src/nexus/app/app_base.cpp
         src/nexus/app/frontend.cpp
@@ -95,8 +112,8 @@ target_link_libraries(nexus PUBLIC common)
 
 
 
-add_executable(backend
-        src/nexus/backend/backend_main.cpp
+###### backend ######
+add_library(backend_obj
         src/nexus/backend/backend_server.cpp
         src/nexus/backend/backup_client.cpp
         src/nexus/backend/batch_task.cpp
@@ -114,23 +131,23 @@ add_executable(backend
         src/nexus/backend/tensorflow_model.cpp
         src/nexus/backend/utils.cpp
         src/nexus/backend/worker.cpp)
-target_include_directories(backend PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${GENERATED_SRC_DIR}/src)
-target_compile_features(backend PRIVATE cxx_std_11)
-target_link_libraries(backend PRIVATE common)
+target_link_libraries(backend_obj PUBLIC common)
 
+add_executable(backend
+        src/nexus/backend/backend_main.cpp)
+target_link_libraries(backend PUBLIC backend_obj)
 
+## backend: CUDA support ##
 if(USE_GPU)
-    target_compile_definitions(common  PUBLIC  USE_GPU)
-    target_include_directories(common  PUBLIC  ${CUDA_PATH}/include)
+    target_compile_definitions(common PUBLIC USE_GPU)
+    target_include_directories(common PUBLIC ${CUDA_PATH}/include)
     target_link_libraries(common PUBLIC
             ${CUDA_PATH}/lib64/stubs/libcuda.so
             ${CUDA_PATH}/lib64/libcudart.so
             ${CUDA_PATH}/lib64/libcurand.so)
 endif()
 
-
+## backend: TensorFlow support ##
 if(USE_TENSORFLOW)
     target_compile_definitions(backend PRIVATE USE_TENSORFLOW)
     set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
@@ -160,8 +177,75 @@ if(USE_TENSORFLOW)
                 //tensorflow:libtensorflow_framework.so
                 //tensorflow:install_headers)
     add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
-    target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
-    target_include_directories(backend PRIVATE ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)
-    target_link_libraries(backend PRIVATE ${TENSORFLOW_SO})
-    add_dependencies(backend tensorflow)
+    target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
+    target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)
+    target_link_libraries(backend_obj PUBLIC ${TENSORFLOW_SO})
+    add_dependencies(backend_obj tensorflow)
 endif()
+
+## backend: Caffe2 support ##
+if(USE_CAFFE2)
+    target_compile_definitions(backend PRIVATE USE_CAFFE2)
+    set(CAFFE2_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/caffe2)
+    set(CAFFE2_SO
+            ${CAFFE2_BUILD_ROOT}/install/lib/libcaffe2.so
+            ${CAFFE2_BUILD_ROOT}/install/lib/libcaffe2_gpu.so)
+    file(MAKE_DIRECTORY ${CAFFE2_BUILD_ROOT})
+    add_custom_command(
+        OUTPUT ${CAFFE2_SO}
+        WORKING_DIRECTORY ${CAFFE2_BUILD_ROOT}
+        COMMAND ${CMAKE_COMMAND} -DUSE_NNPACK=OFF -DUSE_NCCL=OFF
+            -DBUILD_PYTHON=OFF -DBUILD_BINARY=OFF -DBUILD_TEST=OFF
+            -DCMAKE_INSTALL_PREFIX=${CAFFE2_BUILD_ROOT}/install
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+            -DCMAKE_DEBUG_POSTFIX=""
+            ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2
+        COMMAND make -j${NPROC} caffe2_gpu
+        COMMAND make -j${NPROC} install
+    )
+    add_custom_target(caffe2 DEPENDS ${CAFFE2_SO})
+    target_include_directories(backend_obj PUBLIC ${CAFFE2_BUILD_ROOT}/install/include)
+    target_link_libraries(backend_obj PUBLIC ${CAFFE2_SO})
+    add_dependencies(backend_obj caffe2)
+endif()
+
+## backend: Caffe support ##
+if(USE_CAFFE)
+    target_compile_definitions(backend PRIVATE USE_CAFFE)
+    set(CAFFE_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe)
+    set(CAFFE_BUILD_ROOT ${CAFFE_SRC_ROOT}/build)
+    set(CAFFE_SO ${CAFFE_BUILD_ROOT}/lib/libcaffe.so)
+    add_custom_command(
+        OUTPUT ${CAFFE_SO}
+        WORKING_DIRECTORY ${CAFFE_SRC_ROOT}
+        COMMAND make -j${NPROC} all)
+    add_custom_target(caffe DEPENDS ${CAFFE_SO})
+    target_include_directories(backend_obj PUBLIC ${CAFFE_SRC_ROOT}/src)
+    target_include_directories(backend_obj PUBLIC ${CAFFE_SRC_ROOT}/include)
+    target_link_libraries(backend_obj PUBLIC ${CAFFE_SO})
+    add_dependencies(backend_obj caffe)
+endif()
+
+## backend: Darknet support ##
+if(USE_DARKNET)
+    target_compile_definitions(backend PRIVATE USE_DARKNET)
+    set(DARKNET_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/darknet)
+    set(DARKNET_SO ${DARKNET_SRC_ROOT}/libdarknet.so)
+    add_custom_command(
+        OUTPUT ${DARKNET_SO}
+        WORKING_DIRECTORY ${DARKNET_SRC_ROOT}
+        COMMAND make -j${NPROC} all)
+    add_custom_target(darknet DEPENDS ${DARKNET_SO})
+    target_include_directories(backend_obj PUBLIC ${DARKNET_SRC_ROOT}/src)
+    target_include_directories(backend_obj PUBLIC ${DARKNET_SRC_ROOT}/include)
+    target_link_libraries(backend_obj PUBLIC ${DARKNET_SO})
+    add_dependencies(backend_obj darknet)
+endif()
+
+
+
+###### tools/profiler ######
+add_executable(profiler
+        tools/profiler/profiler.cpp)
+target_compile_features(profiler PRIVATE cxx_std_11)
+target_link_libraries(profiler PRIVATE common backend_obj)
