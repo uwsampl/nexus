@@ -217,7 +217,7 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
     }
     assign_backends.emplace_back(backend, inst_info);
   } else {
-    while (workload > 0) {
+    while (workload > 1e-3) {
       BackendDelegatePtr backend;
       InstanceInfo inst_info;
       FindBestBackend(model_sess, workload, used, &backend, &inst_info);
@@ -454,7 +454,7 @@ void Scheduler::AddBackend(BackendDelegatePtr backend) {
   for (auto b : changed_backends) {
     b->UpdateModelTableRpc();
   }
-  
+
   // 4. Update model info and route
   UpdateModelRoutes(changed_sessions);
 }
@@ -857,12 +857,12 @@ void Scheduler::EpochSchedule() {
       session_info->unassigned_workload += iter.second;
     }
   }
-  
-  // 3. Allocate the unassigned workloads to backends that still have space
-  AllocateUnassignedWorkloads(&changed_sessions);
 
-  // 4. Consolidate low utilization backends
+  // 3. Consolidate low utilization backends
   ConsolidateBackends(&changed_sessions);
+  
+  // 4. Allocate the unassigned workloads to backends that still have space
+  AllocateUnassignedWorkloads(&changed_sessions);
 
   // 5. Update model table to backends and model routes to frontends
   for (auto iter : backends_) {
