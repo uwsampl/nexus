@@ -132,11 +132,13 @@ add_library(backend_obj
         src/nexus/backend/tensorflow_model.cpp
         src/nexus/backend/utils.cpp
         src/nexus/backend/worker.cpp)
+target_compile_features(backend_obj PUBLIC cxx_std_11)
 target_link_libraries(backend_obj PUBLIC common)
 
 add_executable(backend
         src/nexus/backend/backend_main.cpp)
-target_link_libraries(backend PUBLIC backend_obj)
+target_compile_features(backend PRIVATE cxx_std_11)
+target_link_libraries(backend PRIVATE backend_obj)
 
 ## backend: CUDA support ##
 if(USE_GPU)
@@ -150,7 +152,7 @@ endif()
 
 ## backend: TensorFlow support ##
 if(USE_TENSORFLOW)
-    target_compile_definitions(backend PRIVATE USE_TENSORFLOW)
+    target_compile_definitions(backend_obj PUBLIC USE_TENSORFLOW)
     set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
     if(CMAKE_BUILD_TYPE MATCHES DEBUG)
         set(TENSORFLOW_BUILD_ROOT ${TENSORFLOW_BUILD_ROOT}/k8-dbg)
@@ -178,7 +180,9 @@ if(USE_TENSORFLOW)
                 //tensorflow:libtensorflow.so
                 //tensorflow:libtensorflow_cc.so
                 //tensorflow:libtensorflow_framework.so
-                //tensorflow:install_headers)
+                //tensorflow:install_headers
+        COMMAND
+            bazel shutdown)
     add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
     target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
     target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)
