@@ -170,7 +170,7 @@ uint64_t ModelExecutor::Execute(uint32_t batch) {
       t2 - t1).count();
   auto forward_lat = std::chrono::duration_cast<std::chrono::microseconds>(
       t3 - t2).count();
-  LOG(INFO) << model_->model_session_id() << " forwards batch " <<
+  VLOG(1) << model_->model_session_id() << " forwards batch " <<
       batch_task->batch_id() << ", size " << batch_task->batch_size() <<
       ", memcpy lat " << memcpy_lat << " us, forward lat " << forward_lat <<
       " us, drop " << num_drops << " requests";
@@ -268,9 +268,10 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
     int est_max_batch = current_batch + input_queue_.size();
     if (profile_ != nullptr && expect_batch_size > est_max_batch) {
       expect_batch_size = est_max_batch;
-      expect_batch_size;
-      float latency = profile_->GetForwardLatency(expect_batch_size);
-      finish = now + std::chrono::microseconds(int(latency));
+      if (expect_batch_size > 0) {
+        float latency = profile_->GetForwardLatency(expect_batch_size);
+        finish = now + std::chrono::microseconds(int(latency));
+      }
     }
   }
   std::stringstream ss;
