@@ -190,6 +190,7 @@ std::vector<uint32_t> ModelHandler::BackendList() {
 }
 
 std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
+  std::lock_guard<std::mutex> lock(route_mu_);
   switch (lb_policy_) {
     case LB_WeightedRR: {
       return GetBackendWeightedRoundRobin();
@@ -247,7 +248,6 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackendWeightedRoundRobin() {
 }
 
 std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
-  std::lock_guard<std::mutex> lock(route_mu_);
   for (int i = 0; i < backends_.size(); ++i) {
     uint32_t idx = backend_idx_.fetch_add(1, std::memory_order_relaxed) %
                    backends_.size();
