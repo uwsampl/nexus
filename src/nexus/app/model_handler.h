@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <random>
 #include <unordered_map>
 
 #include "nexus/common/backend_pool.h"

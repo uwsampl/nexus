@@ -163,7 +163,6 @@ if(USE_TENSORFLOW)
     endif()
 
     set(TENSORFLOW_SO
-            ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow.so
             ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow_cc.so
             ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow_framework.so)
     add_custom_command(
