@@ -30,7 +30,7 @@ class Frontend : public ServerBase, public MessageHandler {
  public:
   Frontend(std::string port, std::string rpc_port, std::string sch_addr);
 
-  ~Frontend();
+  virtual ~Frontend();
 
   //virtual void Process(const RequestProto& request, ReplyProto* reply) = 0;
 

@@ -68,6 +68,7 @@ void Frontend::Stop() {
   for (auto& worker : workers_) {
     worker->Join();
   }
+  daemon_thread_.join();
   // Stop RPC service
   rpc_service_.Stop();
   LOG(INFO) << "Frontend server stopped";
