@@ -93,11 +93,13 @@ std::shared_ptr<IntervalCounter> MetricRegistry::CreateIntervalCounter(
   std::lock_guard<std::mutex> lock(mutex_);
   auto metric = std::make_shared<IntervalCounter>(interval_sec);
   metrics_.insert(metric);
+  TimeSystem::Singleton().AddTickable(metric);
   return metric;
 }
 
-void MetricRegistry::RemoveMetric(std::shared_ptr<Metric> metric) {
+void MetricRegistry::RemoveMetric(std::shared_ptr<IntervalCounter> metric) {
   std::lock_guard<std::mutex> lock(mutex_);
+  TimeSystem::Singleton().RemoveTickable(metric);
   metrics_.erase(metric);
 }
 
