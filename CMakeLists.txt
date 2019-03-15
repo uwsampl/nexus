@@ -7,6 +7,7 @@ option(USE_TENSORFLOW "Use TensorFlow" ON )
 option(USE_DARKNET    "Use Darknet"    ON )
 option(USE_CAFFE2     "Use Caffe2"     ON )
 option(USE_CAFFE      "Use Caffe"      OFF)
+option(DEBUG_TF_BUILD "Build TensorFlow in Debug model" OFF)
 if(USE_CAFFE2 AND USE_CAFFE)
     message(FATAL_ERROR "`USE_CAFFE2` and `USE_CAFFE` cannot be set at the same time.")
 endif()
@@ -47,7 +48,7 @@ add_custom_command(
     DEPENDS
         protobuf::protoc
         ${CMAKE_CURRENT_SOURCE_DIR}/src/nexus/proto/nnquery.proto)
-add_custom_target(python DEPENDS ${GENERATED_PY_DIR}/nnquery_pb2.py)
+add_custom_target(python ALL DEPENDS ${GENERATED_PY_DIR}/nnquery_pb2.py)
 
 
 
@@ -154,7 +155,13 @@ endif()
 if(USE_TENSORFLOW)
     target_compile_definitions(backend_obj PUBLIC USE_TENSORFLOW)
     set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
+
+    # tensorflow/core/lib/core/refcount.h is REALLY REALLY annoying. Need NDEBUG here.
+    # https://github.com/tensorflow/tensorflow/issues/17316
     if(CMAKE_BUILD_TYPE MATCHES DEBUG)
+        target_compile_definitions(backend_obj PUBLIC NDEBUG)
+    endif()
+    if(DEBUG_TF_BUILD)
         set(TENSORFLOW_BUILD_ROOT ${TENSORFLOW_BUILD_ROOT}/k8-dbg)
         set(TENSORFLOW_BUILD_OPT --compilation_mode=dbg --strip=never --copt="-DNDEBUG" --copt="-march=x86-64")
     else()
@@ -176,13 +183,17 @@ if(USE_TENSORFLOW)
             bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow build ${TENSORFLOW_BUILD_OPT}
                 --action_env CUDA_TOOLKIT_PATH=${CUDA_PATH}
                 --action_env CUDNN_INSTALL_PATH=${CUDA_PATH}
-                //tensorflow:libtensorflow.so
                 //tensorflow:libtensorflow_cc.so
                 //tensorflow:libtensorflow_framework.so
                 //tensorflow:install_headers
         COMMAND
-            bazel shutdown)
+            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow shutdown)
     add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
+    add_custom_target(clean-tensorflow
+        WORKING_DIRECTORY
+            ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow
+        COMMAND
+            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow clean)
     target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
     target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)
     target_link_libraries(backend_obj PUBLIC ${TENSORFLOW_SO})
