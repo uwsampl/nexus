@@ -144,8 +144,8 @@ void ModelHandler::HandleReply(const QueryResultProto& result) {
   uint64_t qid = result.query_id();
   auto iter = query_ctx_.find(qid);
   if (iter == query_ctx_.end()) {
-    LOG(FATAL) << model_session_id_ << " cannot find query context for query " <<
-        qid;
+    // FIXME why this happens? lower from FATAL to ERROR temporarily
+    LOG(ERROR) << model_session_id_ << " cannot find query context for query " << qid;
     return;
   }
   auto ctx = iter->second;

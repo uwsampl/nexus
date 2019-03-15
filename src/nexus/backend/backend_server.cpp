@@ -320,7 +320,7 @@ ModelExecutorPtr BackendServer::GetModel(const std::string& model_session_id) {
   std::lock_guard<std::mutex> lock(model_table_mu_);
   auto itr = model_table_.find(model_session_id);
   if (itr == model_table_.end()) {
-    LOG(ERROR) << "Model session is not loaded: " << model_session_id;
+    LOG(WARNING) << "Model session is not loaded: " << model_session_id;
     return nullptr;
   }
   return itr->second;
