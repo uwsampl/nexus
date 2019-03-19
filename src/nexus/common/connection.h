@@ -60,6 +60,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
  protected:
   /*! \brief Socket */
   boost::asio::ip::tcp::socket socket_;
+  std::mutex socket_mutex_;
   /*! \brief Message handler */
   MessageHandler* handler_;
   /*! \brief Wrong header indicator */

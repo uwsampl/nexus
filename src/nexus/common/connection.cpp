@@ -25,7 +25,8 @@ void Connection::Start() {
 }
 
 void Connection::Stop() {
-  LOG(WARNING) << "Connection Stop";
+  LOG(INFO) << "Connection Stop";
+  std::lock_guard<std::mutex> socket_guard(socket_mutex_);
   socket_.close();
 }
 
@@ -40,6 +41,7 @@ void Connection::Write(std::shared_ptr<Message> msg) {
 
 void Connection::DoReadHeader() {
   auto self(shared_from_this());
+  std::lock_guard<std::mutex> socket_guard(socket_mutex_);
   boost::asio::async_read(
       socket_,
       boost::asio::buffer(msg_header_buffer_, MESSAGE_HEADER_SIZE),
@@ -69,6 +71,7 @@ void Connection::DoReadHeader() {
 
 void Connection::DoReadBody(std::shared_ptr<Message> msg) {
   auto self(shared_from_this());
+  std::lock_guard<std::mutex> socket_guard(socket_mutex_);
   boost::asio::async_read(
       socket_,
       boost::asio::buffer(msg->body(), msg->body_length()),
@@ -87,6 +90,7 @@ void Connection::DoReadBody(std::shared_ptr<Message> msg) {
 
 void Connection::DoWrite() {
   auto self(shared_from_this());
+  std::lock_guard<std::mutex> socket_guard(socket_mutex_);
   boost::asio::async_write(
       socket_,
       boost::asio::buffer(write_queue_.front()->data(),
