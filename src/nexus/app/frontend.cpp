@@ -44,7 +44,7 @@ void Frontend::Run(QueryProcessor* qp, size_t nthreads) {
   daemon_thread_ = std::thread(&Frontend::Daemon, this);
   LOG(INFO) << "Frontend server (id: " << node_id_ << ") is listening on " <<
       address();
-  io_service_.run();
+  io_context_.run();
 }
 
 void Frontend::Stop() {
@@ -302,7 +302,7 @@ bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
         backend_sessions_.emplace(
             backend_id, std::unordered_set<std::string>{model_session_id});
         backend_pool_.AddBackend(std::make_shared<BackendSession>(
-            backend.info(), io_service_, this));
+            backend.info(), io_context_, this));
       } else {
         backend_sessions_.at(backend_id).insert(model_session_id);
       }

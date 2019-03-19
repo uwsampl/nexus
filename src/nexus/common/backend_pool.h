@@ -15,7 +15,7 @@ class BackendPool;
 class BackendSession : public Connection {
  public:
   explicit BackendSession(const BackendInfo& info,
-                          boost::asio::io_service& io_service,
+                          boost::asio::io_context& io_context,
                           MessageHandler* handler);
 
   ~BackendSession();
@@ -39,7 +39,7 @@ class BackendSession : public Connection {
   void DoConnect();
 
   /*! \brief Boost io service */
-  boost::asio::io_service& io_service_;
+  boost::asio::io_context& io_context_;
   uint32_t node_id_;
   std::string ip_;
   std::string server_port_;

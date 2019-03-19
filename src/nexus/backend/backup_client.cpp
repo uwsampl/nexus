@@ -6,9 +6,9 @@ namespace nexus {
 namespace backend {
 
 BackupClient::BackupClient(const BackendInfo& info,
-                           boost::asio::io_service& io_service,
+                           boost::asio::io_context& io_context,
                            MessageHandler* handler) :
-    BackendSession(info, io_service, handler) {}
+    BackendSession(info, io_context, handler) {}
 
 void BackupClient::Forward(std::shared_ptr<Task> task) {
   uint64_t qid = task->query.query_id();

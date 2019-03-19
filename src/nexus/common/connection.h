@@ -49,7 +49,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   virtual void Write(std::shared_ptr<Message> msg);
 
  protected:
-  Connection(boost::asio::io_service& io_service, MessageHandler* handler);
+  Connection(boost::asio::io_context& io_context, MessageHandler* handler);
   /*! \brief reads the header from the connection */
   void DoReadHeader();
   /*! \brief reads the body of message and invoke the handler */

@@ -13,12 +13,13 @@ if(USE_CAFFE2 AND USE_CAFFE)
 endif()
 set(CUDA_PATH "/usr/local/cuda" CACHE STRING "Path to the Cuda toolkit")
 
-find_package(Boost REQUIRED COMPONENTS system filesystem)
+set(BOOST_ROOT /usr/local/boost)
+find_package(Boost 1.69.0 REQUIRED COMPONENTS system filesystem)
 find_package(Protobuf REQUIRED)
 find_package(gRPC REQUIRED)
 find_package(glog REQUIRED)
 find_package(gflags REQUIRED)
-find_package(yaml-cpp REQUIRED)
+find_package(yaml-cpp 0.6.2 REQUIRED)
 find_package(OpenCV REQUIRED)
 include(ProcessorCount)
 ProcessorCount(NPROC)
@@ -79,7 +80,7 @@ target_compile_features(common PUBLIC cxx_std_11)
 target_link_libraries(common PUBLIC
         yaml-cpp gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
         ${OpenCV_LIBS} Boost::filesystem Boost::system)
-set_property(TARGET common PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_target_properties(common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 
 

@@ -13,9 +13,9 @@ Connection::Connection(boost::asio::ip::tcp::socket socket,
   socket_.set_option(option);
 }
 
-Connection::Connection(boost::asio::io_service& io_service,
+Connection::Connection(boost::asio::io_context& io_context,
                        MessageHandler* handler) :
-    socket_(io_service),
+    socket_(io_context),
     handler_(handler),
     wrong_header_(false) {
 }
@@ -25,6 +25,7 @@ void Connection::Start() {
 }
 
 void Connection::Stop() {
+  LOG(WARNING) << "Connection Stop";
   socket_.close();
 }
 

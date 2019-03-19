@@ -7,10 +7,10 @@
 namespace nexus {
 
 BackendSession::BackendSession(const BackendInfo& info,
-                               boost::asio::io_service& io_service,
+                               boost::asio::io_context& io_context,
                                MessageHandler* handler):
-    Connection(io_service, handler),
-    io_service_(io_service),
+    Connection(io_context, handler),
+    io_context_(io_context),
     node_id_(info.node_id()),
     ip_(info.ip()),
     server_port_(info.server_port()),
@@ -43,7 +43,7 @@ void BackendSession::Stop() {
 
 void BackendSession::DoConnect() {
   boost::asio::ip::tcp::resolver::iterator endpoint;
-  boost::asio::ip::tcp::resolver resolver(io_service_);
+  boost::asio::ip::tcp::resolver resolver(io_context_);
   endpoint = resolver.resolve({ ip_, server_port_ });
   boost::asio::async_connect(
       socket_, endpoint,

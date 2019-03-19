@@ -12,17 +12,17 @@ ServerBase::ServerBase(std::string port) :
 ServerBase::ServerBase(std::string ip, std::string port)
     : ip_(ip),
       port_(port),
-      io_service_(),
-      signals_(io_service_),
-      acceptor_(io_service_),
-      socket_(io_service_) {
+      io_context_(),
+      signals_(io_context_),
+      acceptor_(io_context_),
+      socket_(io_context_) {
   // handle stop signal
   signals_.add(SIGINT);
   signals_.add(SIGTERM);
 
   DoAwaitStop();
 
-  boost::asio::ip::tcp::resolver resolver(io_service_);
+  boost::asio::ip::tcp::resolver resolver(io_context_);
   boost::asio::ip::tcp::endpoint endpoint = *resolver.resolve({ip, port});
   acceptor_.open(endpoint.protocol());
   acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
@@ -33,7 +33,7 @@ ServerBase::ServerBase(std::string ip, std::string port)
 }
 
 void ServerBase::Run() {
-  io_service_.run();
+  io_context_.run();
 }
 
 void ServerBase::Stop() {

@@ -13,7 +13,7 @@ namespace backend {
 class BackupClient : public BackendSession {
  public:
   explicit BackupClient(const BackendInfo& info,
-                        boost::asio::io_service& io_service,
+                        boost::asio::io_context& io_context,
                         MessageHandler* handler);
 
   void Forward(std::shared_ptr<Task> task);

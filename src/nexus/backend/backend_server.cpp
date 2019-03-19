@@ -98,7 +98,7 @@ void BackendServer::Run() {
   LOG(INFO) << "Backend server (id: " << node_id_ << ") is listening on " <<
       address();
   // Start the IO service
-  io_service_.run();
+  io_context_.run();
 }
 
 void BackendServer::Stop() {
@@ -192,7 +192,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
   auto new_backends = backend_pool_.UpdateBackendList(backend_list);
   for (auto backend_id : new_backends) {
     backend_pool_.AddBackend(std::make_shared<BackupClient>(
-        backend_infos.at(backend_id), io_service_, this));
+        backend_infos.at(backend_id), io_context_, this));
   }
 
   // Count all sessions in model table
