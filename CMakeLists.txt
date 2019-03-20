@@ -18,7 +18,7 @@ find_package(Boost 1.69.0 REQUIRED COMPONENTS system filesystem)
 find_package(Protobuf REQUIRED)
 find_package(gRPC REQUIRED)
 find_package(glog REQUIRED)
-find_package(gflags REQUIRED)
+find_package(gflags REQUIRED COMPONENTS shared)
 find_package(yaml-cpp 0.6.2 REQUIRED)
 find_package(OpenCV REQUIRED)
 include(ProcessorCount)
@@ -189,7 +189,7 @@ if(USE_TENSORFLOW)
                 //tensorflow:install_headers
         COMMAND
             bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow shutdown)
-    add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
+    add_custom_target(tensorflow ALL DEPENDS ${TENSORFLOW_SO})
     add_custom_target(clean-tensorflow
         WORKING_DIRECTORY
             ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow
