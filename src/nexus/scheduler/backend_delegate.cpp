@@ -6,15 +6,56 @@
 #include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/scheduler.h"
 
-uint32_t CeilEps(double x, double eps) {
+uint32_t BatchSizeCeilEps(double x, double eps) {
   double floor = std::floor(x);
-  if (x - floor < eps)
+  if (x - floor < eps && floor != 0)
     return static_cast<uint32_t>(floor);
   return static_cast<uint32_t>(std::ceil(x));
 }
 
 namespace nexus {
 namespace scheduler {
+
+struct CalcCycleResult {
+  struct InstanceInfoChange {
+    uint32_t batch;
+    double fwd_latency_us;
+  };
+  double exec_cycle_us;
+  double duty_cycle_us;
+  bool overload;
+  std::vector<InstanceInfoChange> changes;
+};
+
+CalcCycleResult calc_cycle(const std::vector<InstanceInfoPtr> &models) {
+  double exec_cycle_us = 0;
+  double duty_cycle_us = 0;
+  bool overload = false;
+  std::vector<CalcCycleResult::InstanceInfoChange> changes;
+  for (const auto &inst_info : models) {
+    if (duty_cycle_us == 0 || inst_info->max_duty_cycle_us < duty_cycle_us) {
+      duty_cycle_us = inst_info->max_duty_cycle_us;
+    }
+  }
+  for (const auto &inst_info : models) {
+    double fwd_latency_us;
+    uint32_t batch = BatchSizeCeilEps(duty_cycle_us * inst_info->workload / 1e6, 1e-3);
+    if (batch > inst_info->max_batch) {
+      overload = true;
+      batch = 0;
+      fwd_latency_us = inst_info->profile->GetForwardLatency(inst_info->max_batch);
+    } else {
+      CHECK_NE(batch, 0);
+      fwd_latency_us = inst_info->profile->GetForwardLatency(batch);
+    }
+    exec_cycle_us += fwd_latency_us;
+    changes.push_back({batch, fwd_latency_us});
+  }
+  if (exec_cycle_us > duty_cycle_us) {
+    overload = true;
+  }
+  return {exec_cycle_us, duty_cycle_us, overload, changes};
+}
 
 BackendDelegate::BackendDelegate(uint32_t node_id, const std::string& ip,
                                  const std::string& server_port,
@@ -109,30 +150,22 @@ bool BackendDelegate::PrepareLoadModel(
     return false;
   }
   // Compute new duty cycle and new exec cycle if we load this model
-  double new_duty_cycle, new_exec_cycle;
-  if (duty_cycle_us_ == 0 || inst_info->max_duty_cycle_us < duty_cycle_us_) {
-    new_duty_cycle = inst_info->max_duty_cycle_us;
-    new_exec_cycle = 0.;
-    for (auto info : models_) {
-      uint32_t new_b = CeilEps(new_duty_cycle * info->throughput / 1e6, 1e-3);
-      CHECK_LE(new_b, info->max_batch);
-      new_exec_cycle += info->profile->GetForwardLatency(new_b);
-    }
-    new_exec_cycle += inst_info->fwd_latency_us;
-  } else { // max_duty_cycle >= duty_cycle_us_
-    new_duty_cycle = duty_cycle_us_;
-    inst_info->batch = CeilEps(new_duty_cycle * inst_info->workload / 1e6, 1e-3);
+  auto new_models = models_;
+  new_models.push_back(std::make_shared<InstanceInfo>(*inst_info));
+  auto res = calc_cycle(new_models);
+  if (duty_cycle_us_ != 0 && inst_info->max_duty_cycle_us >= duty_cycle_us_) {
+    const auto &change = res.changes.back();
+    inst_info->batch = change.batch;
+    inst_info->fwd_latency_us = change.fwd_latency_us;
+    inst_info->throughput = inst_info->batch * 1e6 / duty_cycle_us_;
     CHECK_NE(inst_info->batch, 0);
-    inst_info->fwd_latency_us = profile->GetForwardLatency(inst_info->batch);
-    inst_info->throughput = inst_info->batch * 1e6 / new_duty_cycle;
-    new_exec_cycle = exec_cycle_us_ + inst_info->fwd_latency_us;
   }
 
-  if (new_exec_cycle > new_duty_cycle) {
+  if (res.exec_cycle_us > res.duty_cycle_us) {
     // Doesn't have enough spare cycles to load this workload
     return false;
   }
-  *occupancy = new_exec_cycle / new_duty_cycle;
+  *occupancy = res.exec_cycle_us / res.duty_cycle_us;
   CHECK_LE(*occupancy, 1.0 + 1e-3) << "Backend is overloaded";
   return true;
 }
@@ -541,31 +574,16 @@ void BackendDelegate::ComputeBatchSize(InstanceInfo* inst_info,
 }
 
 void BackendDelegate::UpdateCycle() {
-  exec_cycle_us_ = 0.;
-  duty_cycle_us_ = 0.;
-  for (auto inst_info : models_) {
-    if (duty_cycle_us_ == 0 || inst_info->max_duty_cycle_us < duty_cycle_us_) {
-      duty_cycle_us_ = inst_info->max_duty_cycle_us;
-    }
+  auto res = calc_cycle(models_);
+  exec_cycle_us_ = res.exec_cycle_us;
+  duty_cycle_us_ = res.duty_cycle_us;
+  overload_ = res.overload;
+  for (size_t i = 0; i < res.changes.size(); ++i) {
+    models_[i]->batch = res.changes[i].batch;
+    models_[i]->fwd_latency_us = res.changes[i].fwd_latency_us;
   }
-  for (auto inst_info : models_) {
-    inst_info->batch = CeilEps(duty_cycle_us_ * inst_info->workload / 1e6, 1e-3);
-    if (inst_info->batch > inst_info->max_batch) {
-      overload_ = true;
-      inst_info->batch = 0;
-      inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
-          inst_info->max_batch);
-    } else {
-      CHECK_NE(inst_info->batch, 0);
-      inst_info->fwd_latency_us = inst_info->profile->GetForwardLatency(
-          inst_info->batch);
-    }
-    exec_cycle_us_ += inst_info->fwd_latency_us;
-  }
+
   dirty_model_table_ = true;
-  if (exec_cycle_us_ > duty_cycle_us_) {
-    overload_ = true;
-  }
 }
 
 } // namespace scheduler
