@@ -101,9 +101,9 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
       gpu_option_.config.gpu_options(), tf::TfGpuId(0), 0);
 
   // Dry run the model to get the outpue size
-  tf::Tensor* in_tensor = NewInputTensor();
+  auto in_tensor = NewInputTensor()->Slice(0, 1);
   std::vector<tf::Tensor> out_tensors;
-  status = session_->Run({{input_layer_, *in_tensor}}, output_layers_, {},
+  status = session_->Run({{input_layer_, in_tensor}}, output_layers_, {},
                          &out_tensors);
   if (!status.ok()) {
     LOG(FATAL) << "Failed to run " << model_session_id_ << ": " <<
