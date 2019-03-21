@@ -827,14 +827,20 @@ void Scheduler::EpochSchedule() {
                   return a.second > b.second;
                 });
       for (auto iter : adjust_backends) {
-        auto backend = backends_.at(iter.first);
-        double new_tp = backend->UpdateModelThroughput(model_sess_id,
-                                                       estimate_rps);
-        session_info->backend_weights[iter.first] = backend->GetModelWeight(
-            model_sess_id);
-        estimate_rps -= new_tp;
-        if (backend->overload() && backend->Occupancy() > 1.05) {
-          overload_backends.push_back(backend);
+        if (estimate_rps < 1e-3) {
+          auto backend = backends_.at(iter.first);
+          backend->UnloadModel(model_sess_id);
+          session_info->backend_weights.erase(iter.first);
+        } else {
+          auto backend = backends_.at(iter.first);
+          double new_tp = backend->UpdateModelThroughput(model_sess_id,
+                                                         estimate_rps);
+          session_info->backend_weights[iter.first] = backend->GetModelWeight(
+              model_sess_id);
+          estimate_rps -= new_tp;
+          if (backend->overload() && backend->Occupancy() > 1.05) {
+            overload_backends.push_back(backend);
+          }
         }
       }
       if (estimate_rps > 1e-3) {
