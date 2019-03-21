@@ -2,11 +2,17 @@ cmake_minimum_required(VERSION 3.13)
 project(nexus LANGUAGES CXX)
 list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-option(USE_GPU        "Use GPU"        ON )
-option(USE_TENSORFLOW "Use TensorFlow" ON )
-option(USE_DARKNET    "Use Darknet"    ON )
-option(USE_CAFFE2     "Use Caffe2"     ON )
-option(USE_CAFFE      "Use Caffe"      OFF)
+# We don't support caffe2/caffe/darknet any more
+#option(USE_GPU        "Use GPU"        ON )
+#option(USE_TENSORFLOW "Use TensorFlow" ON )
+#option(USE_DARKNET    "Use Darknet"    ON )
+#option(USE_CAFFE2     "Use Caffe2"     ON )
+#option(USE_CAFFE      "Use Caffe"      OFF)
+set(USE_GPU ON)
+set(USE_TENSORFLOW ON)
+set(USE_DARKNET OFF)
+set(USE_CAFFE2 OFF)
+set(USE_CAFFE OFF)
 option(DEBUG_TF_BUILD "Build TensorFlow in Debug model" OFF)
 if(USE_CAFFE2 AND USE_CAFFE)
     message(FATAL_ERROR "`USE_CAFFE2` and `USE_CAFFE` cannot be set at the same time.")
@@ -120,10 +126,6 @@ add_library(backend_obj
         src/nexus/backend/backend_server.cpp
         src/nexus/backend/backup_client.cpp
         src/nexus/backend/batch_task.cpp
-        src/nexus/backend/caffe2_model.cpp
-        src/nexus/backend/caffe_densecap_model.cpp
-        src/nexus/backend/caffe_model.cpp
-        src/nexus/backend/darknet_model.cpp
         src/nexus/backend/gpu_executor.cpp
         src/nexus/backend/model_exec.cpp
         src/nexus/backend/model_ins.cpp
@@ -131,7 +133,6 @@ add_library(backend_obj
         src/nexus/backend/share_prefix_model.cpp
         src/nexus/backend/slice.cpp
         src/nexus/backend/task.cpp
-        src/nexus/backend/tensorflow_model.cpp
         src/nexus/backend/utils.cpp
         src/nexus/backend/worker.cpp)
 target_compile_features(backend_obj PUBLIC cxx_std_11)
@@ -155,6 +156,8 @@ endif()
 ## backend: TensorFlow support ##
 if(USE_TENSORFLOW)
     target_compile_definitions(backend_obj PUBLIC USE_TENSORFLOW)
+    target_sources(backend_obj PUBLIC src/nexus/backend/tensorflow_model.cpp)
+    # set_source_files_properties(src/nexus/backend/tensorflow_model.cpp PROPERTIES COMPILE_OPTIONS -DNDEBUG)
     set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
 
     # tensorflow/core/lib/core/refcount.h is REALLY REALLY annoying. Need NDEBUG here.
@@ -189,7 +192,7 @@ if(USE_TENSORFLOW)
                 //tensorflow:install_headers
         COMMAND
             bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow shutdown)
-    add_custom_target(tensorflow ALL DEPENDS ${TENSORFLOW_SO})
+    add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
     add_custom_target(clean-tensorflow
         WORKING_DIRECTORY
             ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow
@@ -204,6 +207,7 @@ endif()
 ## backend: Caffe2 support ##
 if(USE_CAFFE2)
     target_compile_definitions(backend PRIVATE USE_CAFFE2)
+    target_sources(backend_obj PUBLIC src/nexus/backend/caffe2_model.cpp)
     set(CAFFE2_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/caffe2)
     set(CAFFE2_SO
             ${CAFFE2_BUILD_ROOT}/install/lib/libcaffe2.so
@@ -234,6 +238,9 @@ endif()
 ## backend: Caffe support ##
 if(USE_CAFFE)
     target_compile_definitions(backend PRIVATE USE_CAFFE)
+    target_sources(backend_obj PUBLIC
+        src/nexus/backend/caffe_densecap_model.cpp
+        src/nexus/backend/caffe_model.cpp)
     set(CAFFE_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe)
     set(CAFFE_BUILD_ROOT ${CAFFE_SRC_ROOT}/build)
     set(CAFFE_SO ${CAFFE_BUILD_ROOT}/lib/libcaffe.so)
@@ -251,6 +258,7 @@ endif()
 ## backend: Darknet support ##
 if(USE_DARKNET)
     target_compile_definitions(backend PRIVATE USE_DARKNET)
+    target_sources(backend_obj PRIVATE src/nexus/backend/darknet_model.cpp)
     set(DARKNET_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/darknet)
     set(DARKNET_SO ${DARKNET_SRC_ROOT}/libdarknet.so)
     add_custom_command(
