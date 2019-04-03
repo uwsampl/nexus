@@ -156,7 +156,9 @@ endif()
 ## backend: TensorFlow support ##
 if(USE_TENSORFLOW)
     target_compile_definitions(backend_obj PUBLIC USE_TENSORFLOW)
-    target_sources(backend_obj PUBLIC src/nexus/backend/tensorflow_model.cpp)
+    target_sources(backend_obj PUBLIC
+            src/nexus/backend/tensorflow_model.cpp
+            src/nexus/backend/tf_share_model.cpp)
     # set_source_files_properties(src/nexus/backend/tensorflow_model.cpp PROPERTIES COMPILE_OPTIONS -DNDEBUG)
     set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
 

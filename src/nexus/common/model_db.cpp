@@ -164,6 +164,13 @@ const ModelProfile* ModelDatabase::GetModelProfile(
   return &itr2->second;
 }
 
+std::shared_ptr<TFShareInfo> ModelDatabase::GetTFShareInfo(const std::string& model_name) const {
+  auto iter = tf_share_models_.find(model_name);
+  if (iter != tf_share_models_.end())
+    return iter->second;
+  return nullptr;
+}
+
 float ModelDatabase::GetModelForwardLatency(const std::string& gpu_device,
                                             const std::string& profile_id,
                                             uint32_t batch) const {
@@ -257,6 +264,7 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
     std::string model_id = ModelID(framework, model_name, version);
     model_info_table_[model_id] = model_info;
   }
+
   const YAML::Node& shares = db["share_prefix"];
   for (uint i = 0; i < shares.size(); ++i) {
     auto const& share = shares[i];
@@ -283,9 +291,41 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
       }
     }
   }
+
+  const YAML::Node& tf_share = db["tf_share"];
+  for (uint i = 0; i < tf_share.size(); ++i) {
+    const auto& node = tf_share[i];
+    std::vector<std::string> output_layers;
+    auto info = std::make_shared<TFShareInfo>(node);
+    for (const auto &suffix_model : info->suffix_models) {
+      const auto &name = suffix_model.first;
+      CHECK(tf_share_models_.count(name) == 0) << "Duplicated model " << name;
+      tf_share_models_[name] = info;
+      CHECK(model_info_table_.count(name) == 0) << "Duplicated model " << name;
+      model_info_table_[name] = YAML::Node(); // FIXME: hack for the ModelInstance constructor
+      output_layers.push_back(suffix_model.second.output_layer);
+    }
+
+    // TODO refactor ModelInstance constructor so that it doesn't look up the ModelDB Singleton
+    YAML::Node model_info;
+    model_info["framework"] = "tensorflow";
+    model_info["model_name"] = info->hack_internal_id;
+    model_info["version"] = 1;
+    model_info["type"] = "classification";  // FIXME
+    model_info["model_dir"] = model_store_dir_;
+    model_info["model_file"] = node["model_file"];
+    if (node["model_height"]) model_info["model_height"] = node["model_height"];
+    if (node["model_width"]) model_info["model_width"] = node["model_width"];
+    model_info["input_layer"] = node["input_layer"];
+    model_info["output_layer"] = output_layers;
+    if (node["input_mean"]) model_info["input_mean"] = node["input_mean"];
+    if (node["input_std"]) model_info["input_std"] = node["input_std"];
+    if (node["class_names"]) model_info["class_names"] = node["class_names"];
+    model_info_table_[info->hack_internal_id] = model_info;
+  }
 }
 
-void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) { 
+void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
   fs::path root_dir(profile_dir);
   fs::directory_iterator end_iter;
   for (fs::directory_iterator dir_itr(root_dir); dir_itr != end_iter;
@@ -310,5 +350,31 @@ void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
     }
   }
 }
+
+TFShareSuffixInfo::TFShareSuffixInfo(const YAML::Node &node) :
+    model_name(node["model_name"].as<std::string>()),
+    output_layer(node["output_layer"].as<std::string>()),
+    type(node["type"].as<std::string>()),
+    class_names(node["class_names"].as<std::string>()) {
+}
+
+TFShareInfo::TFShareInfo(const YAML::Node &node) :
+    model_file(node["model_file"].as<std::string>()),
+    input_layer(node["input_layer"].as<std::string>()),
+    slice_beg_vector(node["slice_beg_vector"].as<std::string>()),
+    slice_end_vector(node["slice_end_vector"].as<std::string>()),
+    image_height(node["image_height"].as<int>()),
+    image_width(node["image_width"].as<int>()) {
+  hack_internal_id = "tf_share";
+  const auto& models = node["suffix_models"];
+  for (size_t i = 0; i < models.size(); ++i) {
+    TFShareSuffixInfo suffix(models[i]);
+    CHECK(suffix_models.count(suffix.model_name) == 0) << "Duplicated model_name " << suffix.model_name;
+    suffix_models.emplace(suffix.model_name, suffix);
+    hack_internal_id += '|';
+    hack_internal_id += suffix.model_name;
+  }
+}
+
 
 } // namespace nexus

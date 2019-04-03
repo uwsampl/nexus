@@ -1,6 +1,7 @@
 #ifndef NEXUS_COMMON_MODEL_DB_H_
 #define NEXUS_COMMON_MODEL_DB_H_
 
+#include <memory>
 #include <unordered_map>
 #include <yaml-cpp/yaml.h>
 
@@ -54,6 +55,28 @@ class ModelProfile {
   const float network_latency_us_ = 2000; // us
 };
 
+struct TFShareSuffixInfo {
+  std::string model_name;
+  std::string output_layer;
+  std::string type;
+  std::string class_names;
+
+  explicit TFShareSuffixInfo(const YAML::Node &node);
+};
+
+struct TFShareInfo {
+  std::string model_file;
+  std::string input_layer;
+  std::string slice_beg_vector;
+  std::string slice_end_vector;
+  int image_height;
+  int image_width;
+  std::unordered_map<std::string, TFShareSuffixInfo> suffix_models;
+
+  std::string hack_internal_id;
+  explicit TFShareInfo(const YAML::Node &node);
+};
+
 class ModelDatabase {
  public:
   static ModelDatabase& Singleton();
@@ -81,6 +104,8 @@ class ModelDatabase {
   std::vector<std::string> GetPrefixShareModels(const std::string& model_id)
       const;
 
+  std::shared_ptr<TFShareInfo> GetTFShareInfo(const std::string& model_name) const;
+
  private:
   ModelDatabase(const std::string& model_root);
 
@@ -102,6 +127,8 @@ class ModelDatabase {
   std::unordered_map<std::string, ProfileTable> device_profile_table_;
 
   std::unordered_map<std::string, PrefixMap> share_prefix_models_;
+  /*! \brief Map from model name to TFShareInfo */
+  std::unordered_map<std::string, std::shared_ptr<TFShareInfo>> tf_share_models_;
 };
 
 } // namespace nexus
