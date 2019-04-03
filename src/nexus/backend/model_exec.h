@@ -35,6 +35,7 @@ class ModelExecutor {
   double GetDropRate();
 
   bool IsSharePrefixModel() const;
+  bool IsTFShareModel() const;
 
   bool HasBackup();
 

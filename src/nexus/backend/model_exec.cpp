@@ -5,6 +5,7 @@
 #include "nexus/backend/model_exec.h"
 #include "nexus/backend/model_ins.h"
 #include "nexus/backend/share_prefix_model.h"
+#include "nexus/backend/tf_share_model.h"
 #include "nexus/common/model_db.h"
 
 namespace nexus {
@@ -65,6 +66,10 @@ double ModelExecutor::GetDropRate() {
 
 bool ModelExecutor::IsSharePrefixModel() const {
   return (dynamic_cast<SharePrefixModel*>(model_.get()) != nullptr);
+}
+
+bool ModelExecutor::IsTFShareModel() const {
+  return (dynamic_cast<TFShareModel*>(model_.get()) != nullptr);
 }
 
 bool ModelExecutor::HasBackup() {

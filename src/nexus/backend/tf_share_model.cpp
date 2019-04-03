@@ -63,5 +63,22 @@ void TFShareModel::Postprocess(std::shared_ptr<Task> task) {
   tf_model_->Postprocess(task);
 }
 
+bool TFShareModel::AddModelSession(const ModelSession& model_sess) {
+  std::lock_guard<std::mutex> lock(loaded_suffixes_mutex_);
+  auto pair = loaded_suffixes_.emplace(model_sess.model_name());
+  return pair.second;
+}
+
+bool TFShareModel::RemoveModelSession(const ModelSession& model_sess) {
+  std::lock_guard<std::mutex> lock(loaded_suffixes_mutex_);
+  size_t n = loaded_suffixes_.erase(model_sess.model_name());
+  return n > 0;
+}
+
+size_t TFShareModel::num_model_sessions() {
+  std::lock_guard<std::mutex> lock(loaded_suffixes_mutex_);
+  return loaded_suffixes_.size();
+}
+
 }
 }

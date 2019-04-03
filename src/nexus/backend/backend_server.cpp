@@ -7,6 +7,7 @@
 #include "nexus/common/model_db.h"
 #include "nexus/backend/backend_server.h"
 #include "nexus/backend/share_prefix_model.h"
+#include "nexus/backend/tf_share_model.h"
 
 DEFINE_bool(multi_batch, true, "Enable multi batching");
 DEFINE_int32(occupancy_valid, 10, "Backup backend occupancy valid time in ms");
@@ -215,72 +216,137 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
   for (auto session_id : to_remove) {
     auto model = model_table_.at(session_id);
     model_table_.erase(session_id);
-    if (!model->IsSharePrefixModel()) {
-      LOG(INFO) << "Remove model instance " << session_id;
-      gpu_executor_->RemoveModel(model);
-    } else {
+    if (model->IsTFShareModel()) {
+      auto tf_model = dynamic_cast<TFShareModel*>(model->model());
+      LOG(INFO) << "Remove model session " << session_id << " from TFShare model " << tf_model->model_session_id();
+      ModelSession model_sess;
+      ParseModelSession(session_id, &model_sess);
+      bool ok = tf_model->RemoveModelSession(model_sess);
+      if (!ok)
+        LOG(ERROR) << "Cannot find session " << session_id << " in TFShare model " <<  tf_model->model_session_id();
+      if (tf_model->num_model_sessions() == 0) {
+        LOG(INFO) << "Remove TFShare model " << tf_model->model_session_id();
+        gpu_executor_->RemoveModel(model);
+      }
+    } else if (model->IsSharePrefixModel()) {
       auto sp_internal = dynamic_cast<SharePrefixModel*>(model->model());
       LOG(INFO) << "Remove model session " << session_id <<
-          " from prefix model " << sp_internal->model_session_id();
+                " from prefix model " << sp_internal->model_session_id();
       sp_internal->RemoveModelSession(session_id);
       if (sp_internal->num_model_sessions() == 0) {
         LOG(INFO) << "Remove prefix model instance " << session_id;
         gpu_executor_->RemoveModel(model);
       }
+    } else {
+      LOG(INFO) << "Remove model instance " << session_id;
+      gpu_executor_->RemoveModel(model);
     }
   }
   
   // Add new models and update model batch size
   for (auto config : request.model_instance_config()) {
     if (config.model_session_size() > 1) {
-      std::shared_ptr<ModelExecutor> sp_model = nullptr;
-      for (auto model_sess : config.model_session()) {
-        std::string session_id = ModelSessionToString(model_sess);
-        auto iter = model_table_.find(session_id);
-        if (iter != model_table_.end()) {
-          auto model = iter->second;
-          if (model->IsSharePrefixModel()) {
+      if (config.model_session(0).framework() == "tf_share")  {
+        // TFShareModel
+        auto tf_share_info = ModelDatabase::Singleton().GetTFShareInfo(config.model_session(0).model_name());
+        CHECK_NE(tf_share_info, nullptr) << "Cannot find TFShare suffix model " << config.model_session(0).model_name();
+        std::string str_model_sessions = ModelSessionToString(config.model_session(0));
+        for (int i = 1; i < config.model_session_size(); ++i) {
+          const auto& model_sess = config.model_session(i);
+          str_model_sessions += '|';
+          str_model_sessions += ModelSessionToString(model_sess);
+          CHECK(tf_share_info->suffix_models.count(model_sess.model_name()) == 1)
+              << "Cannot find suffix model " << model_sess.model_name() << " in TFShare model "
+              << tf_share_info->hack_internal_id;
+        }
+        std::shared_ptr<ModelExecutor> sp_model = nullptr;
+        for (const auto &model_sess : config.model_session()) {
+          auto session_id = ModelSessionToString(model_sess);
+          auto iter = model_table_.find(session_id);
+          if (iter != model_table_.end()) {
+            auto model = iter->second;
+            CHECK(model->IsTFShareModel());
             sp_model = model;
             break;
-          } else {
-            // Remove its original model
-            gpu_executor_->RemoveModel(model);
-            model_table_.erase(session_id);
           }
         }
-      }
-      if (sp_model == nullptr) {
-        // Create a new prefix model
-        LOG(INFO) << "Load prefix model instance " <<
-            ModelSessionToString(config.model_session(0)) << ", batch: " <<
-            config.batch() << ", backup: " << config.backup();
-        auto model = std::make_shared<ModelExecutor>(gpu_id_, config,
-                                                     task_queue_);
-        gpu_executor_->AddModel(model);
-        for (auto model_sess : config.model_session()) {
-          std::string session_id = ModelSessionToString(model_sess);
-          model_table_.emplace(session_id, model);
+        if (sp_model == nullptr) {
+          // Create a new prefix model
+          LOG(INFO) << "Load TFShareModel instance [" << str_model_sessions << "] batch=" << config.batch();
+          auto model = std::make_shared<ModelExecutor>(gpu_id_, config, task_queue_);
+          gpu_executor_->AddModel(model);
+          for (const auto& model_sess : config.model_session()) {
+            std::string session_id = ModelSessionToString(model_sess);
+            model_table_.emplace(session_id, model);
+          }
+        } else {
+          // Prefix model already exists
+          auto *tf_model = dynamic_cast<TFShareModel*>(sp_model->model());
+          CHECK_NE(tf_model, nullptr);
+          if (tf_model->batch() != config.batch()) {
+            LOG(INFO) << "Update TFShareModel " << tf_model->model_name()
+                      << ", batch: " << tf_model->batch() << " -> " << config.batch();
+            sp_model->SetBatch(config.batch());
+          }
+          for (const auto& model_sess : config.model_session()) {
+            auto session_id = ModelSessionToString(model_sess);
+            auto not_exist = tf_model->AddModelSession(model_sess);
+            if (not_exist)
+              model_table_.emplace(session_id, sp_model);
+          }
+          sp_model->UpdateBackupBackends(config);
         }
       } else {
-        // Prefix model already exists
-        // Need to update batch size, and add new model sessions sharing prefix
-        auto sp_internal = dynamic_cast<SharePrefixModel*>(sp_model->model());
-        if (sp_internal->batch() != config.batch()) {
-          LOG(INFO) << "Update prefix model instance " <<
-              sp_internal->model_session_id() << ", batch: " <<
-              sp_internal->batch() << " -> " << config.batch();
-          sp_model->SetBatch(config.batch());
-        }
+        // SharePrefixModel
+        std::shared_ptr<ModelExecutor> sp_model = nullptr;
         for (auto model_sess : config.model_session()) {
           std::string session_id = ModelSessionToString(model_sess);
-          if (!sp_internal->HasModelSession(session_id)) {
-            LOG(INFO) << "Add model session " << session_id <<
-                " to prefix model " << sp_internal->model_session_id();
-            sp_internal->AddModelSession(model_sess);
-            model_table_.emplace(session_id, sp_model);
+          auto iter = model_table_.find(session_id);
+          if (iter != model_table_.end()) {
+            auto model = iter->second;
+            if (model->IsSharePrefixModel()) {
+              sp_model = model;
+              break;
+            } else {
+              // Remove its original model
+              gpu_executor_->RemoveModel(model);
+              model_table_.erase(session_id);
+            }
           }
         }
-        sp_model->UpdateBackupBackends(config);
+        if (sp_model == nullptr) {
+          // Create a new prefix model
+          LOG(INFO) << "Load prefix model instance " <<
+                    ModelSessionToString(config.model_session(0)) << ", batch: " <<
+                    config.batch() << ", backup: " << config.backup();
+          auto model = std::make_shared<ModelExecutor>(gpu_id_, config,
+                                                       task_queue_);
+          gpu_executor_->AddModel(model);
+          for (auto model_sess : config.model_session()) {
+            std::string session_id = ModelSessionToString(model_sess);
+            model_table_.emplace(session_id, model);
+          }
+        } else {
+          // Prefix model already exists
+          // Need to update batch size, and add new model sessions sharing prefix
+          auto sp_internal = dynamic_cast<SharePrefixModel *>(sp_model->model());
+          if (sp_internal->batch() != config.batch()) {
+            LOG(INFO) << "Update prefix model instance " <<
+                      sp_internal->model_session_id() << ", batch: " <<
+                      sp_internal->batch() << " -> " << config.batch();
+            sp_model->SetBatch(config.batch());
+          }
+          for (auto model_sess : config.model_session()) {
+            std::string session_id = ModelSessionToString(model_sess);
+            if (!sp_internal->HasModelSession(session_id)) {
+              LOG(INFO) << "Add model session " << session_id <<
+                        " to prefix model " << sp_internal->model_session_id();
+              sp_internal->AddModelSession(model_sess);
+              model_table_.emplace(session_id, sp_model);
+            }
+          }
+          sp_model->UpdateBackupBackends(config);
+        }
       }
     } else {
       // Regular model session

@@ -1,6 +1,8 @@
 #ifndef NEXUS_TFSHAREMODEL_H
 #define NEXUS_TFSHAREMODEL_H
 
+#include <mutex>
+#include <unordered_set>
 #include "nexus/backend/model_ins.h"
 #include "nexus/backend/tensorflow_model.h"
 
@@ -9,7 +11,6 @@ namespace backend {
 
 class TFShareModel : public ModelInstance {
  public:
-  TFShareModel(int gpu_id, const ModelInstanceConfig& config);
   void set_batch(size_t batch) override;
   Shape InputShape() override;
   std::unordered_map<std::string, Shape> OutputShapes() override;
@@ -19,8 +20,15 @@ class TFShareModel : public ModelInstance {
   void Forward(std::shared_ptr<BatchTask> batch_task) override;
   void Postprocess(std::shared_ptr<Task> task) override;
 
+  TFShareModel(int gpu_id, const ModelInstanceConfig& config);
+  bool AddModelSession(const ModelSession& model_sess);
+  bool RemoveModelSession(const ModelSession& model_sess);
+  size_t num_model_sessions();
+
  private:
   std::unique_ptr<ModelInstance> tf_model_;
+  std::mutex loaded_suffixes_mutex_;
+  std::unordered_set<std::string> loaded_suffixes_;
 };
 
 }

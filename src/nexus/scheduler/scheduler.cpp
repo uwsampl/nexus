@@ -124,17 +124,18 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
                           const LoadModelRequest& request,
                           LoadModelReply* reply) {
   ModelSession model_sess(request.model_session());
-  auto info = ModelDatabase::Singleton().GetModelInfo(
-      ModelSessionToModelID(model_sess));
-  if (info == nullptr) {
-    reply->set_status(MODEL_NOT_FOUND);
-    return;
-  }
-  if ((*info)["resizable"] && (*info)["resizable"].as<bool>()) {
-    if (model_sess.image_height() == 0) {
-      // Set default image size for resizable CNN
-      model_sess.set_image_height((*info)["image_height"].as<uint32_t>());
-      model_sess.set_image_width((*info)["image_width"].as<uint32_t>());
+  {
+    auto info = ModelDatabase::Singleton().GetModelInfo(ModelSessionToModelID(model_sess));
+    if (info == nullptr) {
+      reply->set_status(MODEL_NOT_FOUND);
+      return;
+    }
+    if ((*info)["resizable"] && (*info)["resizable"].as<bool>()) {
+      if (model_sess.image_height() == 0) {
+        // Set default image size for resizable CNN
+        model_sess.set_image_height((*info)["image_height"].as<uint32_t>());
+        model_sess.set_image_width((*info)["image_width"].as<uint32_t>());
+      }
     }
   }
   std::string model_sess_id = ModelSessionToString(model_sess);
@@ -203,6 +204,54 @@ void Scheduler::LoadModel(const grpc::ServerContext& ctx,
       }
     }
   }
+
+  // Check TFShare models
+  if (enable_prefix_batch_)
+    do {
+      // FIXME this code block is almost the same as the previous one. need refactor.
+      if (model_sess.framework() != "tf_share")
+        break;
+      auto tf_share_info = ModelDatabase::Singleton().GetTFShareInfo(model_sess.model_name());
+      if (!tf_share_info)
+        break;
+
+      ModelSession share_model_sess;
+      share_model_sess.set_framework("tf_share");
+      share_model_sess.set_version(model_sess.version());
+      share_model_sess.set_latency_sla(model_sess.latency_sla());
+
+      // Find if there are model sessions that can share prefix with
+      std::shared_ptr<SessionInfo> share_session_info = nullptr;
+      for (const auto& suffix : tf_share_info->suffix_models) {
+        share_model_sess.set_model_name(suffix.first);
+        auto suffix_model_id = ModelSessionToString(share_model_sess);
+        auto iter = session_table_.find(suffix_model_id);
+        if (iter != session_table_.end()) {
+          share_session_info = iter->second;
+          break;
+        }
+      }
+      if (!share_session_info)
+        break;
+
+      // Find shared model session
+      LOG(INFO) << "Model session " << model_sess_id << " shares prefix with session "
+                << ModelSessionToString(share_model_sess);
+      for (auto iter : share_session_info->backend_weights) {
+        auto backend = GetBackend(iter.first);
+        backend->LoadPrefixModel(model_sess, share_model_sess);
+        backend->UpdateModelTableRpc();
+      }
+      share_session_info->model_sessions.push_back(model_sess);
+      session_table_.emplace(model_sess_id, share_session_info);
+      frontend->SubscribeModel(model_sess_id);
+      share_session_info->SubscribeModelSession(frontend->node_id(),
+                                                model_sess_id);
+      // Fill route table in the reply
+      reply->set_status(CTRL_OK);
+      GetModelRoute(model_sess_id, reply->mutable_model_route());
+      return;
+    } while (false);
 
   // Find best-fit backends to serve the workload
   std::vector<std::pair<BackendDelegatePtr, InstanceInfo> > assign_backends;

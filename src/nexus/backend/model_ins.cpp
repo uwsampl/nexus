@@ -5,6 +5,7 @@
 #include "nexus/backend/model_ins.h"
 #include "nexus/backend/share_prefix_model.h"
 #include "nexus/backend/tensorflow_model.h"
+#include "nexus/backend/tf_share_model.h"
 
 #include <glog/logging.h>
 
@@ -42,6 +43,8 @@ void CreateModelInstance(int gpu_id, const ModelInstanceConfig& config,
 #ifdef USE_TENSORFLOW
     if (framework == "tensorflow") {
       model->reset(new TensorflowModel(gpu_id, config));
+    } else if (framework == "tf_share") {
+      model->reset(new TFShareModel(gpu_id, config));
     } else
 #endif
     {
