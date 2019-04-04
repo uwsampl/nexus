@@ -25,7 +25,7 @@ namespace backend {
 
 TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
     ModelInstance(gpu_id, config),
-    first_input_array_(true) {
+    first_input_array_(true), num_suffixes_(0) {
   CHECK(model_info_["model_file"]) << "Missing model_file in the model info";
 
   // Init session options
@@ -102,9 +102,24 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
 
   // Dry run the model to get the outpue size
   auto in_tensor = NewInputTensor()->Slice(0, 1);
+  std::vector<std::pair<std::string, tf::Tensor>> inputs;
   std::vector<tf::Tensor> out_tensors;
-  status = session_->Run({{input_layer_, in_tensor}}, output_layers_, {},
-                         &out_tensors);
+  inputs.emplace_back(input_layer_, in_tensor);
+  if (model_info_["slice_beg_vector"]) {
+    // TFShareModel
+    auto slice_beg_vector = model_info_["slice_beg_vector"].as<std::string>();
+    auto slice_end_vector = model_info_["slice_end_vector"].as<std::string>();
+    num_suffixes_ = model_info_["suffix_models"].size();
+    tf::TensorShape shape;
+    shape.AddDim(num_suffixes_);
+    slice_beg_tensor_.reset(new tf::Tensor(gpu_allocator_, tf::DT_INT32, shape));
+    slice_end_tensor_.reset(new tf::Tensor(gpu_allocator_, tf::DT_INT32, shape));
+    set_slice_tensor(slice_beg_tensor_, std::vector<int32_t>(num_suffixes_, 0));
+    set_slice_tensor(slice_end_tensor_, std::vector<int32_t>(num_suffixes_, 1));
+    inputs.emplace_back(slice_beg_vector, slice_beg_tensor_->Slice(0, num_suffixes_));
+    inputs.emplace_back(slice_end_vector, slice_end_tensor_->Slice(0, num_suffixes_));
+  }
+  status = session_->Run(inputs, output_layers_, {}, &out_tensors);
   if (!status.ok()) {
     LOG(FATAL) << "Failed to run " << model_session_id_ << ": " <<
         status.ToString();
@@ -366,6 +381,13 @@ void TensorflowModel::MarshalDetectionResult(
       }
     }
   }
+}
+
+void TensorflowModel::set_slice_tensor(const std::unique_ptr<tf::Tensor>& dst, const std::vector<int32_t> &src) {
+  CHECK_EQ(dst->dtype(), tf::DT_INT32);
+  CHECK_EQ(dst->NumElements(), src.size());
+  Memcpy(const_cast<char*>(dst->tensor_data().data()), gpu_device_,
+      src.data(), cpu_device_, sizeof(int32_t) * src.size());
 }
 
 } // namespace backend

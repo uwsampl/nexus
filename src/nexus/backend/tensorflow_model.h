@@ -57,6 +57,12 @@ class TensorflowModel : public ModelInstance {
   tf::Allocator* gpu_allocator_;
   std::vector<std::unique_ptr<tf::Tensor> > input_tensors_;
   bool first_input_array_;
+
+  // supports for TFShareModel
+  size_t num_suffixes_;
+  std::unique_ptr<tf::Tensor> slice_beg_tensor_;
+  std::unique_ptr<tf::Tensor> slice_end_tensor_;
+  void set_slice_tensor(const std::unique_ptr<tf::Tensor>& dst, const std::vector<int32_t> &src);
 };
 
 } // namespace backend

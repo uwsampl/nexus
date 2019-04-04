@@ -302,26 +302,21 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
       CHECK(tf_share_models_.count(name) == 0) << "Duplicated model " << name;
       tf_share_models_[name] = info;
       CHECK(model_info_table_.count(name) == 0) << "Duplicated model " << name;
-      model_info_table_[name] = YAML::Node(); // FIXME: hack for the ModelInstance constructor
+      std::string model_id = ModelID("tf_share", name, 1);
+      model_info_table_[model_id] = YAML::Node(); // FIXME: hack for the ModelInstance constructor
       output_layers.push_back(suffix_model.second.output_layer);
     }
 
     // TODO refactor ModelInstance constructor so that it doesn't look up the ModelDB Singleton
-    YAML::Node model_info;
+    YAML::Node model_info = node;
     model_info["framework"] = "tensorflow";
     model_info["model_name"] = info->hack_internal_id;
     model_info["version"] = 1;
     model_info["type"] = "classification";  // FIXME
     model_info["model_dir"] = model_store_dir_;
-    model_info["model_file"] = node["model_file"];
-    if (node["model_height"]) model_info["model_height"] = node["model_height"];
-    if (node["model_width"]) model_info["model_width"] = node["model_width"];
-    model_info["input_layer"] = node["input_layer"];
     model_info["output_layer"] = output_layers;
-    if (node["input_mean"]) model_info["input_mean"] = node["input_mean"];
-    if (node["input_std"]) model_info["input_std"] = node["input_std"];
-    if (node["class_names"]) model_info["class_names"] = node["class_names"];
-    model_info_table_[info->hack_internal_id] = model_info;
+    std::string model_id = ModelID("tensorflow", info->hack_internal_id, 1);
+    model_info_table_[model_id] = model_info;
   }
 }
 
