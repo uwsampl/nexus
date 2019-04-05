@@ -346,7 +346,8 @@ void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
   }
 }
 
-TFShareSuffixInfo::TFShareSuffixInfo(const YAML::Node &node) :
+TFShareSuffixInfo::TFShareSuffixInfo(size_t suffix_index_, const YAML::Node &node) :
+    suffix_index(suffix_index_),
     model_name(node["model_name"].as<std::string>()),
     output_layer(node["output_layer"].as<std::string>()),
     type(node["type"].as<std::string>()),
@@ -363,7 +364,7 @@ TFShareInfo::TFShareInfo(const YAML::Node &node) :
   hack_internal_id = "tf_share";
   const auto& models = node["suffix_models"];
   for (size_t i = 0; i < models.size(); ++i) {
-    TFShareSuffixInfo suffix(models[i]);
+    TFShareSuffixInfo suffix(i, models[i]);
     CHECK(suffix_models.count(suffix.model_name) == 0) << "Duplicated model_name " << suffix.model_name;
     suffix_models.emplace(suffix.model_name, suffix);
     hack_internal_id += '|';

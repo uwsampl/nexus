@@ -9,8 +9,11 @@
 
 namespace tf = tensorflow;
 
+
 namespace nexus {
 namespace backend {
+
+class TFShareModel;
 
 class TensorflowModel : public ModelInstance {
  public:
@@ -38,7 +41,7 @@ class TensorflowModel : public ModelInstance {
   void MarshalDetectionResult(
       const QueryProto& query, std::shared_ptr<Output> output,
       int im_height, int im_width, QueryResultProto* result);
-  
+
   tf::SessionOptions gpu_option_;
   tf::SessionOptions cpu_option_;
   std::unique_ptr<tf::Session> session_;
@@ -59,6 +62,10 @@ class TensorflowModel : public ModelInstance {
   bool first_input_array_;
 
   // supports for TFShareModel
+  friend class TFShareModel;
+  void ForwardSharedPrefixModel(std::shared_ptr<BatchTask> batch_task,
+                                const std::vector<int32_t> &slice_beg,
+                                const std::vector<int32_t> &slice_end);
   size_t num_suffixes_;
   std::unique_ptr<tf::Tensor> slice_beg_tensor_;
   std::unique_ptr<tf::Tensor> slice_end_tensor_;

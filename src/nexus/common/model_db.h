@@ -56,12 +56,13 @@ class ModelProfile {
 };
 
 struct TFShareSuffixInfo {
+  size_t suffix_index;
   std::string model_name;
   std::string output_layer;
   std::string type;
   std::string class_names;
 
-  explicit TFShareSuffixInfo(const YAML::Node &node);
+  TFShareSuffixInfo(size_t suffix_index_, const YAML::Node &node);
 };
 
 struct TFShareInfo {

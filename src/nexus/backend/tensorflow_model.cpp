@@ -112,8 +112,8 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
     num_suffixes_ = model_info_["suffix_models"].size();
     tf::TensorShape shape;
     shape.AddDim(num_suffixes_);
-    slice_beg_tensor_.reset(new tf::Tensor(gpu_allocator_, tf::DT_INT32, shape));
-    slice_end_tensor_.reset(new tf::Tensor(gpu_allocator_, tf::DT_INT32, shape));
+    slice_beg_tensor_.reset(new tf::Tensor(/* gpu_allocator_, */tf::DT_INT32, shape));
+    slice_end_tensor_.reset(new tf::Tensor(/* gpu_allocator_, */tf::DT_INT32, shape));
     set_slice_tensor(slice_beg_tensor_, std::vector<int32_t>(num_suffixes_, 0));
     set_slice_tensor(slice_end_tensor_, std::vector<int32_t>(num_suffixes_, 1));
     inputs.emplace_back(slice_beg_vector, slice_beg_tensor_->Slice(0, num_suffixes_));
@@ -285,6 +285,33 @@ void TensorflowModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   batch_task->SliceOutputBatch(slices);
 }
 
+void TensorflowModel::ForwardSharedPrefixModel(std::shared_ptr<BatchTask> batch_task,
+                              const std::vector<int32_t> &slice_beg,
+                              const std::vector<int32_t> &slice_end) {
+  size_t batch_size = batch_task->batch_size();
+  auto in_tensor = input_tensors_[batch_task->GetInputArray()->tag()]->Slice(
+      0, batch_size);
+  std::vector<tf::Tensor> out_tensors;
+  tf::Status status = session_->Run({{input_layer_, in_tensor}},
+                                    output_layers_, {}, &out_tensors);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to run tensorflow: " << status.ToString();
+    return;
+  }
+  std::unordered_map<std::string, Slice> slices;
+  for (uint i = 0; i < output_layers_.size(); ++i) {
+    const auto& name = output_layers_[i];
+    const char* tensor_data = out_tensors[i].tensor_data().data();
+    size_t nfloats = out_tensors[i].NumElements();
+    auto out_arr = batch_task->GetOutputArray(name);
+    float* out_data = out_arr->Data<float>();
+    Memcpy(out_data, cpu_device_, tensor_data, cpu_device_,
+           nfloats * sizeof(float));
+    slices.emplace(name, Slice(batch_size, output_sizes_.at(name)));
+  }
+  batch_task->SliceOutputBatch(slices);
+}
+
 void TensorflowModel::Postprocess(std::shared_ptr<Task> task) {
   const QueryProto& query = task->query;
   QueryResultProto* result = &task->result;
@@ -386,7 +413,7 @@ void TensorflowModel::MarshalDetectionResult(
 void TensorflowModel::set_slice_tensor(const std::unique_ptr<tf::Tensor>& dst, const std::vector<int32_t> &src) {
   CHECK_EQ(dst->dtype(), tf::DT_INT32);
   CHECK_EQ(dst->NumElements(), src.size());
-  Memcpy(const_cast<char*>(dst->tensor_data().data()), gpu_device_,
+  Memcpy(const_cast<char*>(dst->tensor_data().data()), cpu_device_,
       src.data(), cpu_device_, sizeof(int32_t) * src.size());
 }
 

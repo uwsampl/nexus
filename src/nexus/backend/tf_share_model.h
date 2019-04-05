@@ -26,7 +26,9 @@ class TFShareModel : public ModelInstance {
   size_t num_model_sessions();
 
  private:
-  std::unique_ptr<ModelInstance> tf_model_;
+  size_t num_suffixes_;
+  std::shared_ptr<TFShareInfo> tf_share_info_;
+  std::unique_ptr<TensorflowModel> tf_model_;
   std::mutex loaded_suffixes_mutex_;
   std::unordered_set<std::string> loaded_suffixes_;
 };

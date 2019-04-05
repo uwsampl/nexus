@@ -8,7 +8,7 @@ import yaml
 
 
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-_profiler = os.path.join(_root, 'build/bin/profiler')
+_profiler = os.path.join(_root, 'build/profiler')
 _models = {}
 
 
@@ -21,6 +21,16 @@ def load_model_db(path):
         if framework not in _models:
             _models[framework] = {}
         _models[framework][model_name] = model_info
+
+    if 'tf_share' in model_db:
+        d = {}
+        for model_info in model_db['tf_share']:
+            for suffix_info in model_info['suffix_models']:
+                name = suffix_info['model_name']
+                if name in d:
+                    raise ValueError(f'Duplicated model {name}')
+                d[name] = model_info
+        _models['tf_share'] = d
 
 
 def find_max_batch(framework, model_name):
@@ -40,7 +50,9 @@ def find_max_batch(framework, model_name):
         curr_tp = None
         cmd = cmd_base + ' -min_batch %s -max_batch %s' % (right, right)
         print(cmd)
-        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+        # exit(0)
+        proc = subprocess.Popen(cmd, shell=True, universal_newlines=True,
+                                stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
         out, err = proc.communicate()
         if 'out of memory' in err or 'out of memory' in out:
@@ -133,7 +145,7 @@ def profile_model(framework, model_name, max_batch_limit=0):
 def main():
     parser = argparse.ArgumentParser(description='Profile models')
     parser.add_argument('framework',
-                        choices=['caffe', 'caffe2', 'tensorflow', 'darknet'],
+                        choices=['caffe', 'caffe2', 'tensorflow', 'darknet', 'tf_share'],
                         help='Framework name')
     parser.add_argument('model', type=str, help='Model name')
     parser.add_argument('model_root', type=str,
