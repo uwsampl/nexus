@@ -301,6 +301,8 @@ int main(int argc, char** argv) {
   CHECK_GT(FLAGS_framework.length(), 0) << "Missing framework";
   CHECK_GT(FLAGS_model.length(), 0) << "Missing model";
   CHECK_GT(FLAGS_image_dir.length(), 0) << "Missing image_dir";
+  if (FLAGS_framework == "tf_share" && FLAGS_share_prefix)
+    LOG(FATAL) << "Cannot use --share_prefix on TFShare models";
   srand(time(NULL));
   ModelProfiler profiler(FLAGS_gpu, FLAGS_framework, FLAGS_model,
                          FLAGS_model_version, FLAGS_image_dir, FLAGS_height,

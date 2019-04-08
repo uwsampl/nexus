@@ -15,11 +15,16 @@ namespace backend {
 void CreateModelInstance(int gpu_id, const ModelInstanceConfig& config,
                          std::unique_ptr<ModelInstance>* model) {
   auto beg = Clock::now();
+  std::string framework = config.model_session(0).framework();
+#ifdef USE_TENSORFLOW
+  if (framework == "tf_share") {
+    model->reset(new TFShareModel(gpu_id, config));
+  } else
+#endif
   if (config.model_session_size() > 1) {
     LOG(INFO) << "Create prefix model";
     model->reset(new SharePrefixModel(gpu_id, config));
   } else {
-    std::string framework = config.model_session(0).framework();
     std::string model_name = config.model_session(0).model_name();
 #ifdef USE_DARKNET
     if (framework == "darknet") {
@@ -43,8 +48,6 @@ void CreateModelInstance(int gpu_id, const ModelInstanceConfig& config,
 #ifdef USE_TENSORFLOW
     if (framework == "tensorflow") {
       model->reset(new TensorflowModel(gpu_id, config));
-    } else if (framework == "tf_share") {
-      model->reset(new TFShareModel(gpu_id, config));
     } else
 #endif
     {

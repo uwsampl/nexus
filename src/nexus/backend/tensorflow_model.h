@@ -63,9 +63,6 @@ class TensorflowModel : public ModelInstance {
 
   // supports for TFShareModel
   friend class TFShareModel;
-  void ForwardSharedPrefixModel(std::shared_ptr<BatchTask> batch_task,
-                                const std::vector<int32_t> &slice_beg,
-                                const std::vector<int32_t> &slice_end);
   size_t num_suffixes_;
   std::unique_ptr<tf::Tensor> slice_beg_tensor_;
   std::unique_ptr<tf::Tensor> slice_end_tensor_;

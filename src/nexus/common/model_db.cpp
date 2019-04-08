@@ -295,16 +295,20 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
   const YAML::Node& tf_share = db["tf_share"];
   for (uint i = 0; i < tf_share.size(); ++i) {
     const auto& node = tf_share[i];
-    std::vector<std::string> output_layers;
     auto info = std::make_shared<TFShareInfo>(node);
+    std::vector<std::string> output_layers(info->suffix_models.size());
     for (const auto &suffix_model : info->suffix_models) {
       const auto &name = suffix_model.first;
       CHECK(tf_share_models_.count(name) == 0) << "Duplicated model " << name;
       tf_share_models_[name] = info;
       CHECK(model_info_table_.count(name) == 0) << "Duplicated model " << name;
+      output_layers[suffix_model.second.suffix_index] = suffix_model.second.output_layer;
+
+      // FIXME: hack for the ModelInstance constructor
+      YAML::Node model_info;
+      model_info["model_dir"] = model_store_dir_;
       std::string model_id = ModelID("tf_share", name, 1);
-      model_info_table_[model_id] = YAML::Node(); // FIXME: hack for the ModelInstance constructor
-      output_layers.push_back(suffix_model.second.output_layer);
+      model_info_table_[model_id] = model_info;
     }
 
     // TODO refactor ModelInstance constructor so that it doesn't look up the ModelDB Singleton

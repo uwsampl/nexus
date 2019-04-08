@@ -21,6 +21,10 @@ class AsyncClient:
         self._reader_lock = asyncio.Lock()
         self._replies = {}
 
+    @property
+    def next_req_id(self):
+        return self._req_id
+
     async def __aenter__(self):
         host, port = self._server_addr.split(':')
         self._reader, self._writer = await asyncio.open_connection(host, port)
@@ -40,16 +44,18 @@ class AsyncClient:
         reply, time = await self._wait_reply(req.req_id)
         assert reply.status == 0
 
-    async def request(self, img):
-        req = self._prepare_req(img)
-        msg = self._prepare_message(MSG_USER_REQUEST, req)
-
+    async def _do_request(self, req, msg):
         send_time = datetime.now()
         self._writer.write(msg)
         await self._writer.drain()
 
         reply, recv_time = await self._wait_reply(req.req_id)
         return send_time, recv_time, reply
+
+    def request(self, img):
+        req = self._prepare_req(img)
+        msg = self._prepare_message(MSG_USER_REQUEST, req)
+        return self._do_request(req, msg)
 
     def _prepare_req(self, img):
         req = npb.RequestProto()

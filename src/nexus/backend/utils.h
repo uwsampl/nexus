@@ -1,7 +1,6 @@
 #ifndef NEXUS_BACKEND_UTILS_H_
 #define NEXUS_BACKEND_UTILS_H_
 
-#include <glog/logging.h>
 #include <unordered_map>
 
 #include "nexus/proto/nnquery.pb.h"

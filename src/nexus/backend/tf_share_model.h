@@ -31,6 +31,7 @@ class TFShareModel : public ModelInstance {
   std::unique_ptr<TensorflowModel> tf_model_;
   std::mutex loaded_suffixes_mutex_;
   std::unordered_set<std::string> loaded_suffixes_;
+  std::unordered_map<std::string, std::unordered_map<int, std::string>> classnames_;
 };
 
 }

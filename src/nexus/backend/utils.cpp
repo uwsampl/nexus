@@ -40,6 +40,7 @@ void PostprocessClassification(
                                                 query.output_field().end());
   if (output_fields.empty()) {
     output_fields.insert("class_id");
+    output_fields.insert("class_prob");
     output_fields.insert("class_name");
   }
   float max_prob = 0.;

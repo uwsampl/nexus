@@ -86,7 +86,7 @@ def find_max_batch(framework, model_name):
         mid = (left + right) / 2
         cmd = cmd_base + ' -min_batch %s -max_batch %s' % (mid, mid)
         print(cmd)
-        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+        proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
         out, err = proc.communicate()
         if 'out of memory' in err or 'out of memory' in out:
@@ -119,7 +119,7 @@ def profile_model(framework, model_name, max_batch_limit=0):
         cmd += ' -share_prefix'
     print(cmd)
 
-    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+    proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
     proc.communicate()
     if not os.path.exists(output):
@@ -166,6 +166,9 @@ def main():
     global args
     args = parser.parse_args()
 
+    if args.prefix and args.framework == 'tf_share':
+        sys.stderr.write('Cannot use -prefix with TFShare models')
+        return
     load_model_db(os.path.join(args.model_root, 'db', 'model_db.yml'))
     if args.model not in _models[args.framework]:
         sys.stderr.write('%s:%s not found in model DB\n' % (args.framework, args.model))

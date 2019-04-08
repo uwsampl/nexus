@@ -210,7 +210,7 @@ void TensorflowModel::Preprocess(std::shared_ptr<Task> task) {
     image.convertTo(fimg, CV_32FC3);
     // create a cv::Mat using buffer allocated in the in_arr
     auto in_arr = std::make_shared<Array>(DT_FLOAT, input_size_, cpu_device_);
-    cv::Mat resized(image_width_, image_height_, CV_32FC3,
+    cv::Mat resized(image_height_, image_width_, CV_32FC3,
                     in_arr->Data<void>());
     cv::resize(fimg, resized, cv::Size(image_width_, image_height_));
     task->AppendInput(in_arr);
@@ -261,33 +261,6 @@ void TensorflowModel::Preprocess(std::shared_ptr<Task> task) {
 }
 
 void TensorflowModel::Forward(std::shared_ptr<BatchTask> batch_task) {
-  size_t batch_size = batch_task->batch_size();
-  auto in_tensor = input_tensors_[batch_task->GetInputArray()->tag()]->Slice(
-      0, batch_size);
-  std::vector<tf::Tensor> out_tensors;
-  tf::Status status = session_->Run({{input_layer_, in_tensor}},
-                                    output_layers_, {}, &out_tensors);
-  if (!status.ok()) {
-    LOG(ERROR) << "Failed to run tensorflow: " << status.ToString();
-    return;
-  }
-  std::unordered_map<std::string, Slice> slices;
-  for (uint i = 0; i < output_layers_.size(); ++i) {
-    const auto& name = output_layers_[i];
-    const char* tensor_data = out_tensors[i].tensor_data().data();
-    size_t nfloats = out_tensors[i].NumElements();
-    auto out_arr = batch_task->GetOutputArray(name);
-    float* out_data = out_arr->Data<float>();
-    Memcpy(out_data, cpu_device_, tensor_data, cpu_device_,
-           nfloats * sizeof(float));
-    slices.emplace(name, Slice(batch_size, output_sizes_.at(name)));
-  }
-  batch_task->SliceOutputBatch(slices);
-}
-
-void TensorflowModel::ForwardSharedPrefixModel(std::shared_ptr<BatchTask> batch_task,
-                              const std::vector<int32_t> &slice_beg,
-                              const std::vector<int32_t> &slice_end) {
   size_t batch_size = batch_task->batch_size();
   auto in_tensor = input_tensors_[batch_task->GetInputArray()->tag()]->Slice(
       0, batch_size);
