@@ -110,17 +110,28 @@ void TFShareModel::Forward(std::shared_ptr<BatchTask> batch_task) {
     LOG(ERROR) << "Failed to run tensorflow: " << status.ToString();
     return;
   }
-  std::unordered_map<std::string, Slice> slices;
-  for (uint i = 0; i < m.output_layers_.size(); ++i) {
+
+  std::vector<std::shared_ptr<Output>> outputs(tasks.size());
+  std::unordered_map<std::string, std::shared_ptr<Array>> arr;
+  for (size_t i = 0; i < m.output_layers_.size(); ++i) {
     const auto& name = m.output_layers_[i];
-    const char* tensor_data = out_tensors[i].tensor_data().data();
-    size_t nfloats = out_tensors[i].NumElements();
-    auto out_arr = batch_task->GetOutputArray(name);
-    float* out_data = out_arr->Data<float>();
-    Memcpy(out_data, cpu_device_, tensor_data, cpu_device_, nfloats * sizeof(float));
-    slices.emplace(name, Slice(batch_size, m.output_sizes_.at(name)));
+    size_t num_elements = m.output_sizes_[name];
+    auto out_array = batch_task->GetOutputArray(name);
+    arr.clear();
+    int32_t beg = slice_beg[i], len = slice_end[i] - slice_beg[i];
+    const auto& out_tensor = out_tensors[i];
+    CHECK_EQ(out_tensor.NumElements(), num_elements * len);
+    for (int32_t j = 0; j < len; ++j) {
+      auto out_buf = out_array->Slice(num_elements * j, num_elements);
+      const char* tensor_data_base = out_tensor.tensor_data().data();
+      const char* tensor_data = tensor_data_base + j * num_elements * sizeof(float);
+      Memcpy(out_buf->Data<float>(), cpu_device_, tensor_data, cpu_device_, num_elements * sizeof(float));
+      arr[name] = out_buf;
+      const auto& input = batch_task->inputs()[beg + j];
+      outputs[beg + j] = std::make_shared<Output>(input->task_id, input->index, arr);
+    }
   }
-  batch_task->SliceOutputBatch(slices);
+  batch_task->set_outputs(outputs);
 }
 
 void TFShareModel::Postprocess(std::shared_ptr<Task> task) {
