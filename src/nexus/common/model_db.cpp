@@ -362,7 +362,7 @@ TFShareInfo::TFShareInfo(const YAML::Node &node) :
     model_file(node["model_file"].as<std::string>()),
     input_layer(node["input_layer"].as<std::string>()),
     slice_beg_vector(node["slice_beg_vector"].as<std::string>()),
-    slice_end_vector(node["slice_end_vector"].as<std::string>()),
+    slice_len_vector(node["slice_len_vector"].as<std::string>()),
     image_height(node["image_height"].as<int>()),
     image_width(node["image_width"].as<int>()) {
   hack_internal_id = "tf_share";

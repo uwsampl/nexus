@@ -69,7 +69,7 @@ struct TFShareInfo {
   std::string model_file;
   std::string input_layer;
   std::string slice_beg_vector;
-  std::string slice_end_vector;
+  std::string slice_len_vector;
   int image_height;
   int image_width;
   std::unordered_map<std::string, TFShareSuffixInfo> suffix_models;

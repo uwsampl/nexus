@@ -108,7 +108,7 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   if (model_info_["slice_beg_vector"]) {
     // TFShareModel
     auto slice_beg_vector = model_info_["slice_beg_vector"].as<std::string>();
-    auto slice_end_vector = model_info_["slice_end_vector"].as<std::string>();
+    auto slice_end_vector = model_info_["slice_len_vector"].as<std::string>();
     num_suffixes_ = model_info_["suffix_models"].size();
     tf::TensorShape shape;
     shape.AddDim(num_suffixes_);

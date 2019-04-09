@@ -77,7 +77,7 @@ void TFShareModel::Preprocess(std::shared_ptr<Task> task) {
 
 void TFShareModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   std::vector<int32_t> slice_beg(num_suffixes_, 0);
-  std::vector<int32_t> slice_end(num_suffixes_, 0);
+  std::vector<int32_t> slice_len(num_suffixes_, 0);
   auto &tasks = batch_task->tasks();
   ModelSession model_sess;
   for (size_t i = 0; i < tasks.size();) {
@@ -87,24 +87,24 @@ void TFShareModel::Forward(std::shared_ptr<BatchTask> batch_task) {
     CHECK(iter != tf_share_info_->suffix_models.end())
       << "Cannot find model " << model_sess_id << " in " << tf_share_info_->hack_internal_id;
     const auto suffix_index = iter->second.suffix_index;
-    CHECK_EQ(slice_end[suffix_index], 0) << "Detected non-consecutive BatchTask";
+    CHECK_EQ(slice_len[suffix_index], 0) << "Detected non-consecutive BatchTask";
     slice_beg[suffix_index] = i;
     while (i < tasks.size() && tasks[i]->query.model_session_id() == model_sess_id)
       ++i;
-    slice_end[suffix_index] = i;
+    slice_len[suffix_index] = i - slice_beg[suffix_index];
   }
 
   auto &m = *tf_model_;
   size_t batch_size = batch_task->batch_size();
   auto in_tensor = m.input_tensors_[batch_task->GetInputArray()->tag()]->Slice(0, batch_size);
   m.set_slice_tensor(m.slice_beg_tensor_, slice_beg);
-  m.set_slice_tensor(m.slice_end_tensor_, slice_end);
+  m.set_slice_tensor(m.slice_end_tensor_, slice_len);
 
   std::vector<tf::Tensor> out_tensors;
   std::vector<std::pair<std::string, tf::Tensor>> inputs;
   inputs.emplace_back(tf_share_info_->input_layer, in_tensor);
   inputs.emplace_back(tf_share_info_->slice_beg_vector, *m.slice_beg_tensor_);
-  inputs.emplace_back(tf_share_info_->slice_end_vector, *m.slice_end_tensor_);
+  inputs.emplace_back(tf_share_info_->slice_len_vector, *m.slice_end_tensor_);
   tf::Status status = m.session_->Run(inputs, m.output_layers_, {}, &out_tensors);
   if (!status.ok()) {
     LOG(ERROR) << "Failed to run tensorflow: " << status.ToString();
@@ -118,7 +118,7 @@ void TFShareModel::Forward(std::shared_ptr<BatchTask> batch_task) {
     size_t num_elements = m.output_sizes_[name];
     auto out_array = batch_task->GetOutputArray(name);
     arr.clear();
-    int32_t beg = slice_beg[i], len = slice_end[i] - slice_beg[i];
+    const int32_t beg = slice_beg[i], len = slice_len[i];
     const auto& out_tensor = out_tensors[i];
     CHECK_EQ(out_tensor.NumElements(), num_elements * len);
     for (int32_t j = 0; j < len; ++j) {
