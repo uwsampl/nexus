@@ -1,7 +1,7 @@
 # INSTALL on Ubuntu 16.04
 
 ```bash
-sudo apt-get install -y unzip build-essential git autoconf automake libtool curl make
+sudo apt-get install -y unzip build-essential git autoconf automake libtool curl make zlib1g-dev
 mkdir -p download
 cd download
 
