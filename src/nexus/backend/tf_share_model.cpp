@@ -107,7 +107,7 @@ void TFShareModel::Forward(std::shared_ptr<BatchTask> batch_task) {
   inputs.emplace_back(tf_share_info_->slice_len_vector, *m.slice_end_tensor_);
   tf::Status status = m.session_->Run(inputs, m.output_layers_, {}, &out_tensors);
   if (!status.ok()) {
-    LOG(ERROR) << "Failed to run tensorflow: " << status.ToString();
+    LOG(FATAL) << "Failed to run tensorflow: " << status.ToString();
     return;
   }
 
