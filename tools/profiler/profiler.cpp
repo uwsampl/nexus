@@ -222,13 +222,21 @@ class ModelProfiler {
       std::tie(mean, std, memory_usage) = forward_stats.at(batch);
       *fout << batch << "," << mean << "," << std << "," << memory_usage << "\n";
     }
-    float mean, std;
-    std::tie(mean, std) = GetStats<uint64_t>(preprocess_lats);
-    *fout << "Preprocess latency\nmean(us),std(us)\n";
-    *fout << mean << "," << std << "\n";
-    std::tie(mean, std) = GetStats<uint64_t>(postprocess_lats);
-    *fout << "Postprocess latency\nmean(us),std(us)\n";
-    *fout << mean << "," << std << "\n";
+    *fout << "Preprocess latencies(us)";
+    for (size_t i = 0; i < preprocess_lats.size(); ++i) {
+      if (i % 10 == 0)
+        *fout << std::endl;
+      *fout << preprocess_lats[i] << "\t";
+    }
+    *fout << std::endl;
+    *fout << "Postprocess latencies(us)";
+    for (size_t i = 0; i < postprocess_lats.size(); ++i) {
+      if (i % 10 == 0)
+        *fout << std::endl;
+      *fout << postprocess_lats[i] << "\t";
+      if (i % 10 == 9)
+        *fout << std::endl;
+    }
     if (fout != &std::cout) {
       delete fout;
     }
