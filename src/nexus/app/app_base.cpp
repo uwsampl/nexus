@@ -21,17 +21,26 @@ void AppBase::Start() {
   Run(qp_, nthreads_);
 }
 
-std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
+std::shared_ptr<ModelHandler> AppBase::GetModelHandler(bool complex_query,
     const std::string& framework, const std::string& model_name,
     uint32_t version, uint64_t latency_sla, float estimate_workload,
     std::vector<uint32_t> image_size, LoadBalancePolicy lb_policy) {
   LoadModelRequest req;
   req.set_node_id(node_id());
+  req.set_complex_query(complex_query);
   auto model_sess = req.mutable_model_session();
   model_sess->set_framework(framework);
   model_sess->set_model_name(model_name);
   model_sess->set_version(version);
-  model_sess->set_latency_sla(latency_sla);
+  if(complex_query) {
+    model_sess->set_latency_sla(0);
+  } else {
+    model_sess->set_latency_sla(latency_sla);
+  }
+  model_sess->set_estimate_latency(latency_sla);
+  LOG(INFO) << "[---LoadModelRequest---latency]" << latency_sla;
+  LOG(INFO) << "[---LoadModelRequest---latency & est_lat]" <<model_sess->latency_sla()<< model_sess->estimate_latency();
+  
   if (image_size.size() > 0) {
     if (image_size.size() != 2) {
       LOG(ERROR) << "Image size is not 2";

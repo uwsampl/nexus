@@ -68,6 +68,7 @@ class BackendPool {
   void StopAll();
 
  protected:
+  // brief from backend.node_id() to BackendSession
   std::unordered_map<uint32_t, std::shared_ptr<BackendSession> > backends_;
   std::mutex mu_;
 };

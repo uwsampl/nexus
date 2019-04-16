@@ -108,6 +108,32 @@ message ModelSession {
   // otherwise ignored
   uint32 image_height = 10;
   uint32 image_width = 11;
+  
+  uint32 estimate_latency = 12;
+}
+message Edge {
+  ModelSession v1 = 1;
+  ModelSession v2 = 2;
+}
+
+message LoadDependencyProto {
+  
+  uint32 n = 2;
+  uint32 m = 3;
+  double latency = 4;
+  repeated ModelSession models = 10;
+  repeated Edge edges = 11;
+}
+
+message ModelRps {
+  double rps = 1;
+  string model = 2;
+}
+message CurRpsProto {
+  uint32 node_id = 1;
+  uint32 n = 2;
+  double interval = 3;
+  repeated ModelRps model_rps = 10; 
 }
 
 message QueryProto {

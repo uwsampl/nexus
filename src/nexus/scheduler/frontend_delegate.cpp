@@ -9,7 +9,7 @@ namespace scheduler {
 FrontendDelegate::FrontendDelegate(uint32_t node_id, const std::string& ip,
                                    const std::string& server_port,
                                    const std::string& rpc_port,
-                                   int beacon_sec):
+                                   int beacon_sec, std::string common_gpu):
     node_id_(node_id),
     ip_(ip),
     server_port_(server_port),
@@ -22,6 +22,8 @@ FrontendDelegate::FrontendDelegate(uint32_t node_id, const std::string& ip,
                                      grpc::InsecureChannelCredentials());
   stub_ = FrontendCtrl::NewStub(channel);
   last_time_ = std::chrono::system_clock::now();
+  common_gpu_ = common_gpu;
+  complexQuery_ = false;
 }
 
 std::time_t FrontendDelegate::LastAliveTime() {
@@ -57,7 +59,16 @@ bool FrontendDelegate::IsAlive() {
 void FrontendDelegate::SubscribeModel(const std::string& model_session_id) {
   subscribe_models_.insert(model_session_id);
 }
+CtrlStatus FrontendDelegate::LoadDependency(const LoadDependencyProto& request) {
+  complexQuery_ = true;
+  return query_.init(request, common_gpu_);
+}
 
+void FrontendDelegate::CurrentRps(const CurRpsProto& request){
+  if(complexQuery_) {
+    query_.addRecord(request);
+  }
+} 
 CtrlStatus FrontendDelegate::UpdateModelRoutesRpc(
     const ModelRouteUpdates& request) {
   RpcReply reply;
@@ -75,6 +86,8 @@ CtrlStatus FrontendDelegate::UpdateModelRoutesRpc(
   }
   return reply.status();
 }
-
+QuerySplit* FrontendDelegate::split() {
+  return query_.split();
+}
 } // namespace scheduler
 } // namespace nexus

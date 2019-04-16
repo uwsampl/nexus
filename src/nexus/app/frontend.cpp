@@ -26,6 +26,9 @@ Frontend::Frontend(std::string port, std::string rpc_port,
   sch_stub_ = SchedulerCtrl::NewStub(channel);
   // Init Node ID and register frontend to scheduler
   Register();
+  interval_ = 20000;
+  std::thread t(&Frontend::report, this, interval_);
+  t.detach();
 }
 
 Frontend::~Frontend() {
@@ -34,6 +37,35 @@ Frontend::~Frontend() {
   }
 }
 
+void Frontend::report(uint32_t interval_) {
+  while(true) {
+    auto begin = std::chrono::high_resolution_clock::now();
+    std::this_thread::sleep_for(std::chrono::milliseconds(interval_));
+    if(!complex_query_) continue;
+    CurRpsRequest request;
+    auto proto = request.mutable_cur_rps();
+    proto->set_node_id(node_id());
+    auto end = std::chrono::high_resolution_clock::now();
+    auto int_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin);
+    proto->set_interval(int_ms.count());
+    proto->set_n(model_pool_.size());
+    for (auto it = model_pool_.begin(); it != model_pool_.end(); ++it) {
+      std::string name = it->first;
+      auto modelHandler = it->second;
+      uint32_t count = modelHandler->count();
+      ModelRps* modelRps = proto->add_model_rps();
+      modelRps->set_model(name);
+      modelRps->set_rps(count);   
+    }
+    RpcReply reply;
+    // Inovke RPC CheckAlive
+    grpc::ClientContext context;
+    grpc::Status status = sch_stub_->CurRps(&context, request, &reply);
+    if (reply.status() != CTRL_OK) {
+      LOG(ERROR) << status.error_code() << ": " << status.error_message();
+    }
+  }
+}
 void Frontend::Run(QueryProcessor* qp, size_t nthreads) {
   for (size_t i = 0; i < nthreads; ++i) {
     std::unique_ptr<Worker> worker(new Worker(qp, request_pool_));
@@ -112,7 +144,13 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
     case kBackendReply: {
       QueryResultProto result;
       message->DecodeBody(&result);
-      std::string model_session_id = result.model_session_id();
+      std::string real_model_session_id = result.model_session_id();
+      std::string model_session_id = real_model_session_id;
+      if(complex_query_) {
+        LOG(INFO) << "[---real_model_session_id---]"<<real_model_session_id;
+        model_session_id = ModelSessionDelLatency(real_model_session_id);
+        LOG(INFO) << "[---model_session_id---]"<< model_session_id;
+      }
       auto itr = model_pool_.find(model_session_id);
       if (itr == model_pool_.end()) {
         LOG(ERROR) << "Cannot find model handler for " << model_session_id;
@@ -198,6 +236,10 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req,
     LOG(ERROR) << "Load model error: " << CtrlStatus_Name(reply.status());
     return nullptr;
   }
+  auto model_session_id = reply.model_route().model_session_id();
+  if(req.complex_query()) {
+    model_session_id = ModelSessionDelLatency(model_session_id);
+  }
   auto model_handler = std::make_shared<ModelHandler>(
       reply.model_route().model_session_id(), backend_pool_, lb_policy);
   // Only happens at Setup stage, so no concurrent modification to model_pool_
@@ -205,6 +247,25 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req,
   UpdateBackendPoolAndModelRoute(reply.model_route());
 
   return model_handler;
+}
+
+void Frontend::LoadDependency(LoadDependencyRequest& req) {
+  LOG(INFO) << "[---Load model dependency---]";
+  complex_query_ = true;
+  RpcReply reply;
+  req.set_node_id(node_id_);
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->LoadDependency(&context, req, &reply);
+  LOG(INFO) << "[---Model dependency Loaded---]";
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
+    return ;
+  }
+  if (reply.status() != CTRL_OK) {
+    LOG(ERROR) << "Load dependency error: " << CtrlStatus_Name(reply.status());
+    return ;
+  }
 }
 
 void Frontend::Register() {
@@ -281,15 +342,35 @@ void Frontend::KeepAlive() {
 }
 
 bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
-  auto& model_session_id = route.model_session_id();
-  LOG(INFO) << "Update model route for " << model_session_id;
+  auto& real_model_session_id = route.model_session_id();
+  LOG(INFO) << "Update model route for " << real_model_session_id;
   // LOG(INFO) << route.DebugString();
+  std::string model_session_id = real_model_session_id;
+  if(complex_query_) {
+    model_session_id = ModelSessionDelLatency(real_model_session_id);
+  }
+  LOG(INFO) << "[---Update model route for---] " << model_session_id;
+  uint32_t latency = LatencyOfModelSession(real_model_session_id);
   auto iter = model_pool_.find(model_session_id);
   if (iter == model_pool_.end()) {
     LOG(ERROR) << "Cannot find model handler for " << model_session_id;
     return false;
   }
+  if(complex_query_) {
+    latency_pool_[model_session_id] = latency;
+    model_session_pool_[model_session_id] = real_model_session_id;
+  }
+  LOG(INFO) << "[---updated model session pool and latency pool---]";
   auto model_handler = iter->second;
+  LOG(INFO) << "[---updated model session pool and latency pool---1---]";
+  if(complex_query_) {
+    LOG(INFO) << "[---updated model session pool and latency pool---2---]";
+    if (model_handler == nullptr) {
+      LOG(INFO) << "[---model_handler is null---]";
+    }
+    model_handler -> SetRealModelSessionId(real_model_session_id);
+  }
+  LOG(INFO) << "[---updated model session id---]";
   // Update backend pool first
   {
     std::lock_guard<std::mutex> lock(backend_sessions_mu_);

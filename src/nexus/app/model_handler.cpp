@@ -90,6 +90,7 @@ ModelHandler::ModelHandler(const std::string& model_session_id,
     running_ = true;
     deficit_thread_ = std::thread(&ModelHandler::DeficitDaemon, this);
   }
+  real_model_session_id_ = "";
 }
 
 ModelHandler::~ModelHandler() {
@@ -98,6 +99,12 @@ ModelHandler::~ModelHandler() {
     running_ = false;
     deficit_thread_.join();
   }
+}
+
+uint32_t ModelHandler::count() {
+  uint32_t ret = num_;
+  num_ = 0;
+  return ret;
 }
 
 std::shared_ptr<QueryResult> ModelHandler::Execute(
@@ -114,7 +121,7 @@ std::shared_ptr<QueryResult> ModelHandler::Execute(
   }
   QueryProto query;
   query.set_query_id(qid);
-  query.set_model_session_id(model_session_id_);
+  query.set_model_session_id(model_session_id());
   query.mutable_input()->CopyFrom(input);
   for (auto field : output_fields) {
     query.add_output_field(field);
