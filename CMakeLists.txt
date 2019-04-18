@@ -93,7 +93,6 @@ set_target_properties(common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 ###### scheduler ######
 add_executable(scheduler
         src/nexus/scheduler/backend_delegate.cpp
-        src/nexus/scheduler/complex_query.cpp
         src/nexus/scheduler/frontend_delegate.cpp
         src/nexus/scheduler/sch_info.cpp
         src/nexus/scheduler/scheduler.cpp

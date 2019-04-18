@@ -15,7 +15,6 @@
 
 DECLARE_int32(avg_interval);
 
-
 namespace nexus {
 namespace scheduler {
 

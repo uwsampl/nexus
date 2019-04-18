@@ -29,7 +29,6 @@ class QueryResult {
    */
   QueryResult(uint64_t qid);
 
-  uint32_t count();
   bool ready() const { return ready_; }
   
   uint64_t query_id() const { return qid_; }
@@ -84,18 +83,7 @@ class ModelHandler {
 
   ~ModelHandler();
 
-  uint32_t count();
-  
-  std::string model_session_id() const { 
-    if(real_model_session_id_ == "") {
-      return model_session_id_; 
-    }
-    return real_model_session_id_;
-  }
-  
-  void SetRealModelSessionId(std::string real_model_session_id) {
-    real_model_session_id_ = real_model_session_id;
-  }
+  std::string model_session_id() const { return model_session_id_; }
 
   std::shared_ptr<IntervalCounter> counter() const { return counter_; }
 
@@ -109,10 +97,6 @@ class ModelHandler {
   void UpdateRoute(const ModelRouteProto& route);
 
   std::vector<uint32_t> BackendList();
-  
-  ModelSession GetModelSession() {
-    return model_session_;
-  }
 
  private:
   std::shared_ptr<BackendSession> GetBackend();
@@ -124,7 +108,6 @@ class ModelHandler {
   void DeficitDaemon();
 
   ModelSession model_session_;
-  std::string real_model_session_id_;
   std::string model_session_id_;
   BackendPool& backend_pool_;
   LoadBalancePolicy lb_policy_;
@@ -155,7 +138,6 @@ class ModelHandler {
 
   std::atomic<bool> running_;
   std::thread deficit_thread_;
-  uint32_t num_;
 };
 
 } // namespace app

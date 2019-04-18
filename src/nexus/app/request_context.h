@@ -36,8 +36,6 @@ class Variable {
   }
 
   bool ready() const { return pending_results_.empty(); }
-  
-  size_t count() const { return data_.size(); }
 
   std::string name() const { return name_; }
 

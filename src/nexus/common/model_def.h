@@ -28,40 +28,6 @@ inline void ParseModelID(const std::string model_id,
   model_session->set_version(std::stoi(tokens[2]));
 }
 
-inline std::string ModelSessionDelLatency(const std::string model_id) {
-  std::vector<std::string> tokens;
-  SplitString(model_id, ':', &tokens);
-  std::stringstream ss;
-  ss << tokens[0] << ":" <<
-      tokens[1] << ":" << tokens[2];
-  if (tokens.size() > 4) {
-    ss << ":" << tokens[3];
-  }
-  ss << ":" << "0";
-  return ss.str();
-}
-
-inline std::string ModelSessionAddLatency(const std::string model_id, const uint32_t latency) {
-  std::vector<std::string> tokens;
-  SplitString(model_id, ':', &tokens);
-  std::stringstream ss;
-  ss << tokens[0] << ":" <<
-      tokens[1] << ":" << tokens[2];
-  if (tokens.size() > 4) {
-    ss << ":" << tokens[3];
-  }
-  ss << ":" << std::to_string(latency);
-  return ss.str();
-}
-
-inline uint32_t LatencyOfModelSession(const std::string model_id) {
-  std::vector<std::string> tokens;
-  SplitString(model_id, ':', &tokens);
-  int id = tokens.size() > 4 ? 4 : 3;
-  return std::stoi(tokens[id]);
-  
-}
-
 inline std::string ModelSessionToModelID(const ModelSession& model_session) {
   std::stringstream ss;
   ss << model_session.framework() << ":" << model_session.model_name() << ":"

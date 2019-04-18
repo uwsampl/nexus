@@ -7,10 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-
 #include "nexus/proto/control.grpc.pb.h"
-#include "nexus/proto/nnquery.pb.h"
-#include "nexus/scheduler/complex_query.h"
 
 namespace nexus {
 namespace scheduler {
@@ -21,7 +18,7 @@ class FrontendDelegate {
  public:
   FrontendDelegate(uint32_t node_id, const std::string& ip,
                    const std::string& server_port, const std::string& rpc_addr,
-                   int beacon_sec, std::string common_gpu);
+                   int beacon_sec);
 
   uint32_t node_id() const { return node_id_; }
 
@@ -38,14 +35,7 @@ class FrontendDelegate {
   }
 
   CtrlStatus UpdateModelRoutesRpc(const ModelRouteUpdates& request);
-  
-  CtrlStatus LoadDependency(const LoadDependencyProto& request);
-  
-  void CurrentRps(const CurRpsProto& request);
-  
-  bool containComplexQuery() {return complexQuery_;}
-  
-  QuerySplit* split();
+
  private:
   uint32_t node_id_;
   std::string ip_;
@@ -53,13 +43,9 @@ class FrontendDelegate {
   std::string rpc_port_;
   int beacon_sec_;
   long timeout_ms_;
-  bool complexQuery_;
-  ComplexQuery query_;
   std::unique_ptr<FrontendCtrl::Stub> stub_;
   std::chrono::time_point<std::chrono::system_clock> last_time_;
   std::unordered_set<std::string> subscribe_models_;
-  RpsRecord rpsRecord_;
-  std::string common_gpu_;
 };
 
 } // namespace scheduler
