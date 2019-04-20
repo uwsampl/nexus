@@ -15,6 +15,7 @@ class ComplexQuery {
   struct NodeID {
     std::string framework;
     std::string model_name;
+    NodeID(std::string framework_, std::string model_name_);
     std::string ToString() const;
   };
   ComplexQuery(std::string cq_id, int slo_us, int segments);
@@ -26,6 +27,7 @@ class ComplexQuery {
                const ModelProfile& profile);
   void AddChild(const NodeID &parent, const NodeID &child);
   void SetRequestRate(const NodeID &node_id, double request_rate);
+  std::unordered_map<ComplexQuery::NodeID, uint32_t> GetSLOms();
   double GetMinimalGPUs();
   void DynamicProgramming();
   void Finalize();

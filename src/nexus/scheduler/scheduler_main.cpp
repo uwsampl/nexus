@@ -10,8 +10,6 @@ DEFINE_string(port, "10001", "RPC port");
 DEFINE_string(workload, "", "Static workload config file");
 
 int main(int argc, char** argv) {
-  // log to stderr
-  FLAGS_logtostderr = 1;
   // Init glog
   google::InitGoogleLogging(argv[0]);
   // Parse command line flags

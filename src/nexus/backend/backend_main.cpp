@@ -61,8 +61,6 @@ int main(int argc, char** argv) {
   sig_handle.sa_flags = 0;
   sigaction(SIGINT, &sig_handle, NULL);
 
-  // log to stderr
-  FLAGS_logtostderr = 1;
   // Init glog
   google::InitGoogleLogging(argv[0]);
   // Parse command line flags

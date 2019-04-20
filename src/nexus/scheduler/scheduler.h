@@ -19,7 +19,7 @@
 #include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/frontend_delegate.h"
 #include "nexus/scheduler/sch_info.h"
-#include "nexus/scheduler/test_complex_query.h"
+#include "nexus/scheduler/complex_query.h"
 
 namespace nexus {
 namespace scheduler {
