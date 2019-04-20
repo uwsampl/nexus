@@ -19,6 +19,7 @@
 #include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/frontend_delegate.h"
 #include "nexus/scheduler/sch_info.h"
+#include "nexus/scheduler/test_complex_query.h"
 
 namespace nexus {
 namespace scheduler {
@@ -102,6 +103,12 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   void KeepAlive(const grpc::ServerContext& ctx,
                  const KeepAliveRequest& request, RpcReply* reply);
+
+  void ComplexQuerySetup(const grpc::ServerContext& ctx,
+                         const ComplexQuerySetupRequest& request, RpcReply* reply);
+
+  void ComplexQueryAddEdge(const grpc::ServerContext& ctx,
+                           const ComplexQueryAddEdgeRequest& request, RpcReply* reply);
 
  private:
   /*! \brief Initializes RPC handlers. */
@@ -274,6 +281,8 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<uint32_t, BackendDelegatePtr> backends_;
   /*! \brief Mapping from model session ID to session information */
   std::unordered_map<std::string, SessionInfoPtr> session_table_;
+  /*! \brief Mapping from complex query ID to ComplexQuery */
+  std::unordered_map<std::string, ComplexQuery> complex_queries_;
   /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
 };

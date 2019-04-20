@@ -2,21 +2,13 @@
 
 #include <boost/filesystem.hpp>
 #include <opencv2/opencv.hpp>
-#include <glog/logging.h>
+// #include <glog/logging.h>  // https://github.com/tensorflow/tensorflow/issues/25913
 #include "tensorflow/core/common_runtime/gpu/gpu_process_state.h"
 
 #include "nexus/backend/slice.h"
 #include "nexus/backend/tensorflow_model.h"
 #include "nexus/backend/utils.h"
 #include "nexus/common/image.h"
-//#undef LOG
-//#undef VLOG
-//#undef CHECK_EQ
-//#undef CHECK_LE
-//#undef CHECK_LT
-//#undef CHECK_GE
-//#undef CHECK_GT
-//#undef _LOGGING_H_
 
 namespace fs = boost::filesystem;
 

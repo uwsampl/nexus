@@ -93,6 +93,7 @@ set_target_properties(common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 ###### scheduler ######
 add_executable(scheduler
         src/nexus/scheduler/backend_delegate.cpp
+        src/nexus/scheduler/complex_query.cpp
         src/nexus/scheduler/frontend_delegate.cpp
         src/nexus/scheduler/sch_info.cpp
         src/nexus/scheduler/scheduler.cpp
@@ -287,6 +288,16 @@ target_link_libraries(profiler PRIVATE common backend_obj)
 add_executable(test_pb tools/profiler/test_pb.cpp)
 target_compile_features(test_pb PRIVATE cxx_std_11)
 target_link_libraries(test_pb PRIVATE common backend_obj)
+
+
+
+###### tools/test_complex_query ######
+add_executable(test_complex_query
+        src/nexus/scheduler/complex_query.cpp
+        src/nexus/scheduler/sch_info.cpp
+        tools/test_complex_query.cpp)
+target_compile_features(test_complex_query PRIVATE cxx_std_11)
+target_link_libraries(test_complex_query PRIVATE common)
 
 
 

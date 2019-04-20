@@ -62,10 +62,15 @@ class Frontend : public ServerBase, public MessageHandler {
 
   std::shared_ptr<UserSession> GetUserSession(uint32_t uid);
 
+ protected:
   std::shared_ptr<ModelHandler> LoadModel(const LoadModelRequest& req);
 
   std::shared_ptr<ModelHandler> LoadModel(const LoadModelRequest& req,
                                           LoadBalancePolicy lb_policy);
+
+  void ComplexQuerySetup(const ComplexQuerySetupRequest& req);
+
+  void ComplexQueryAddEdge(const ComplexQueryAddEdgeRequest& req);
 
  private:
   void Register();

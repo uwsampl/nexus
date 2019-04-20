@@ -10,6 +10,8 @@ service SchedulerCtrl {
   rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
   rpc ReportWorkload(WorkloadStatsProto) returns (RpcReply) {}
   rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
+  rpc ComplexQuerySetup(ComplexQuerySetupRequest) returns (RpcReply) {}
+  rpc ComplexQueryAddEdge(ComplexQueryAddEdgeRequest) returns (RpcReply) {}
 }
 
 service FrontendCtrl {
@@ -114,6 +116,7 @@ message LoadModelRequest {
   ModelSession model_session = 2;
   double estimate_workload = 3;
   //uint32 num_gpus = 4;
+  string cq_id = 5;
 }
 
 message LoadModelReply {
@@ -169,4 +172,16 @@ message UtilizationReply {
   uint32 node_id = 1;
   double utilization = 2;
   int32 valid_ms = 3;
+}
+
+message ComplexQuerySetupRequest {
+  string cq_id = 1;
+  uint32 slo_us = 2;
+  uint32 step_us = 3;
+}
+
+message ComplexQueryAddEdgeRequest {
+  string cq_id = 1;
+  ModelSession source = 2;
+  ModelSession target = 3;
 }

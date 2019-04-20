@@ -1,4 +1,5 @@
 #include "nexus/backend/tf_share_model.h"
+#include "nexus/backend/tensorflow_model.h"
 #include "nexus/backend/utils.h"
 #include <boost/filesystem.hpp>
 

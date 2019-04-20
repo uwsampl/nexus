@@ -25,6 +25,8 @@ INSTANTIATE_RPC_CALL(AsyncService, Unregister, UnregisterRequest, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, LoadModel, LoadModelRequest, LoadModelReply);
 INSTANTIATE_RPC_CALL(AsyncService, ReportWorkload, WorkloadStatsProto, RpcReply);
 INSTANTIATE_RPC_CALL(AsyncService, KeepAlive, KeepAliveRequest, RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, ComplexQuerySetup, ComplexQuerySetupRequest, RpcReply);
+INSTANTIATE_RPC_CALL(AsyncService, ComplexQueryAddEdge, ComplexQueryAddEdgeRequest, RpcReply);
 
 Scheduler::Scheduler(std::string port, size_t nthreads) :
     AsyncRpcServiceBase(port, nthreads),
@@ -338,6 +340,41 @@ void Scheduler::KeepAlive(const grpc::ServerContext& ctx,
   reply->set_status(CTRL_OK);
 }
 
+void Scheduler::ComplexQuerySetup(const grpc::ServerContext &ctx,
+                                  const ComplexQuerySetupRequest &request, RpcReply *reply) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  // TODO: return error instead of crash
+  CHECK(request.cq_id().empty()) << "empty cq_id";
+  CHECK(complex_queries_.count(request.cq_id()) == 0) << "Complex Query "
+    << request.cq_id() << " has already been set up.";
+  ComplexQuery cq(request.cq_id(), request.slo_us(), request.step_us());
+  complex_queries_.emplace(request.cq_id(), std::move(cq));
+  reply->set_status(CTRL_OK);
+}
+
+void Scheduler::ComplexQueryAddEdge(const grpc::ServerContext &ctx,
+                                    const ComplexQueryAddEdgeRequest &request, RpcReply *reply) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  // TODO: return error instead of crash
+  auto src_model_sess_id = ModelSessionToString(request.source());
+  auto dst_model_sess_id = ModelSessionToString(request.target());
+  auto iter_cq = complex_queries_.find(request.cq_id());
+  auto iter_src = session_table_.find(src_model_sess_id);
+  auto iter_dst = session_table_.find(dst_model_sess_id);
+  CHECK(iter_cq != complex_queries_.end()) << "Cannot find Complex Query " << request.cq_id();
+  CHECK(iter_src != session_table_.end()) << "Cannot find Model Session " << src_model_sess_id;
+  CHECK(iter_dst != session_table_.end()) << "Cannot find Model Session " << dst_model_sess_id;
+  CHECK(iter_src->second->complex_query_id.empty() || iter_src->second->complex_query_id == request.cq_id())
+    << "Model Session " << src_model_sess_id << " has been linked to another Complex Query "
+    << iter_src->second->complex_query_id ;
+  CHECK(iter_dst->second->complex_query_id.empty() || iter_dst->second->complex_query_id == request.cq_id())
+    << "Model Session " << dst_model_sess_id << " has been linked to another Complex Query "
+    << iter_dst->second->complex_query_id ;
+
+  iter_src->second->complex_query_id = request.cq_id();
+  iter_dst->second->complex_query_id = request.cq_id();
+}
+
 void Scheduler::HandleRpcs() {
   using namespace std::placeholders;
   new Register_Call(&service_, cq_.get(),
@@ -346,11 +383,14 @@ void Scheduler::HandleRpcs() {
                       std::bind(&Scheduler::Unregister, this, _1, _2, _3));
   new LoadModel_Call(&service_, cq_.get(),
                      std::bind(&Scheduler::LoadModel, this, _1, _2, _3));
-  new ReportWorkload_Call(
-      &service_, cq_.get(),
-      std::bind(&Scheduler::ReportWorkload, this, _1, _2, _3));
+  new ReportWorkload_Call(&service_, cq_.get(),
+                          std::bind(&Scheduler::ReportWorkload, this, _1, _2, _3));
   new KeepAlive_Call(&service_, cq_.get(),
                      std::bind(&Scheduler::KeepAlive, this, _1, _2, _3));
+  new ComplexQuerySetup_Call(&service_, cq_.get(),
+                             std::bind(&Scheduler::ComplexQuerySetup, this, _1, _2, _3));
+  new ComplexQueryAddEdge_Call(&service_, cq_.get(),
+                               std::bind(&Scheduler::ComplexQueryAddEdge, this, _1, _2, _3));
   void* tag;
   bool ok;
   while (running_) {

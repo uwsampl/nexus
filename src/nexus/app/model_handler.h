@@ -83,6 +83,8 @@ class ModelHandler {
 
   ~ModelHandler();
 
+  ModelSession model_session() const { return model_session_; }
+
   std::string model_session_id() const { return model_session_id_; }
 
   std::shared_ptr<IntervalCounter> counter() const { return counter_; }

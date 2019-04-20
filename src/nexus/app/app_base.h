@@ -11,16 +11,23 @@ namespace app {
 
 class AppBase : public Frontend {
  public:
-  AppBase(std::string port, std::string rpc_port, std::string sch_addr,
+  AppBase(const std::string& port,
+          const std::string& rpc_port,
+          const std::string& sch_addr,
           size_t nthreads);
 
-  virtual ~AppBase();
+  ~AppBase() override;
 
   void Start();
 
   virtual void Setup() {}
 
-  //virtual void Process(const RequestProto& request, ReplyProto* reply) {}
+  bool IsComplexQuery() const;
+
+  void ComplexQuerySetup(const std::string &cq_name, uint32_t slo_us, uint32_t step_us);
+
+  void ComplexQueryAddEdge(const std::shared_ptr<ModelHandler>& source,
+                           const std::shared_ptr<ModelHandler>& target);
 
  protected:
   std::shared_ptr<ModelHandler> GetModelHandler(
@@ -30,6 +37,10 @@ class AppBase : public Frontend {
       LoadBalancePolicy lb_policy=LoadBalancePolicy(FLAGS_load_balance));
   size_t nthreads_;
   QueryProcessor* qp_;
+
+  std::string cq_id_;
+  uint32_t slo_us_;
+  uint32_t step_us_;
 };
 
 void LaunchApp(AppBase* app);

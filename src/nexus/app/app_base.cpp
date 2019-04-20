@@ -3,11 +3,15 @@
 namespace nexus {
 namespace app {
 
-AppBase::AppBase(std::string port, std::string rpc_port, std::string sch_addr,
+AppBase::AppBase(const std::string& port,
+                 const std::string& rpc_port,
+                 const std::string& sch_addr,
                  size_t nthreads) :
     Frontend(port, rpc_port, sch_addr),
     nthreads_(nthreads),
-    qp_(nullptr) {
+    qp_(nullptr),
+    step_us_(0)
+{
 }
 
 AppBase::~AppBase() {
@@ -55,6 +59,35 @@ std::shared_ptr<ModelHandler> AppBase::GetModelHandler(
     LOG(FATAL) << "Load model failed";
   }
   return model_handler;
+}
+
+bool AppBase::IsComplexQuery() const {
+  return slo_us_ != 0;
+}
+
+void AppBase::ComplexQuerySetup(const std::string &cq_id, uint32_t slo_us, uint32_t step_us) {
+  CHECK(!IsComplexQuery()) << "The complex query has been set up.";
+  CHECK(!cq_id.empty()) << "cq_id cannot be empty.";
+  CHECK(slo_us != 0) << "slo_us cannot be 0.";
+  CHECK(step_us != 0) << "step_us cannot be 0.";
+  cq_id_ = cq_id;
+  slo_us_ = slo_us;
+  step_us_ = step_us;
+
+  ComplexQuerySetupRequest req;
+  req.set_cq_id(cq_id_);
+  req.set_slo_us(slo_us_);
+  req.set_step_us(step_us);
+  Frontend::ComplexQuerySetup(req);
+}
+
+void AppBase::ComplexQueryAddEdge(const std::shared_ptr<ModelHandler>& source,
+                                  const std::shared_ptr<ModelHandler>& target) {
+  ComplexQueryAddEdgeRequest req;
+  req.set_cq_id(cq_id_);
+  req.mutable_source()->CopyFrom(source->model_session());
+  req.mutable_target()->CopyFrom(target->model_session());
+  Frontend::ComplexQueryAddEdge(req);
 }
 
 void LaunchApp(AppBase* app) {

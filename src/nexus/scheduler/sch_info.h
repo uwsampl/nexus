@@ -50,6 +50,8 @@ struct SessionInfo {
   std::deque<double> rps_history;
   /*! \brief Gap between workload and throughput */
   double unassigned_workload;
+  /*! \brief Complex Query ID */
+  std::string complex_query_id;
 };
 
 struct InstanceInfo {

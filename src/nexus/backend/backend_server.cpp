@@ -249,7 +249,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
       if (config.model_session(0).framework() == "tf_share")  {
         // TFShareModel
         auto tf_share_info = ModelDatabase::Singleton().GetTFShareInfo(config.model_session(0).model_name());
-        CHECK_NE(tf_share_info, nullptr) << "Cannot find TFShare suffix model " << config.model_session(0).model_name();
+        CHECK(tf_share_info != nullptr) << "Cannot find TFShare suffix model " << config.model_session(0).model_name();
         std::string str_model_sessions = ModelSessionToString(config.model_session(0));
         for (int i = 1; i < config.model_session_size(); ++i) {
           const auto& model_sess = config.model_session(i);
@@ -282,7 +282,7 @@ void BackendServer::UpdateModelTable(const ModelTableConfig& request) {
         } else {
           // Prefix model already exists
           auto *tf_model = dynamic_cast<TFShareModel*>(sp_model->model());
-          CHECK_NE(tf_model, nullptr);
+          CHECK(tf_model != nullptr);
           if (tf_model->batch() != config.batch()) {
             LOG(INFO) << "Update TFShareModel " << tf_model->model_name()
                       << ", batch: " << tf_model->batch() << " -> " << config.batch();

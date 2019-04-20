@@ -207,6 +207,36 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req,
   return model_handler;
 }
 
+void Frontend::ComplexQuerySetup(const nexus::ComplexQuerySetupRequest &req) {
+  RpcReply reply;
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->ComplexQuerySetup(&context, req, &reply);
+  if (!status.ok()) {
+    LOG(FATAL) << "Failed to connect to scheduler: " <<
+               status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  if (reply.status() != CTRL_OK) {
+    LOG(FATAL) << "ComplexQuerySetup error: " << CtrlStatus_Name(reply.status());
+    return;
+  }
+}
+
+void Frontend::ComplexQueryAddEdge(const nexus::ComplexQueryAddEdgeRequest &req) {
+  RpcReply reply;
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->ComplexQuerySetup(&context, req, &reply);
+  if (!status.ok()) {
+    LOG(FATAL) << "Failed to connect to scheduler: " <<
+               status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  if (reply.status() != CTRL_OK) {
+    LOG(FATAL) << "ComplexQuerySetup error: " << CtrlStatus_Name(reply.status());
+    return;
+  }
+}
+
 void Frontend::Register() {
   // Init node id
   std::uniform_int_distribution<uint32_t> dis(

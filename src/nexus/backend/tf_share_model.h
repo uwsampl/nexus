@@ -4,10 +4,11 @@
 #include <mutex>
 #include <unordered_set>
 #include "nexus/backend/model_ins.h"
-#include "nexus/backend/tensorflow_model.h"
 
 namespace nexus {
 namespace backend {
+
+class TensorflowModel;
 
 class TFShareModel : public ModelInstance {
  public:
