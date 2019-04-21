@@ -43,14 +43,14 @@ int main(int argc, char** argv) {
   ComplexQuery cq("cq_id", SLO_MS * 1000, SEGMENTS);
   auto node_ssd = add_node(cq, gpu, "tensorflow", "ssd_mobilenet", 300, 300);
   auto node_inception = add_node(cq, gpu, "tensorflow", "inception_0", 0, 0);
-  auto node_resnet = add_node(cq, gpu, "tensorflow", "resnet_0", 0, 0);
+  auto node_vgg = add_node(cq, gpu, "tensorflow", "vgg16_0", 0, 0);
   cq.AddChild(node_ssd, node_inception);
-  cq.AddChild(node_ssd, node_resnet);
+  cq.AddChild(node_ssd, node_vgg);
   cq.Finalize();
 
-  cq.SetRequestRate(node_ssd, 400);
-  cq.SetRequestRate(node_inception, 100);
-  cq.SetRequestRate(node_resnet, 200);
+  cq.SetRequestRate(node_ssd, 200);
+  cq.SetRequestRate(node_inception, 50);
+  cq.SetRequestRate(node_vgg, 100);
   cq.DynamicProgramming();
   std::cout << "minimal number of GPUs: " << cq.GetMinimalGPUs() << std::endl;
   auto split = cq.GetSLOms();

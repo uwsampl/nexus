@@ -225,7 +225,7 @@ void Frontend::ComplexQuerySetup(const nexus::ComplexQuerySetupRequest &req) {
 void Frontend::ComplexQueryAddEdge(const nexus::ComplexQueryAddEdgeRequest &req) {
   RpcReply reply;
   grpc::ClientContext context;
-  grpc::Status status = sch_stub_->ComplexQuerySetup(&context, req, &reply);
+  grpc::Status status = sch_stub_->ComplexQueryAddEdge(&context, req, &reply);
   if (!status.ok()) {
     LOG(FATAL) << "Failed to connect to scheduler: " <<
                status.error_message() << "(" << status.error_code() << ")";

@@ -105,7 +105,7 @@ std::pair<uint32_t, float> ModelProfile::GetMaxThroughput(float latency_sla_ms)
   // divide by 2 is becuase half of time will spend in batching
   float exec_budget = (latency_sla_ms * 1000 - network_latency_us_ -
                        GetPreprocessLatency() - GetPostprocessLatency()) * 0.5;
-  for (uint32_t batch = 1; ; ++batch) {
+  for (uint32_t batch = 1; batch <= forward_lats_.size() ; ++batch) {
     float forward_lat = GetForwardLatency(batch);
     if (forward_lat < 0 || forward_lat > exec_budget) {
       break;
