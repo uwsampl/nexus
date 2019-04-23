@@ -13,6 +13,7 @@ namespace backend {
 
 DEFINE_int32(backend_count_interval, 1, "Interval to count number of requests in sec");
 DEFINE_int32(backend_avg_interval, 5, "Moving average interval in sec");
+DEFINE_int32(backend_batch_policy, 0, "0: Sliding window; 1: Earliest first;");
 
 ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
                              BlockPriorityQueue<Task>& task_queue) :
@@ -222,7 +223,7 @@ void ModelExecutor::DecreaseOpenRequests(int cnt) {
   //CHECK_GE(prev, cnt) << "Negative value in open requests";
 }
 
-std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
+std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTaskSlidingWindow(
     uint32_t expect_batch_size) {
   auto batch_task = std::make_shared<BatchTask>(model_->max_batch());
   batch_task->SetInputArray(input_array_);
@@ -290,6 +291,87 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
   VLOG(1) << model_->model_session_id() << " batch size " <<
       batch_task->batch_size() << ": " << ss.str();
   return {batch_task, dequeue_cnt};
+}
+
+std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTaskEarliest(
+    uint32_t expect_batch_size) {
+  auto batch_task = std::make_shared<BatchTask>(model_->max_batch());
+  batch_task->SetInputArray(input_array_);
+  if (expect_batch_size > model_->max_batch()) {
+    expect_batch_size = model_->max_batch();
+  }
+  if (expect_batch_size > input_queue_.size()) {
+    expect_batch_size = input_queue_.size();
+  }
+  if (expect_batch_size == 0) {
+    return {batch_task, 0};
+  }
+
+  std::lock_guard<std::mutex> lock(task_mu_);
+  CHECK(profile_ != nullptr);
+  int dequeue_cnt = 0;
+
+  // find the earliest deadline
+  TimePoint now = Clock::now();
+  TimePoint finish = now;
+  finish += std::chrono::microseconds(static_cast<int>(profile_->GetForwardLatency(1)));
+  finish += std::chrono::microseconds(static_cast<int>(profile_->GetPostprocessLatency()));
+  while (!input_queue_.empty()) {
+    auto &input = input_queue_.top();
+    auto &task = processing_tasks_.at(input->task_id);
+    task->timer.Record("exec");
+    if (task->result.status() != CTRL_OK || input->deadline() < finish) {
+      VLOG(1) << model_->model_session_id() << " drops task " <<
+              task->task_id << "/" << input->index << ", waiting time " <<
+              task->timer.GetLatencyMicros("begin", "exec") << " us";
+      if (task->AddVirtualOutput(input->index)) {
+        RemoveTask(task);
+      }
+      ++dequeue_cnt;
+      input_queue_.pop();
+    } else {
+      finish = input->deadline();
+      break;
+    }
+  }
+
+  // calculate max batch size
+  int budget = std::chrono::duration_cast<std::chrono::microseconds>(finish - now).count();
+  budget -= static_cast<int>(profile_->GetPostprocessLatency());
+  uint32_t batch_size = 2;
+  while (batch_size <= expect_batch_size && profile_->GetForwardLatency(batch_size) < budget)
+    ++batch_size;
+  --batch_size;
+
+  // gather inputs
+  uint32_t current_batch = 0;
+  std::unordered_map<std::string, std::vector<std::shared_ptr<Input> > > model_inputs;
+  while (current_batch < batch_size && !input_queue_.empty()) {
+    auto input = input_queue_.top();
+    input_queue_.pop();
+    ++dequeue_cnt;
+
+    auto task = processing_tasks_.at(input->task_id);
+    task->timer.Record("exec");
+    auto& model_sess_id = task->query.model_session_id();
+    if (model_inputs.find(model_sess_id) == model_inputs.end()) {
+      model_inputs.emplace(model_sess_id,
+                           std::vector<std::shared_ptr<Input> >{});
+    }
+    model_inputs.at(model_sess_id).push_back(input);
+    ++current_batch;
+  }
+
+  return {batch_task, dequeue_cnt};
+}
+
+std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTask(
+    uint32_t expect_batch_size) {
+  switch (FLAGS_backend_batch_policy) {
+    case 0: return GetBatchTaskSlidingWindow(expect_batch_size);
+    case 1: return GetBatchTaskEarliest(expect_batch_size);
+    default: LOG(FATAL) << "Unknown FLAGS_backend_batch_policy=" << FLAGS_backend_batch_policy;
+  }
 }
 
 void ModelExecutor::RemoveTask(std::shared_ptr<Task> task) {

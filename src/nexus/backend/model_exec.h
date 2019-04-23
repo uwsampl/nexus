@@ -56,6 +56,9 @@ class ModelExecutor {
   int NumberOfOpenRequests() const;
 
  private:
+  std::pair<std::shared_ptr<BatchTask>, int> GetBatchTaskSlidingWindow(uint32_t batch_size);
+  std::pair<std::shared_ptr<BatchTask>, int> GetBatchTaskEarliest(uint32_t batch_size);
+
   bool IncreaseOpenRequests(int cnt, bool limit_max_batch);
 
   void DecreaseOpenRequests(int cnt);
