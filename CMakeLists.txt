@@ -209,7 +209,7 @@ endif()
 
 ## backend: Caffe2 support ##
 if(USE_CAFFE2)
-    target_compile_definitions(backend PRIVATE USE_CAFFE2)
+    target_compile_definitions(backend_obj PRIVATE USE_CAFFE2)
     target_sources(backend_obj PUBLIC src/nexus/backend/caffe2_model.cpp)
     set(CAFFE2_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/caffe2)
     set(CAFFE2_SO
