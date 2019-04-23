@@ -164,8 +164,19 @@ python -m pip install pip --upgrade
 python -m pip install numpy matplotlib protobuf grpcio opencv-python --upgrade
 
 
+# eigen (for caffe2)
+wget http://bitbucket.org/eigen/eigen/get/3.3.7.tar.gz -O eigen-3.3.7.tar.gz
+tar xf eigen-3.3.7.tar.gz
+cd eigen-eigen-323c052e1731
+mkdir build
+cd build
+cmake ..
+make -j$(nproc)
+sudo make install
+cd ../..
 
 # YAY!!! FINALLY US!!! nexus
+cd ..
 git clone git@github.com:abcdabcd987/nexus.git
 cd nexus
 git submodule update --init --recursive

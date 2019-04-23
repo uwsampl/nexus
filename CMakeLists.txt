@@ -6,12 +6,12 @@ list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 #option(USE_GPU        "Use GPU"        ON )
 #option(USE_TENSORFLOW "Use TensorFlow" ON )
 #option(USE_DARKNET    "Use Darknet"    ON )
-#option(USE_CAFFE2     "Use Caffe2"     ON )
+option(USE_CAFFE2     "Use Caffe2"     ON )
 #option(USE_CAFFE      "Use Caffe"      OFF)
 set(USE_GPU ON)
 set(USE_TENSORFLOW ON)
 set(USE_DARKNET OFF)
-set(USE_CAFFE2 OFF)
+#set(USE_CAFFE2 OFF)
 set(USE_CAFFE OFF)
 option(DEBUG_TF_BUILD "Build TensorFlow in Debug model" OFF)
 if(USE_CAFFE2 AND USE_CAFFE)
@@ -219,9 +219,6 @@ if(USE_CAFFE2)
     add_custom_command(
         OUTPUT ${CAFFE2_SO}
         WORKING_DIRECTORY ${CAFFE2_BUILD_ROOT}
-        COMMAND
-            patch -p1 -R --dry-run -d ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2 -i ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2-patch.diff
-            || patch -p1 -d ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2 -i ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe2-patch.diff
         COMMAND ${CMAKE_COMMAND} -DUSE_NNPACK=OFF -DUSE_NCCL=OFF -DUSE_MPI=OFF -DUSE_LMDB=OFF -DUSE_LEVELDB=OFF
             -DUSE_NUMA=OFF -DUSE_MPI=OFF -DBUILD_PYTHON=OFF -DBUILD_BINARY=OFF -DBUILD_TEST=OFF
             -DCUDA_TOOLKIT_ROOT_DIR=${CUDA_PATH}

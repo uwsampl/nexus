@@ -374,7 +374,7 @@ void Caffe2Model::LoadModel(const std::string& init_path,
       image_height_ = model_info_["image_height"].as<int>();
       image_width_ = model_info_["image_width"].as<int>();
     }
-    input_shape_.set_dims({max_batch_, 3, image_height_, image_width_});
+    input_shape_.set_dims({static_cast<int>(max_batch_), 3, image_height_, image_width_});
   } else {
     // Add input placeholder
     input_blob_name_ = config.input_name();
