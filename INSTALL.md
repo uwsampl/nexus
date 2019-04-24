@@ -72,7 +72,7 @@ cd ../..
 # ref: https://github.com/gflags/gflags/blob/master/INSTALL.md
 wget https://github.com/gflags/gflags/archive/v2.2.2.tar.gz -O gflags-2.2.2.tar.gz
 tar xf gflags-2.2.2.tar.gz
-cd tar xf gflags-2.2.2
+cd gflags-2.2.2
 mkdir build
 cd build
 cmake .. -DBUILD_SHARED_LIBS=ON
@@ -145,6 +145,8 @@ cd gcc-8.3.0-build
 make -j$(nproc)
 sudo make install
 cd ..
+echo "/usr/local/lib64" | sudo tee /etc/ld.so.conf.d/local-lib64.conf
+sudo ldconfig
 
 # python 3.7 by pyenv
 sudo apt-get install -y make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev python-openssl git
@@ -177,7 +179,7 @@ cd ../..
 
 # YAY!!! FINALLY US!!! nexus
 cd ..
-git clone git@github.com:abcdabcd987/nexus.git
+git clone git@github.com:abcdabcd987/nexus.git -b lqchen
 cd nexus
 git submodule update --init --recursive
 mkdir build
