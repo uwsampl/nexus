@@ -319,8 +319,8 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTaskEarliest(
   while (!input_queue_.empty()) {
     auto &input = input_queue_.top();
     auto &task = processing_tasks_.at(input->task_id);
-    task->timer.Record("exec");
     if (task->result.status() != CTRL_OK || input->deadline() < finish) {
+      task->timer.Record("exec");
       VLOG(1) << model_->model_session_id() << " drops task " <<
               task->task_id << "/" << input->index << ", waiting time " <<
               task->timer.GetLatencyMicros("begin", "exec") << " us";
@@ -362,6 +362,16 @@ std::pair<std::shared_ptr<BatchTask>, int> ModelExecutor::GetBatchTaskEarliest(
     ++current_batch;
   }
 
+  std::stringstream ss;
+  for (auto const& iter : model_inputs) {
+    for (auto input : iter.second) {
+      auto task = processing_tasks_.at(input->task_id);
+      batch_task->AppendInput(input, task);
+      ss << task->task_id << " ";
+    }
+  }
+  VLOG(1) << model_->model_session_id() << " batch size " <<
+          batch_task->batch_size() << ": " << ss.str();
   return {batch_task, dequeue_cnt};
 }
 
