@@ -19,6 +19,7 @@
 #include "nexus/scheduler/backend_delegate.h"
 #include "nexus/scheduler/frontend_delegate.h"
 #include "nexus/scheduler/sch_info.h"
+#include "nexus/scheduler/complex_query.h"
 
 namespace nexus {
 namespace scheduler {
@@ -27,7 +28,6 @@ using AsyncService = nexus::SchedulerCtrl::AsyncService;
 using BackendDelegatePtr = std::shared_ptr<BackendDelegate>;
 using FrontendDelegatePtr = std::shared_ptr<FrontendDelegate>;
 using SessionInfoPtr = std::shared_ptr<SessionInfo>;
-using ServerList = std::unordered_set<uint32_t>;
 
 /*! \brief Scheduler acts as a global centralized scheduler server. */
 class Scheduler : public AsyncRpcServiceBase<AsyncService> {
@@ -37,7 +37,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \param address IP address and port, e.g., 127.0.0.1:1234.
    * \param nthreads Number of threads that handle the RPC calls.
    */
-  Scheduler(std::string port, size_t nthreads, std::string db_root_dir);
+  Scheduler(std::string port, size_t nthreads);
   /*!
    * \brief Loads the workload configuation for backends from config file.
    * \param config_file Config file path.
@@ -82,16 +82,16 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void LoadModel(const grpc::ServerContext& ctx,
                  const LoadModelRequest& request, LoadModelReply* reply);
   /*!
-   * \brief Handles UpdateBackendStats RPC.
+   * \brief Handles ReportWorkload RPC.
    *
    * This function acquires mutex_.
    *
    * \param ctx RPC server context
-   * \param request Backend stats information
+   * \param request Workload stats information
    * \param reply Reply to RPC
    */
-  void UpdateBackendStats(const grpc::ServerContext& ctx,
-                          const BackendStatsProto& request, RpcReply* reply);
+  void ReportWorkload(const grpc::ServerContext& ctx,
+                      const WorkloadStatsProto& request, RpcReply* reply);
   /*!
    * \brief Handles KeepAlive RPC.
    *
@@ -103,6 +103,12 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    */
   void KeepAlive(const grpc::ServerContext& ctx,
                  const KeepAliveRequest& request, RpcReply* reply);
+
+  void ComplexQuerySetup(const grpc::ServerContext& ctx,
+                         const ComplexQuerySetupRequest& request, RpcReply* reply);
+
+  void ComplexQueryAddEdge(const grpc::ServerContext& ctx,
+                           const ComplexQueryAddEdgeRequest& request, RpcReply* reply);
 
  private:
   /*! \brief Initializes RPC handlers. */
@@ -205,7 +211,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    * \param best_backend Best-fit backend pointer.
    * \param inst_cfg Model instance configuration to be loaded.
    */
-  void FindBestBackend(const ModelSession& model_sess, float request_rate,
+  void FindBestBackend(const ModelSession& model_sess, double request_rate,
                        const std::unordered_set<uint32_t>& skips,
                        BackendDelegatePtr* best_backend,
                        InstanceInfo* inst_info);
@@ -215,7 +221,7 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
    *
    * This function acquires mutex_.
    */
-  void BeaconCheck();
+  bool BeaconCheck();
   /*!
    * \brief At each epoch cycle, re-schedule the resources for all model
    * sessions based on the request rates during last epoch
@@ -234,6 +240,9 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   void AllocateUnassignedWorkloads(
       std::unordered_set<SessionInfoPtr>* changed_sessions,
       std::unordered_set<BackendDelegatePtr>* changed_backends = nullptr);
+
+  void ConsolidateBackends(
+      std::unordered_set<SessionInfoPtr>* changed_sessions);
   /*!
    * \brief Update model routing tables to subscribed frontends
    *
@@ -256,8 +265,6 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   uint32_t beacon_interval_sec_;
   /*! \brief Epoch duration in seconds */
   uint32_t epoch_interval_sec_;
-  /*! \brief Minimum history length for epoch scheduling */
-  uint32_t min_history_len_;
   /*! \brief History length to keep in the model stats */
   uint32_t history_len_;
   /*! \brief Flag for enabling epoch scheduling */
@@ -274,8 +281,8 @@ class Scheduler : public AsyncRpcServiceBase<AsyncService> {
   std::unordered_map<uint32_t, BackendDelegatePtr> backends_;
   /*! \brief Mapping from model session ID to session information */
   std::unordered_map<std::string, SessionInfoPtr> session_table_;
-  /*! \brief Frontend subscribers */
-  std::unordered_map<std::string, ServerList> session_subscribers_;
+  /*! \brief Mapping from complex query ID to ComplexQuery */
+  std::unordered_map<std::string, ComplexQuery> complex_queries_;
   /*! \brief Mutex for accessing internal data */
   std::mutex mutex_;
 };

@@ -21,11 +21,19 @@ class Caffe2Model : public ModelInstance {
 
   ArrayPtr CreateInputGpuArray() final;
 
+  ArrayPtr CreateInputGpuArrayWithRawPointer(float* ptr, size_t nfloats) final;
+
+  void RemoveInputGpuArray(ArrayPtr arr) final;
+
   std::unordered_map<std::string, ArrayPtr> GetOutputGpuArrays() final;
 
   void Preprocess(std::shared_ptr<Task> task) final;
 
   void Forward(std::shared_ptr<BatchTask> batch_task) final;
+
+  void ForwardAsync(std::shared_ptr<BatchTask> batch_task) final;
+
+  void WaitOutput(std::shared_ptr<BatchTask> batch_task) final;
 
   void Postprocess(std::shared_ptr<Task> task) final;
 
@@ -34,13 +42,14 @@ class Caffe2Model : public ModelInstance {
                  const ModelInstanceConfig& config, caffe2::NetDef* init_net,
                  caffe2::NetDef* predict_net);
 
-  std::pair<std::string, caffe2::Blob*> NewInputBlob();
+  std::pair<uint32_t, caffe2::Blob*> NewInputBlob();
 
-  void LoadClassnames(const std::string& filename);
+  std::pair<uint32_t, caffe2::Blob*> NewInputBlob(float* ptr, size_t nfloats);
 
   std::unique_ptr<caffe2::CUDAContext> gpu_ctx_;
   std::string net_name_;
   std::unique_ptr<caffe2::Workspace> workspace_;
+  caffe2::NetBase* net_;
   std::string input_blob_name_;
   std::string output_blob_name_;
   // image size
@@ -55,12 +64,13 @@ class Caffe2Model : public ModelInstance {
   // size of output in a single batch
   size_t output_size_;
   // Input tensor
-  std::vector<std::pair<std::string, caffe2::Blob*> > input_blobs_;
+  std::unordered_map<uint32_t,
+                     std::pair<std::string, caffe2::Blob*> > input_blobs_;
   bool first_input_array_;
   // Output tensor
   caffe2::TensorCUDA* output_tensor_;
 
-  std::vector<std::string> classnames_;
+  std::unordered_map<int, std::string> classnames_;
   bool has_mean_file_;
   std::vector<float> mean_value_;
   std::vector<float> mean_blob_;

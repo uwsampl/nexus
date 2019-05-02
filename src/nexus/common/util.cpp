@@ -1,9 +1,12 @@
 #include <arpa/inet.h>
-#include <cuda_runtime.h>
 #include <glog/logging.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <sstream>
+
+#ifdef USE_GPU
+#include <cuda_runtime.h>
+#endif
 
 #include "nexus/common/util.h"
 
@@ -27,6 +30,7 @@ void Memcpy(void* dst, const Device* dst_device, const void* src,
   }
   DeviceType dst_type = dst_device->type();
   DeviceType src_type = src_device->type();
+#ifdef USE_GPU
   if (dst_type == kCPU) {
     if (src_type == kCPU) {
       memcpy(dst, src, nbytes);
@@ -40,6 +44,11 @@ void Memcpy(void* dst, const Device* dst_device, const void* src,
       NEXUS_CUDA_CHECK(cudaMemcpy(dst, src, nbytes, cudaMemcpyDeviceToDevice));
     }
   }
+#else
+  CHECK_EQ(dst_type, kCPU);
+  CHECK_EQ(src_type, kCPU);
+  memcpy(dst, src, nbytes);
+#endif
 }
 
 namespace {

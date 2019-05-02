@@ -10,11 +10,13 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
+#include "nexus/backend/backup_client.h"
 #include "nexus/backend/gpu_executor.h"
-#include "nexus/backend/model_ins.h"
+#include "nexus/backend/model_exec.h"
 #include "nexus/backend/rpc_service.h"
 #include "nexus/backend/task.h"
 #include "nexus/backend/worker.h"
+#include "nexus/common/backend_pool.h"
 #include "nexus/common/block_queue.h"
 #include "nexus/common/model_def.h"
 #include "nexus/common/server_base.h"
@@ -30,7 +32,7 @@ namespace backend {
  */
 class BackendServer : public ServerBase, public MessageHandler {
  public:
-  using ModelTable = std::unordered_map<std::string, ModelInstancePtr>;
+  using ModelTable = std::unordered_map<std::string, ModelExecutorPtr>;
   
   /*!
    * \brief Constructs a backend server
@@ -42,7 +44,7 @@ class BackendServer : public ServerBase, public MessageHandler {
    * \param model_db_root Model database root directory path
    */
   BackendServer(std::string port, std::string rpc_port, std::string sch_addr,
-                size_t num_workers, int gpu_id, std::string model_db_root);
+                int gpu_id, size_t num_workers = 0, std::vector<int> cores = {});
   /*! \brief Deconstructs backend server */
   ~BackendServer();
   /*! \brief Get backend node ID */
@@ -69,33 +71,53 @@ class BackendServer : public ServerBase, public MessageHandler {
    */
   void HandleError(std::shared_ptr<Connection> conn,
                    boost::system::error_code ec) final;
+
+  void UpdateModelTableAsync(const ModelTableConfig& req);
   /*!
    * \brief Updates model table
    * \param req Update model table requests
    * \param reply Replies to update model tabel requests
    */
-  void UpdateModelTable(const ModelTableConfig& req, RpcReply* reply);
+  void UpdateModelTable(const ModelTableConfig& req);
   /*!
    * \brief Gets the model instance given model session ID
    * \param model_session_id Model session ID
    * \return Model instance pointer
    */
-  ModelInstancePtr GetModelInstance(const std::string& model_session_id);
+  ModelExecutorPtr GetModel(const std::string& model_session_id);
   /*!
    * \brief Gets all model instances loaded in the backend server
    * \return All model instances
    */
   ModelTable GetModelTable();
+  /*!
+   * \brief Get backup client given backend id.
+   * \param backend_id Node id of backup backend
+   * \return Backup client
+   */
+  std::shared_ptr<BackupClient> GetBackupClient(uint32_t backend_id);
+
+#ifdef USE_GPU
+  /*! \brief Returns the current server utilization. */
+  inline double CurrentUtilization() const {
+    return gpu_executor_->CurrentUtilization();
+  }
+#endif
 
  private:
-  /*! \brief Daemon thread that sends stats to scheduler periodically */
+  /*! \brief Daemon thread that sends stats to scheduler periodically. */
   void Daemon();
 
+  void ModelTableDaemon();
+  /*! \brief Register this backend server to global scheduler. */
   void Register();
-
+  /*! \brief Unregister this backend server to global scheduler. */
   void Unregister();
-
-  void UpdateBackendStats(const BackendStatsProto& request);
+  /*!
+   * \brief Send model workload history to global scheduler.
+   * \param request Workload history protobuf.
+   */
+  void KeepAlive();
 
  private:
   /*! \brief GPU device index */
@@ -112,7 +134,9 @@ class BackendServer : public ServerBase, public MessageHandler {
   std::unique_ptr<SchedulerCtrl::Stub> sch_stub_;
   /*! \brief Daemon thread */
   std::thread daemon_thread_;
-  /*! \brief Frontend connections, guraded by frontend_mutex_ */
+
+  std::thread model_table_thread_;
+  /*! \brief Frontend connection pool. Guraded by frontend_mutex_. */
   std::set<std::shared_ptr<Connection> > frontend_connections_;
   /*! \brief Mutex for frontend_connections_ */
   std::mutex frontend_mutex_;
@@ -120,16 +144,21 @@ class BackendServer : public ServerBase, public MessageHandler {
   BlockPriorityQueue<Task> task_queue_;
   /*! \brief Worker thread pool */
   std::vector<std::unique_ptr<Worker> > workers_;
+#ifdef USE_GPU
   /*! \brief GPU executor */
   std::unique_ptr<GpuExecutor> gpu_executor_;
+#endif
   /*!
    * \brief Mapping from model session ID to model instance.
-   *
-   * Guarded by model_table_lock_
+   * Guarded by model_table_mu_.p
    */
   ModelTable model_table_;
-  /*! \brief Spinlock for accessing model_instances_ and model_session_map_ */
-  Spinlock model_table_lock_;
+
+  BlockQueue<ModelTableConfig> model_table_requests_;
+  /*! \brief Mutex for accessing model_table_ */
+  std::mutex model_table_mu_;
+  /*! \brief Backend pool for backup servers. */
+  BackendPool backend_pool_;
   /*! \brief Random number genertor */
   std::random_device rd_;
   std::mt19937 rand_gen_;

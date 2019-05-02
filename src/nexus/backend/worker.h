@@ -6,7 +6,6 @@
 #include <thread>
 
 #include "nexus/common/block_queue.h"
-#include "nexus/backend/gpu_executor.h"
 #include "nexus/backend/task.h"
 
 namespace nexus {
@@ -17,10 +16,9 @@ class BackendServer;
 class Worker {
  public:
   Worker(int index, BackendServer* server,
-         BlockPriorityQueue<Task>& task_queue,
-         GpuExecutor* gpu_executor);
+         BlockPriorityQueue<Task>& task_queue);
 
-  void Start();
+  void Start(int core = -1);
 
   void Stop();
 
@@ -35,7 +33,6 @@ class Worker {
   int index_;
   BackendServer* server_;
   BlockPriorityQueue<Task>& task_queue_;
-  GpuExecutor* gpu_executor_;
   volatile bool running_;
   std::thread thread_;
 };

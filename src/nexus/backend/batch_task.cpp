@@ -1,26 +1,28 @@
 #include "nexus/backend/batch_task.h"
 #include "nexus/common/util.h"
+#include <glog/logging.h>
 
 namespace nexus {
 namespace backend {
 
-BatchTask::BatchTask(uint64_t batch_id, uint32_t max_batch) :
-    batch_id_(batch_id),
+BatchTask::BatchTask(uint32_t max_batch) :
     max_batch_(max_batch),
     input_write_pt_(nullptr),
-    input_nfloats_(0) {}
+    input_elements_(0) {}
 
 void BatchTask::SetInputArray(ArrayPtr arr) {
   input_array_ = arr;
-  input_write_pt_ = input_array_->Data<float>();
-  input_nfloats_ = 0;
+  input_write_pt_ = input_array_->Data<char>();
+  input_elements_ = 0;
 }
 
-void BatchTask::CreateInputArray(size_t input_size, Device* device) {
-  input_array_ = std::make_shared<Array>(DT_FLOAT, max_batch_ * input_size,
-                                         device);
-  input_write_pt_ = input_array_->Data<float>();
-  input_nfloats_ = 0;
+void BatchTask::CreateInputArray(DataType data_type,
+                                 size_t num_elements_per_input,
+                                 Device* device) {
+  input_array_ = std::make_shared<Array>(
+      data_type, max_batch_ * num_elements_per_input, device);
+  input_write_pt_ = input_array_->Data<char>();
+  input_elements_ = 0;
 }
 
 void BatchTask::SetOutputArrays(
@@ -50,17 +52,18 @@ ArrayPtr BatchTask::GetOutputArray(const std::string& name) const {
 void BatchTask::AppendInput(std::shared_ptr<Input> input,
                             std::shared_ptr<Task> task) {
   CHECK_EQ(input_array_->data_type(), input->array->data_type()) <<
-      "Input data type is not float";
+      "Input data type mismatch";
   CHECK_LT(inputs_.size(), max_batch_) << "Exceed max batch size";
-  CHECK_LE(input_nfloats_ + input->array->num_elements(),
-           input_array_->num_elements()) << "Exceeds input_array capacity";
+  CHECK_LE(input_elements_ + input->array->num_elements(),
+           input_array_->num_elements()) << "Exceeds batch input array capacity";
   inputs_.push_back(input);
   tasks_.push_back(task);
   auto in_arr = input->array;
-  const float* src_data = in_arr->Data<float>();
+  const char* src_data = in_arr->Data<char>();
+  size_t nbytes = in_arr->num_elements() * type_size(input_array_->data_type());
   Memcpy(input_write_pt_, input_array_->device(), src_data, in_arr->device(),
-         in_arr->num_elements() * sizeof(float));
-  input_write_pt_ += in_arr->num_elements();
+         nbytes);
+  input_write_pt_ += nbytes;
 }
 
 void BatchTask::SliceOutputBatch(
@@ -76,7 +79,7 @@ void BatchTask::SliceOutputBatch(
       slice_arrays.emplace(iter.first, iter.second->Slice(
           slice.offset(i), slice.num_elements(i)));
     }
-    outputs_.push_back(std::make_shared<Output>(input->tid, input->index,
+    outputs_.push_back(std::make_shared<Output>(input->task_id, input->index,
                                                 slice_arrays));
   }
 }

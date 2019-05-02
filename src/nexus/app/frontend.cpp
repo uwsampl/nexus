@@ -1,16 +1,18 @@
 #include <limits>
+#include <gflags/gflags.h>
 
 #include "nexus/app/frontend.h"
 #include "nexus/common/config.h"
 
+DECLARE_int32(load_balance);
+
 namespace nexus {
 namespace app {
 
-Frontend::Frontend(std::string port, std::string rpc_port, std::string sch_addr,
-                   size_t nthreads):
+Frontend::Frontend(std::string port, std::string rpc_port,
+                   std::string sch_addr) :
     ServerBase(port),
     rpc_service_(this, rpc_port),
-    backend_pool_(io_service_, this),
     rand_gen_(rd_()) {
   // Start RPC service
   rpc_service_.Start();
@@ -24,12 +26,6 @@ Frontend::Frontend(std::string port, std::string rpc_port, std::string sch_addr,
   sch_stub_ = SchedulerCtrl::NewStub(channel);
   // Init Node ID and register frontend to scheduler
   Register();
-  // Init message processors
-  for (size_t i = 0; i < nthreads; ++i) {
-    std::unique_ptr<Worker> worker(new Worker(this, request_queue_));
-    worker->Start();
-    workers_.push_back(std::move(worker));
-  }
 }
 
 Frontend::~Frontend() {
@@ -38,11 +34,17 @@ Frontend::~Frontend() {
   }
 }
 
-void Frontend::Run() {
+void Frontend::Run(QueryProcessor* qp, size_t nthreads) {
+  for (size_t i = 0; i < nthreads; ++i) {
+    std::unique_ptr<Worker> worker(new Worker(qp, request_pool_));
+    worker->Start();
+    workers_.push_back(std::move(worker));
+  }
   running_ = true;
+  daemon_thread_ = std::thread(&Frontend::Daemon, this);
   LOG(INFO) << "Frontend server (id: " << node_id_ << ") is listening on " <<
       address();
-  io_service_.run();
+  io_context_.run();
 }
 
 void Frontend::Stop() {
@@ -66,6 +68,7 @@ void Frontend::Stop() {
   for (auto& worker : workers_) {
     worker->Join();
   }
+  daemon_thread_.join();
   // Stop RPC service
   rpc_service_.Stop();
   LOG(INFO) << "Frontend server stopped";
@@ -102,7 +105,8 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
         LOG(ERROR) << "UserRequest message comes from non-user connection";
         break;
       }
-      request_queue_.push(std::move(message));
+      request_pool_.AddNewRequest(std::make_shared<RequestContext>(
+          user_sess, message, request_pool_));
       break;
     }
     case kBackendReply: {
@@ -114,7 +118,7 @@ void Frontend::HandleMessage(std::shared_ptr<Connection> conn,
         LOG(ERROR) << "Cannot find model handler for " << model_session_id;
         break;
       }
-      itr->second->HandleResult(result);
+      itr->second->HandleReply(result);
       break;
     }
     default: {
@@ -134,7 +138,7 @@ void Frontend::HandleError(std::shared_ptr<Connection> conn,
     } else {
       LOG(ERROR) << "Backend connection error (" << ec << "): " << ec.message();
     }
-    backend_pool_.RemoveBackend(backend_conn->node_id());
+    backend_pool_.RemoveBackend(backend_conn);
   } else { // user_connection
     if (ec == boost::asio::error::eof ||
         ec == boost::asio::error::connection_reset) {
@@ -147,7 +151,7 @@ void Frontend::HandleError(std::shared_ptr<Connection> conn,
     connection_pool_.erase(conn);
     uint32_t uid = user_sess->user_id();
     user_sessions_.erase(uid);
-    LOG(INFO) << "Remove user session " << uid;
+    VLOG(1) << "Remove user session " << uid;
     conn->Stop();
   }
 }
@@ -156,7 +160,7 @@ void Frontend::UpdateModelRoutes(const ModelRouteUpdates& request,
                                  RpcReply* reply) {
   int success = true;
   for (auto model_route : request.model_route()) {
-    if (!UpdateRoute(model_route)) {
+    if (!UpdateBackendPoolAndModelRoute(model_route)) {
       success = false;
     }
   }
@@ -177,6 +181,11 @@ std::shared_ptr<UserSession> Frontend::GetUserSession(uint32_t uid) {
 }
 
 std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
+  return LoadModel(req, LoadBalancePolicy(FLAGS_load_balance));
+}
+
+std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req,
+                                                  LoadBalancePolicy lb_policy) {
   LoadModelReply reply;
   grpc::ClientContext context;
   grpc::Status status = sch_stub_->LoadModel(&context, req, &reply);
@@ -190,14 +199,42 @@ std::shared_ptr<ModelHandler> Frontend::LoadModel(const LoadModelRequest& req) {
     return nullptr;
   }
   auto model_handler = std::make_shared<ModelHandler>(
-      reply.model_route().model_session_id(), backend_pool_);
-  {
-    std::lock_guard<std::mutex> lock(model_pool_mu_);
-    model_pool_.emplace(model_handler->model_session_id(), model_handler);
-  }
-  UpdateRoute(reply.model_route());
+      reply.model_route().model_session_id(), backend_pool_, lb_policy);
+  // Only happens at Setup stage, so no concurrent modification to model_pool_
+  model_pool_.emplace(model_handler->model_session_id(), model_handler);
+  UpdateBackendPoolAndModelRoute(reply.model_route());
 
   return model_handler;
+}
+
+void Frontend::ComplexQuerySetup(const nexus::ComplexQuerySetupRequest &req) {
+  RpcReply reply;
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->ComplexQuerySetup(&context, req, &reply);
+  if (!status.ok()) {
+    LOG(FATAL) << "Failed to connect to scheduler: " <<
+               status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  if (reply.status() != CTRL_OK) {
+    LOG(FATAL) << "ComplexQuerySetup error: " << CtrlStatus_Name(reply.status());
+    return;
+  }
+}
+
+void Frontend::ComplexQueryAddEdge(const nexus::ComplexQueryAddEdgeRequest &req) {
+  RpcReply reply;
+  grpc::ClientContext context;
+  grpc::Status status = sch_stub_->ComplexQueryAddEdge(&context, req, &reply);
+  if (!status.ok()) {
+    LOG(FATAL) << "Failed to connect to scheduler: " <<
+               status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  if (reply.status() != CTRL_OK) {
+    LOG(FATAL) << "ComplexQuerySetup error: " << CtrlStatus_Name(reply.status());
+    return;
+  }
 }
 
 void Frontend::Register() {
@@ -273,11 +310,10 @@ void Frontend::KeepAlive() {
   }
 }
 
-bool Frontend::UpdateRoute(const ModelRouteProto& route) {
-  std::lock_guard<std::mutex> lock(model_pool_mu_);
+bool Frontend::UpdateBackendPoolAndModelRoute(const ModelRouteProto& route) {
   auto& model_session_id = route.model_session_id();
   LOG(INFO) << "Update model route for " << model_session_id;
-  LOG(INFO) << route.DebugString();
+  // LOG(INFO) << route.DebugString();
   auto iter = model_pool_.find(model_session_id);
   if (iter == model_pool_.end()) {
     LOG(ERROR) << "Cannot find model handler for " << model_session_id;
@@ -285,19 +321,36 @@ bool Frontend::UpdateRoute(const ModelRouteProto& route) {
   }
   auto model_handler = iter->second;
   // Update backend pool first
-  auto old_backends = model_handler->BackendList();
-  std::unordered_set<uint32_t> new_backends;
-  for (auto backend : route.backend_rate()) {
-    uint32_t backend_id = backend.info().node_id();
-    backend_pool_.AddBackend(backend.info(), model_session_id);
-    new_backends.insert(backend_id);
-  }
-  for (auto backend_id : old_backends) {
-    if (new_backends.find(backend_id) == new_backends.end()) {
-      backend_pool_.RemoveModelSessionFromBackend(backend_id, model_session_id);
+  {
+    std::lock_guard<std::mutex> lock(backend_sessions_mu_);
+    auto old_backends = model_handler->BackendList();
+    std::unordered_set<uint32_t> new_backends;
+    // Add new backends
+    for (auto backend : route.backend_rate()) {
+      uint32_t backend_id = backend.info().node_id();
+      if (backend_sessions_.count(backend_id) == 0) {
+        backend_sessions_.emplace(
+            backend_id, std::unordered_set<std::string>{model_session_id});
+        backend_pool_.AddBackend(std::make_shared<BackendSession>(
+            backend.info(), io_context_, this));
+      } else {
+        backend_sessions_.at(backend_id).insert(model_session_id);
+      }
+      new_backends.insert(backend_id);
+    }
+    // Remove unused backends
+    for (auto backend_id : old_backends) {
+      if (new_backends.count(backend_id) == 0) {
+        backend_sessions_.at(backend_id).erase(model_session_id);
+        if (backend_sessions_.at(backend_id).empty()) {
+          LOG(INFO) << "Remove backend " << backend_id;
+          backend_sessions_.erase(backend_id);
+          backend_pool_.RemoveBackend(backend_id);
+        }
+      }
     }
   }
-  // Update route in mdoel handler
+  // Update route to backends with throughput in model handler
   model_handler->UpdateRoute(route);
   return true;
 }
@@ -318,6 +371,41 @@ void Frontend::RegisterUser(
   }
   reply->set_user_id(uid);
   reply->set_status(CTRL_OK);
+}
+
+void Frontend::Daemon() {
+  while (running_) {
+    auto next_time = Clock::now() + std::chrono::seconds(beacon_interval_sec_);
+    WorkloadStatsProto workload_stats;
+    workload_stats.set_node_id(node_id_);
+    for (auto const& iter : model_pool_) {
+      auto model_session_id = iter.first;
+      auto history = iter.second->counter()->GetHistory();
+      auto model_stats = workload_stats.add_model_stats();
+      model_stats->set_model_session_id(model_session_id);
+      for (auto nreq : history) {
+        model_stats->add_num_requests(nreq);
+      }
+    }
+    ReportWorkload(workload_stats);
+    std::this_thread::sleep_until(next_time);
+  }
+}
+
+void Frontend::ReportWorkload(const WorkloadStatsProto& request) {
+  grpc::ClientContext context;
+  RpcReply reply;
+  grpc::Status status = sch_stub_->ReportWorkload(&context, request,
+                                                  &reply);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to connect to scheduler: " <<
+        status.error_message() << "(" << status.error_code() << ")";
+    return;
+  }
+  CtrlStatus ret = reply.status();
+  if (ret != CTRL_OK) {
+    LOG(ERROR) << "ReportWorkload error: " << CtrlStatus_Name(ret);
+  }
 }
 
 } // namespace app

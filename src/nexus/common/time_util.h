@@ -75,16 +75,16 @@ class TimeSystem {
 
   void Stop();
 
-  bool AddTickable(Tickable* tickable);
+  bool AddTickable(std::shared_ptr<Tickable> tickable);
 
-  bool RemoveTickable(Tickable* tickable);
+  bool RemoveTickable(std::shared_ptr<Tickable> tickable);
 
  private:
   TimeSystem();
 
   void Run();
 
-  std::unordered_set<Tickable*> tickables_;
+  std::unordered_set<std::shared_ptr<Tickable>> tickables_;
   std::mutex mutex_;
   std::atomic_bool running_;
   std::thread thread_;

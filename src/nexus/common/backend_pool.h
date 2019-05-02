@@ -1,10 +1,12 @@
 #ifndef NEXUS_COMMON_BACKEND_POOL_H_
 #define NEXUS_COMMON_BACKEND_POOL_H_
 
+#include <sstream>
 #include <unordered_map>
 
 #include "nexus/common/connection.h"
-#include "nexus/proto/control.pb.h"
+#include "nexus/common/time_util.h"
+#include "nexus/proto/control.grpc.pb.h"
 
 namespace nexus {
 
@@ -12,54 +14,62 @@ class BackendPool;
 
 class BackendSession : public Connection {
  public:
-  explicit BackendSession(BackendPool* pool, const BackendInfo& info,
-                          boost::asio::io_service& io_service,
+  explicit BackendSession(const BackendInfo& info,
+                          boost::asio::io_context& io_context,
                           MessageHandler* handler);
 
   ~BackendSession();
 
-  uint32_t node_id() const { return node_id_; }
+  inline uint32_t node_id() const { return node_id_; }
 
-  std::string address() const { return address_; }
+  inline std::string ip() const { return ip_; }
 
-  void Stop() final;
+  inline std::string server_port() const { return server_port_; }
 
-  void AddModelSession(const std::string& model_session);
+  inline std::string rpc_port() const { return rpc_port_; }
 
-  bool RemoveModelSession(const std::string& model_session);
+  virtual void Start();
 
- private:
-  void DoConnect(boost::asio::io_service& io_service);
+  virtual void Stop();
+
+  double GetUtilization();
 
  protected:
-  BackendPool* pool_;
+  /*! \brief Asynchronously connect to backend server. */
+  void DoConnect();
+
+  /*! \brief Boost io service */
+  boost::asio::io_context& io_context_;
   uint32_t node_id_;
-  std::string address_;
+  std::string ip_;
+  std::string server_port_;
+  std::string rpc_port_;
   std::atomic_bool running_;
-  std::unordered_set<std::string> model_sessions_;
+  std::unique_ptr<BackendCtrl::Stub> stub_;
+  double utilization_;
+  TimePoint expire_;
+  std::mutex util_mu_;
 };
 
 class BackendPool {
  public:
-  BackendPool(boost::asio::io_service& io_service, MessageHandler* handler);
+  BackendPool() {}
 
   std::shared_ptr<BackendSession> GetBackend(uint32_t backend_id);
 
-  void AddBackend(const BackendInfo& backend_info,
-                  const std::string& model_session);
+  void AddBackend(std::shared_ptr<BackendSession> backend);
+
+  void RemoveBackend(std::shared_ptr<BackendSession> backend);
 
   void RemoveBackend(uint32_t backend_id);
 
-  void RemoveModelSessionFromBackend(uint32_t backend_id,
-                                     const std::string& model_session);
+  std::vector<uint32_t> UpdateBackendList(std::unordered_set<uint32_t> list);
 
   void StopAll();
 
  protected:
-  boost::asio::io_service& io_service_;
-  MessageHandler* handler_;
   std::unordered_map<uint32_t, std::shared_ptr<BackendSession> > backends_;
-  std::mutex pool_mu_;
+  std::mutex mu_;
 };
 
 } // namespace nexus

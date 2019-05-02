@@ -2,15 +2,16 @@ syntax = "proto3";
 
 package nexus;
 
-import "google/protobuf/empty.proto";
 import "nnquery.proto";
 
 service SchedulerCtrl {
   rpc Register(RegisterRequest) returns (RegisterReply) {}
   rpc Unregister(UnregisterRequest) returns (RpcReply) {}
   rpc LoadModel(LoadModelRequest) returns (LoadModelReply) {}
-  rpc UpdateBackendStats(BackendStatsProto) returns (RpcReply) {}
+  rpc ReportWorkload(WorkloadStatsProto) returns (RpcReply) {}
   rpc KeepAlive(KeepAliveRequest) returns (RpcReply) {}
+  rpc ComplexQuerySetup(ComplexQuerySetupRequest) returns (RpcReply) {}
+  rpc ComplexQueryAddEdge(ComplexQueryAddEdgeRequest) returns (RpcReply) {}
 }
 
 service FrontendCtrl {
@@ -21,6 +22,7 @@ service FrontendCtrl {
 service BackendCtrl {
   rpc UpdateModelTable(ModelTableConfig) returns (RpcReply) {}
   rpc CheckAlive(CheckAliveRequest) returns (RpcReply) {}
+  rpc CurrentUtilization(UtilizationRequest) returns (UtilizationReply) {}
 }
 
 enum NodeType {
@@ -91,13 +93,15 @@ message CheckAliveRequest {
 
 message BackendInfo {
   uint32 node_id = 1;
-  string server_address = 2;
+  string ip = 2;
+  string server_port = 3;
+  string rpc_port = 4;
 }
 
 message ModelRouteProto {
   message BackendRate {
     BackendInfo info = 1;
-    float throughput = 2;
+    double throughput = 2;
   }
   string model_session_id = 1;
   repeated BackendRate backend_rate = 2;
@@ -110,8 +114,9 @@ message ModelRouteUpdates {
 message LoadModelRequest {
   uint32 node_id = 1;
   ModelSession model_session = 2;
-  float estimate_workload = 3;
+  double estimate_workload = 3;
   //uint32 num_gpus = 4;
+  string cq_id = 5;
 }
 
 message LoadModelReply {
@@ -124,6 +129,7 @@ message ModelInstanceConfig {
   uint32 batch = 2;
   uint32 max_batch = 3;
   uint64 memory_usage = 4;
+  bool backup = 5;
 
   // The following fields are used for prefix batching and split batching.
   // Model segment is from start_index (inclusive) to end_index (exclusive).
@@ -132,10 +138,13 @@ message ModelInstanceConfig {
   int32 end_index = 11;
   string input_name = 12;
   repeated int32 input_shape = 13;
+
+  repeated BackendInfo backup_backend = 40;
 }
 
 message ModelTableConfig {
   repeated ModelInstanceConfig model_instance_config = 1;
+  double duty_cycle_us = 2;
 }
 
 message ModelStatsProto {
@@ -145,7 +154,7 @@ message ModelStatsProto {
   repeated uint64 num_requests = 2;
 }
 
-message BackendStatsProto {
+message WorkloadStatsProto {
   uint32 node_id = 1;
   repeated ModelStatsProto model_stats = 2;
 }
@@ -153,4 +162,26 @@ message BackendStatsProto {
 message KeepAliveRequest {
   NodeType node_type = 1;
   uint32 node_id = 2;
+}
+
+message UtilizationRequest {
+  uint32 node_id = 1;
+}
+
+message UtilizationReply {
+  uint32 node_id = 1;
+  double utilization = 2;
+  int32 valid_ms = 3;
+}
+
+message ComplexQuerySetupRequest {
+  string cq_id = 1;
+  uint32 slo_us = 2;
+  uint32 step_us = 3;
+}
+
+message ComplexQueryAddEdgeRequest {
+  string cq_id = 1;
+  ModelSession source = 2;
+  ModelSession target = 3;
 }

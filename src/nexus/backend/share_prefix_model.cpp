@@ -1,3 +1,5 @@
+#include <glog/logging.h>
+
 #include "nexus/backend/share_prefix_model.h"
 #include "nexus/common/model_db.h"
 
@@ -24,14 +26,14 @@ SharePrefixModel::SharePrefixModel(int gpu_id,
   prefix_cfg.set_batch(batch_);
   prefix_cfg.set_max_batch(max_batch_);
   prefix_cfg.set_end_index(prefix_length_);
-  prefix_model_ = CreateModelInstance(gpu_id, prefix_cfg);
+  CreateModelInstance(gpu_id, prefix_cfg, &prefix_model_);
   for (auto iter : prefix_model_->OutputShapes()) {
     prefix_output_name_ = iter.first;
     prefix_output_shape_ = iter.second;
   }
-  prefix_output_arr_ = prefix_model_->GetOutputGpuArrays();
+  prefix_batch_output_arr_ = prefix_model_->GetOutputGpuArrays();
 
-  max_suffix_output_size_ = 0;
+  max_suffix_output_size_ = 0; 
   for (int i = 0; i < config.model_session_size(); ++i) {
     ModelInstanceConfig suffix_cfg;
     suffix_cfg.add_model_session()->CopyFrom(config.model_session(i));
@@ -45,15 +47,15 @@ SharePrefixModel::SharePrefixModel(int gpu_id,
     }
     //LOG(INFO) << suffix_cfg.DebugString();
 
-    auto suffix_model = CreateModelInstance(gpu_id, suffix_cfg);
+    std::unique_ptr<ModelInstance> suffix_model;
+    CreateModelInstance(gpu_id, suffix_cfg, &suffix_model);
     auto model_sess_id = suffix_model->model_session_id();
-    suffix_models_.emplace(model_sess_id, suffix_model);
     suffix_input_arrays_.emplace(model_sess_id,
                                  suffix_model->CreateInputGpuArray());
-    auto suffix_outputs = suffix_model->OutputShapes();
-    CHECK_EQ(suffix_outputs.size(), 1) << "All models must have only one output"
-        " in the prefix batching";
-    for (auto iter : suffix_outputs) {
+    auto suffix_output_shape = suffix_model->OutputShapes();
+    CHECK_EQ(suffix_output_shape.size(), 1) << "All models must have only one "
+        "output in the prefix batching";
+    for (auto iter : suffix_output_shape) {
       size_t size = iter.second.NumElements(1);
       suffix_output_sizes_.emplace(model_sess_id, size);
       suffix_output_names_.emplace(model_sess_id, iter.first);
@@ -61,6 +63,7 @@ SharePrefixModel::SharePrefixModel(int gpu_id,
         max_suffix_output_size_ = size;
       }
     }
+    suffix_models_.emplace(model_sess_id, std::move(suffix_model));
   }
 
   LOG(INFO) << "Prefix output shape: " << prefix_output_shape_ <<
@@ -71,7 +74,7 @@ void SharePrefixModel::set_batch(size_t batch) {
   CHECK_LE(batch, max_batch_) << "Batch size must be less than max_batch";
   batch_.store(batch);
   prefix_model_->set_batch(batch);
-  for (auto iter : suffix_models_) {
+  for (auto& iter : suffix_models_) {
     iter.second->set_batch(batch);
   }
 }
@@ -82,7 +85,7 @@ Shape SharePrefixModel::InputShape() {
 
 std::unordered_map<std::string, Shape> SharePrefixModel::OutputShapes() {
   std::lock_guard<std::mutex> lock(suffix_mu_);
-  return {{"output", Shape({max_batch_, max_suffix_output_size_})}};
+  return {{"output", Shape({static_cast<int>(max_batch_), static_cast<int>(max_suffix_output_size_)})}};
 }
 
 ArrayPtr SharePrefixModel::CreateInputGpuArray() {
@@ -99,91 +102,154 @@ void SharePrefixModel::Preprocess(std::shared_ptr<Task> task) {
 }
 
 void SharePrefixModel::Forward(std::shared_ptr<BatchTask> batch_task) {
-  std::unordered_map<std::string, ModelInstancePtr> suffix_models;
-  std::unordered_map<std::string, ArrayPtr> suffix_input_arrays;
-  std::unordered_map<std::string, std::string> suffix_output_names;
-  std::unordered_map<std::string, size_t> suffix_output_sizes;
+  // Do not allow to change the shared models during the forwarding
+  std::unordered_map<std::string, std::shared_ptr<ModelInstance> > suffix_models;
   {
-    // Take a snapshot of suffix models
     std::lock_guard<std::mutex> lock(suffix_mu_);
     suffix_models = suffix_models_;
-    suffix_input_arrays = suffix_input_arrays_;
-    suffix_output_names = suffix_output_names_;
-    suffix_output_sizes = suffix_output_sizes_;
   }
-  
-  uint64_t batch_id = batch_task->batch_id();
   auto suffix_output_arr = batch_task->GetOutputArray("output");
 
   // Replace the origin output arrays by prefix output GPU array and
   // Forward prefix model
-  batch_task->SetOutputArrays(prefix_output_arr_);
+  batch_task->SetOutputArrays(prefix_batch_output_arr_);
   VLOG(1) << "Forward prefix model " << prefix_model_->model_session_id() <<
       " with batch size " << batch_task->batch_size();
-  prefix_model_->Forward(batch_task);
 
-  // Append the outputs of prefix model to the input queue of corresponding
-  // suffix model
-  std::unordered_map<std::string, std::shared_ptr<BatchTask> > suffix_tasks;
-  std::unordered_map<std::string, std::vector<int> > suffix_indices;
-  auto prefix_outputs = batch_task->outputs();
+#if 0
+  // sequentially execute each suffix task
+  
+  prefix_model_->ForwardAsync(batch_task);
+
+  uint32_t batch_size = batch_task->batch_size();
   auto tasks = batch_task->tasks();
-  for (int i = 0; i < prefix_outputs.size(); ++i) {
-    auto prefix_output = prefix_outputs[i];
+  size_t offset = 0;
+  float* prefix_batch_output_ptr = prefix_batch_output_arr_.
+                                   at(prefix_output_name_)->Data<float>();
+  size_t prefix_output_nfloats = prefix_output_shape_.NumElements(1);
+  std::vector<ArrayPtr> suffix_input_arrs;
+  std::vector<std::shared_ptr<BatchTask> > suffix_batch_tasks;
+  
+  // Prepare the suffix batch tasks
+  for (uint32_t i = 0; i < batch_size; ++i) {
     auto task = tasks[i];
     auto model_sess_id = task->query.model_session_id();
+    auto suffix_model = suffix_models.at(model_sess_id);
+    task->suffix_model = suffix_model;
+    auto suffix_batch_task = std::make_shared<BatchTask>(1);
+
+    // Set input array in batch task
+    auto suffix_input_arr = suffix_model->CreateInputGpuArrayWithRawPointer(
+        prefix_batch_output_ptr, prefix_output_nfloats);
+    prefix_batch_output_ptr += prefix_output_nfloats;
+    suffix_batch_task->SetInputArray(suffix_input_arr);
+    // Append input
     auto suffix_input = std::make_shared<Input>(
-        task->deadline(), task->tid, prefix_output->index,
-        prefix_output->arrays.at(prefix_output_name_));
-    if (suffix_tasks.find(model_sess_id) == suffix_tasks.end()) {
-      auto suffix_task = std::make_shared<BatchTask>(
-          batch_id, suffix_models[model_sess_id]->max_batch());
-      suffix_task->SetInputArray(suffix_input_arrays[model_sess_id]);
-      suffix_tasks.emplace(model_sess_id, suffix_task);
-      suffix_indices.emplace(model_sess_id, std::vector<int>{});
-    }
-    suffix_tasks.at(model_sess_id)->AppendInput(suffix_input, task);
-    suffix_indices.at(model_sess_id).push_back(i);
+        task->deadline(), task->task_id, batch_task->inputs()[i]->index,
+        suffix_input_arr);
+    suffix_batch_task->AppendInput(suffix_input, task);
+
+    // Set output array in batch task
+    size_t suffix_output_nfloats = suffix_output_sizes_.at(model_sess_id);
+    auto out_arr = suffix_output_arr->Slice(offset, suffix_output_nfloats);
+    offset += suffix_output_nfloats;
+    suffix_batch_task->SetOutputArrays({{
+          suffix_output_names_.at(model_sess_id), out_arr }});
+
+    suffix_batch_tasks.push_back(suffix_batch_task);
+    suffix_input_arrs.push_back(suffix_input_arr);
   }
 
-  // Slice the output array for each suffix model and forward suffix model
-  size_t offset = 0;
-  std::vector<std::shared_ptr<Output> > batch_outputs(batch_task->batch_size());
-  for (auto iter : suffix_tasks) {
-    auto model_sess_id = iter.first;
-    auto suffix_task = iter.second;
-    auto origin_indices = suffix_indices.at(model_sess_id);
-    uint32_t batch = suffix_task->batch_size();
-    size_t nfloats = batch * suffix_output_sizes.at(model_sess_id);
-    auto out_arr = suffix_output_arr->Slice(offset, nfloats);
-    offset += nfloats;
-    suffix_task->SetOutputArrays({{
-          suffix_output_names.at(model_sess_id), out_arr }});
-    VLOG(1) << "Forward suffix model " << model_sess_id <<
-        " with batch size " << suffix_task->batch_size();
-    suffix_models.at(model_sess_id)->Forward(suffix_task);
-    auto outputs = suffix_task->outputs();
-    for (int i = 0; i < outputs.size(); ++i) {
-      batch_outputs[origin_indices[i]] = outputs[i];
-    }
-    //suffix_outputs.insert(suffix_outputs.end(), outputs.begin(), outputs.end());
+  prefix_model_->WaitOutput(batch_task);
+  
+  std::vector<std::shared_ptr<Output> > batch_outputs;
+  for (int i = 0; i < batch_size; ++i) {
+    auto task = tasks[i];
+    auto suffix_batch_task = suffix_batch_tasks[i];
+    task->suffix_model->Forward(suffix_batch_task);
+    batch_outputs.push_back(suffix_batch_task->outputs()[0]);
+    task->suffix_model->RemoveInputGpuArray(suffix_input_arrs[i]);
   }
-  // Set suffix outputs into the batch_task outputs
+
   batch_task->set_outputs(batch_outputs);
+
+#else
+  // Run suffix model in batch and in parallel
+  
+  prefix_model_->Forward(batch_task);
+
+  auto tasks = batch_task->tasks();
+  float* prefix_batch_output_ptr = prefix_batch_output_arr_.
+                                   at(prefix_output_name_)->Data<float>();
+  size_t prefix_output_nfloats = prefix_output_shape_.NumElements(1);
+  size_t cpu_output_offset = 0;
+  std::vector<std::tuple<std::shared_ptr<ModelInstance>,
+                         std::shared_ptr<BatchTask>, ArrayPtr> > suffix_batches;
+
+  for (int i = 0; i < tasks.size();) {
+    int base = i;
+    auto model_sess_id = tasks[i]->query.model_session_id();
+    auto suffix_model = suffix_models.at(model_sess_id);
+    std::vector<std::shared_ptr<Task> > suffix_tasks;
+    suffix_tasks.push_back(tasks[i]);
+    ++i;
+    while (i < tasks.size() &&
+           tasks[i]->query.model_session_id() == model_sess_id) {
+      suffix_tasks.push_back(tasks[i]);
+      ++i;
+    }
+    // Slice prefix GPU output array and use as suffix input array
+    auto suffix_batch_size = suffix_tasks.size();
+    auto suffix_batch_task = std::make_shared<BatchTask>(suffix_batch_size);
+    auto suffix_batch_input_arr = suffix_model->CreateInputGpuArrayWithRawPointer(
+        prefix_batch_output_ptr, prefix_output_nfloats * suffix_batch_size);
+    prefix_batch_output_ptr += prefix_output_nfloats * suffix_batch_size;
+    suffix_batch_task->SetInputArray(suffix_batch_input_arr);
+    // Slice cpu output array and set as output array
+    size_t suffix_output_nfloats = suffix_output_sizes_.at(model_sess_id);
+    auto out_arr = suffix_output_arr->Slice(
+        cpu_output_offset, suffix_output_nfloats * suffix_batch_size);
+    cpu_output_offset += suffix_output_nfloats * suffix_batch_size;
+    suffix_batch_task->SetOutputArrays({{
+          suffix_output_names_.at(model_sess_id), out_arr }});
+    // Append input into suffix batch task. Because each input array has the
+    // same memory address as the batch input buffer, no memcpy occurs.
+    size_t input_offset = 0;
+    for (int j = 0; j < suffix_tasks.size(); ++j) {
+      auto task = suffix_tasks[j];
+      task->suffix_model = suffix_model;
+      auto suffix_input_arr = suffix_batch_input_arr->Slice(
+          input_offset, prefix_output_nfloats);
+      input_offset += prefix_output_nfloats;
+      auto suffix_input = std::make_shared<Input>(
+          task->deadline(), task->task_id,
+          batch_task->inputs()[base + j]->index, suffix_input_arr);
+      suffix_batch_task->AppendInput(suffix_input, task);
+    }
+
+    suffix_batches.emplace_back(suffix_model, suffix_batch_task,
+                                suffix_batch_input_arr);
+  }
+  // Wait prefix model finish
+  //prefix_model_->WaitOutput(batch_task);
+  // Start suffix batch task in parallel
+  std::vector<std::shared_ptr<Output> > batch_outputs;
+  for (int i = 0; i < suffix_batches.size(); ++i) {
+    auto suffix_model = std::get<0>(suffix_batches[i]);
+    auto suffix_batch_task = std::get<1>(suffix_batches[i]);
+    auto suffix_batch_input_arr = std::get<2>(suffix_batches[i]);
+    suffix_model->Forward(suffix_batch_task);
+    for (auto output : suffix_batch_task->outputs()) {
+      batch_outputs.push_back(output);
+    }
+    suffix_model->RemoveInputGpuArray(suffix_batch_input_arr);
+  }
+  batch_task->set_outputs(batch_outputs);
+#endif
 }
 
 void SharePrefixModel::Postprocess(std::shared_ptr<Task> task) {
-  ModelInstancePtr suffix_model;
-  {
-    std::lock_guard<std::mutex> lock(suffix_mu_);
-    auto iter = suffix_models_.find(task->query.model_session_id());
-    if (iter == suffix_models_.end()) {
-      task->result.set_status(MODEL_SESSION_NOT_LOADED);
-      return;
-    }
-    suffix_model = iter->second;
-  }
-  suffix_model->Postprocess(task);
+  task->suffix_model->Postprocess(task);
 }
 
 int SharePrefixModel::num_model_sessions() {
@@ -194,7 +260,7 @@ int SharePrefixModel::num_model_sessions() {
 std::vector<std::string> SharePrefixModel::ModelSessions() {
   std::lock_guard<std::mutex> lock(suffix_mu_);
   std::vector<std::string> ret;
-  for (auto iter : suffix_models_) {
+  for (auto& iter : suffix_models_) {
     ret.push_back(iter.first);
   }
   return ret;
@@ -208,7 +274,7 @@ bool SharePrefixModel::HasModelSession(const std::string& model_sess_id) {
 bool SharePrefixModel::AddModelSession(const ModelSession& model_sess) {
   std::string model_id = ModelSessionToModelID(model_sess);
   int pref_len = -1;
-  for (auto iter : suffix_models_) {
+  for (auto& iter : suffix_models_) {
     ModelSession base_model_sess;
     ParseModelSession(iter.first, &base_model_sess);
     std::string base_model_id = ModelSessionToModelID(base_model_sess);
@@ -234,17 +300,18 @@ bool SharePrefixModel::AddModelSession(const ModelSession& model_sess) {
   }
   //LOG(INFO) << suffix_cfg.DebugString();
 
-  auto suffix_model = CreateModelInstance(gpu_id_, suffix_cfg);
+  std::unique_ptr<ModelInstance> suffix_model;
+  CreateModelInstance(gpu_id_, suffix_cfg, &suffix_model);
+  //auto suffix_model = CreateModelInstance(gpu_id_, suffix_cfg);
   auto model_sess_id = suffix_model->model_session_id();
 
   std::lock_guard<std::mutex> lock(suffix_mu_);
-  suffix_models_.emplace(model_sess_id, suffix_model);
   suffix_input_arrays_.emplace(model_sess_id,
                                suffix_model->CreateInputGpuArray());
-  auto suffix_outputs = suffix_model->OutputShapes();
-  CHECK_EQ(suffix_outputs.size(), 1) << "All models must have only one output"
-      " in the prefix batching";
-  for (auto iter : suffix_outputs) {
+  auto suffix_output_shape = suffix_model->OutputShapes();
+  CHECK_EQ(suffix_output_shape.size(), 1) << "All models must have only one "
+      "output in the prefix batching";
+  for (auto iter : suffix_output_shape) {
     size_t size = iter.second.NumElements(1);
     suffix_output_sizes_.emplace(model_sess_id, size);
     suffix_output_names_.emplace(model_sess_id, iter.first);
@@ -252,6 +319,7 @@ bool SharePrefixModel::AddModelSession(const ModelSession& model_sess) {
       max_suffix_output_size_ = size;
     }
   }
+  suffix_models_.emplace(model_sess_id, std::move(suffix_model));
   return true;
 }
 

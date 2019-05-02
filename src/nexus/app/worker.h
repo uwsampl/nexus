@@ -4,7 +4,8 @@
 #include <atomic>
 #include <thread>
 
-#include "nexus/common/block_queue.h"
+#include "nexus/app/query_processor.h"
+#include "nexus/app/request_context.h"
 
 namespace nexus {
 namespace app {
@@ -13,7 +14,7 @@ class Frontend;
 
 class Worker {
  public:
-  Worker(Frontend* frontend, BlockQueue<Message>& req_queue);
+  Worker(QueryProcessor* qp, RequestPool& req_pool);
 
   void Start();
 
@@ -24,8 +25,8 @@ class Worker {
   void Run();
 
  private:
-  Frontend* frontend_;
-  BlockQueue<Message>& request_queue_;
+  QueryProcessor* qp_;
+  RequestPool& req_pool_;
   volatile std::atomic_bool running_;
   std::thread thread_;
 };

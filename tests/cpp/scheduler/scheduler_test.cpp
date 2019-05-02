@@ -24,10 +24,10 @@ class SchedulerTest : public ::testing::Test {
     gpu_available_memory_ = 12L * 1024L * 1024L * 1024L;
     FLAGS_beacon = 1;
     FLAGS_epoch = 5;
-    scheduler_.reset(new Scheduler("10001", 1, FLAGS_model_db));
+    scheduler_.reset(new Scheduler("10001", 1));
     for (int i = 0; i < 5; ++i) {
       auto backend = std::make_shared<BackendDelegate>(
-          i + 1, "127.0.0.1:8001", "127.0.0.1:8002", gpu_device_,
+          i + 1, "127.0.0.1", "8001", "8002", gpu_device_,
           gpu_available_memory_, FLAGS_beacon, FLAGS_epoch);
       RegisterReply reply;
       scheduler_->RegisterBackend(backend, &reply);
@@ -36,7 +36,7 @@ class SchedulerTest : public ::testing::Test {
     }
     for (int i = 0; i < 3; ++i) {
       auto frontend = std::make_shared<FrontendDelegate>(
-          i + 1, "127.0.0.1:9001", "127.0.0.1:9002", FLAGS_beacon);
+          i + 1, "127.0.0.1", "9001", "9002", FLAGS_beacon);
       RegisterReply reply;
       scheduler_->RegisterFrontend(frontend, &reply);
       ASSERT_EQ(reply.status(), CTRL_OK);
@@ -65,11 +65,11 @@ class SchedulerTest : public ::testing::Test {
 
   void UpdateBackendStats(const std::string& model_sess_id,
                           std::vector<uint64_t> num_requests) {
-    auto iter_model_info = scheduler_->model_table_.find(model_sess_id);
-    ASSERT_NE(iter_model_info, scheduler_->model_table_.end());
+    auto iter_session_info = scheduler_->session_table_.find(model_sess_id);
+    ASSERT_NE(iter_session_info, scheduler_->session_table_.end());
     BackendStatsProto request;
-    auto& model_info = iter_model_info->second;
-    for (auto iter : model_info.backend_throughputs) {
+    auto session_info = iter_session_info->second;
+    for (auto iter : session_info->backend_throughputs) {
       request.set_node_id(iter.first);
       break;
     }

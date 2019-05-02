@@ -1,4 +1,5 @@
 #include <chrono>
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <memory>
 
@@ -8,7 +9,9 @@
 #include "nexus/proto/nnquery.pb.h"
 #include "nexus/scheduler/backend_delegate.h"
 
-DECLARE_string(model_db);
+//DECLARE_string(model_db);
+DECLARE_int32(beacon);
+DECLARE_int32(epoch);
 
 namespace nexus {
 namespace scheduler {
@@ -16,12 +19,13 @@ namespace scheduler {
 class BackendDelegateTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    ModelDatabase::Singleton().Init(FLAGS_model_db);
     gpu_device_ = "TITAN_X_(Pascal)";
     gpu_available_memory_ = 12L * 1024L * 1024L * 1024L;
+    FLAGS_beacon = 1;
+    FLAGS_epoch = 5;
     backend_.reset(new BackendDelegate(
-        1, "127.0.0.1:8001", "127.0.0.1:8002", gpu_device_,
-        gpu_available_memory_, 1, EPOCH_INTERVAL_SEC));
+        1, "127.0.0.1", "8001", "8002", gpu_device_, gpu_available_memory_,
+        FLAGS_beacon));
   }
 
   std::string gpu_device_;
@@ -45,7 +49,7 @@ TEST_F(BackendDelegateTest, PrepareLoadModel) {
   // Residue workload
   for (float workload : {50., 100., 150., 200., 250.}) {
     InstanceInfo info;
-    float occupancy;
+    double occupancy;
     bool ret = backend_->PrepareLoadModel(vgg16_sess, workload, &info,
                                           &occupancy);
     ASSERT_TRUE(ret);
@@ -57,7 +61,7 @@ TEST_F(BackendDelegateTest, PrepareLoadModel) {
   // Saturate entire gpu when workload > 298
   for (float workload : {300., 400., 500.}) {
     InstanceInfo info;
-    float occupancy;
+    double occupancy;
     bool ret = backend_->PrepareLoadModel(vgg16_sess, workload, &info,
                                           &occupancy);
     ASSERT_TRUE(ret);
@@ -66,7 +70,7 @@ TEST_F(BackendDelegateTest, PrepareLoadModel) {
   }
 
   InstanceInfo vgg16_info;
-  float occupancy;
+  double occupancy;
   backend_->PrepareLoadModel(vgg16_sess, 150., &vgg16_info, &occupancy);
   backend_->LoadModel(vgg16_info);
   ASSERT_NEAR(backend_->Occupancy(), occupancy, 1e-3);
@@ -74,7 +78,7 @@ TEST_F(BackendDelegateTest, PrepareLoadModel) {
   // Try load second model
   for (float workload : {50, 100, 125}) {
     InstanceInfo info;
-    float occupancy;
+    double occupancy;
     bool ret = backend_->PrepareLoadModel(vgg_face_sess, workload, &info,
                                           &occupancy);
     LOG(INFO) << occupancy;
@@ -86,7 +90,7 @@ TEST_F(BackendDelegateTest, PrepareLoadModel) {
 
   for (float workload : {150, 200, 250}) {
     InstanceInfo info;
-    float occupancy;
+    double occupancy;
     bool ret = backend_->PrepareLoadModel(vgg_face_sess, workload, &info,
                                           &occupancy);
     ASSERT_FALSE(ret);

@@ -37,7 +37,7 @@ class RpcCallBase {
                    Handler handle) :                                    \
         RpcCallBase(cq),                                                \
         service_(service),                                              \
-        handle_(handle),                                                \
+        handle_(std::move(handle)),                                     \
         responder_(&ctx_) {                                             \
       Proceed();                                                        \
     }                                                                   \

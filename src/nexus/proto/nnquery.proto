@@ -23,13 +23,16 @@ message ImageProto {
 enum DataType {
   DT_UNKNOWN = 0; 
   DT_BOOL = 1;
-  DT_INT = 2;
-  DT_FLOAT = 3;
-  DT_DOUBLE = 4;
-  DT_STRING = 5;
-  DT_TENSOR = 10;
-  DT_IMAGE = 11;
-  DT_RECT = 12;
+  DT_INT8 = 2;
+  DT_UINT8 = 3;
+  DT_INT32 = 4;
+  DT_UINT32 = 5;
+  DT_FLOAT = 6;
+  DT_DOUBLE = 7;
+  DT_STRING = 8;
+  DT_TENSOR = 50;
+  DT_IMAGE = 51;
+  DT_RECT = 52;
 }
 
 message TensorProto {
@@ -87,7 +90,9 @@ message ReplyProto {
   // Output
   repeated RecordProto output = 5;
   // Latency
-  uint64 latency_us = 20;
+  uint64 latency_us = 100;
+  // Breakdown latency for each query
+  repeated QueryLatency query_latency = 101;
 }
 
 message ModelSession {
@@ -97,7 +102,7 @@ message ModelSession {
   string model_name = 2;
   // Model version
   uint32 version = 3;
-  // Latency SLA in millisecond
+  // Latency SLA in milliseconds
   uint32 latency_sla = 4;
   // Specify image height and width for models whose input are resizable,
   // otherwise ignored
@@ -106,22 +111,29 @@ message ModelSession {
 }
 
 message QueryProto {
-  uint32 query_id = 1;
+  // Query ID
+  uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
+  // Input of query
   ValueProto input = 3;
+  // Include top k records
   uint32 topk = 10;
+  // Cropped windows in the image
   repeated RectProto window = 11;
+  // Output fields
   repeated string output_field = 12;
   // Threshold for confidence, default is 0
   repeated ValueProto filter = 13;
+  // Latency slack in milliseconds
+  int32 slack_ms = 40;
   // Show breakdown latency in the result
   bool debug = 100;
 }
 
 message QueryResultProto {
   // Query ID
-  uint32 query_id = 1;
+  uint64 query_id = 1;
   // Model session ID
   string model_session_id = 2;
   // status
@@ -133,4 +145,24 @@ message QueryResultProto {
   // Latency
   uint64 latency_us = 20;
   uint64 queuing_us = 21;
+
+  bool use_backup = 22;
+}
+
+message QueryLatency {
+  // Query ID
+  uint64 query_id = 1;
+  // Model session ID
+  string model_session_id = 2;
+  // Timestamp of sending query, relative to the time that receives user request
+  uint64 frontend_send_timestamp_us = 3;
+  // Timestamp of receiving query result, relative to the time that receives
+  // user request
+  uint64 frontend_recv_timestamp_us = 4;
+  // Backend processing latency
+  uint64 backend_latency_us = 5;
+  // Backend queuing latency
+  uint64 backend_queuing_us = 6;
+
+  bool use_backup = 7;
 }

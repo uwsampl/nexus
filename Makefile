@@ -36,6 +36,7 @@ CXX_BACKEND_SRCS := $(wildcard src/nexus/backend/*.cpp)
 CXX_SCHEDULER_SRCS := $(wildcard src/nexus/scheduler/*.cpp)
 CXX_LIB_SRCS := $(shell find src ! -name "*_main.cpp" -name "*.cpp")
 CXX_TEST_SRCS := $(wildcard tests/cpp/*.cpp) $(wildcard tests/cpp/*/*.cpp)
+CXX_TOOL_SRCS := $(wildcard tools/*/*.cpp)
 
 CXX_COMMON_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_COMMON_SRCS)) $(PROTO_OBJS)
 CXX_APP_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_APP_SRCS))
@@ -43,7 +44,9 @@ CXX_BACKEND_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_BACKEND_SRC
 CXX_SCHEDULER_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_SCHEDULER_SRCS))
 CXX_LIB_OBJS := $(patsubst src/nexus/%.cpp, build/obj/%.o, $(CXX_LIB_SRCS)) $(PROTO_OBJS)
 CXX_TEST_OBJS := $(patsubst tests/cpp/%.cpp, build/obj/tests/%.o, $(CXX_TEST_SRCS))
-OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS)
+CXX_TOOL_OBJS := $(patsubst %.cpp, build/obj/%.o, $(CXX_TOOL_SRCS))
+OBJS := $(CXX_COMMON_OBJS) $(CXX_APP_OBJS) $(CXX_BACKEND_OBJS) $(CXX_SCHEDULER_OBJS) \
+	$(CXX_TEST_OBJS) $(CXX_TOOL_OBJS)
 DEPS := ${OBJS:.o=.d}
 
 TEST_BIN := build/bin/test
@@ -51,13 +54,12 @@ TEST_BIN := build/bin/test
 # c++ configs
 CXX = g++
 WARNING = -Wall -Wfatal-errors -Wno-unused -Wno-unused-result
-CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc -Ibuild/gen `pkg-config --cflags protobuf`
+CXXFLAGS = -std=c++11 -O3 -fPIC $(WARNING) -Isrc -Ibuild/gen $(shell pkg-config --cflags protobuf)
 # Automatic dependency generation
 CXXFLAGS += -MMD -MP
 LD_FLAGS = -lm -pthread -lglog -lgflags -lgtest -lgtest_main \
 	-lboost_system -lboost_thread -lboost_filesystem -lyaml-cpp \
-	`pkg-config --libs protobuf` `pkg-config --libs grpc++ grpc` \
-	`pkg-config --libs opencv`
+	$(shell pkg-config --libs protobuf grpc++ grpc opencv)
 DLL_LINK_FLAGS = -shared
 ifeq ($(USE_GPU), 1)
 	CXXFLAGS += -I$(CUDA_PATH)/include
@@ -73,11 +75,11 @@ CAFFE2_ROOT_DIR = $(ROOTDIR)/frameworks/caffe2
 CAFFE2_BUILD_DIR = $(CAFFE2_ROOT_DIR)/build
 CAFFE2_INSTALL_DIR = $(CAFFE2_ROOT_DIR)/install
 TENSORFLOW_ROOT_DIR = $(ROOTDIR)/frameworks/tensorflow
-TENSORFLOW_BUILD_DIR = $(TENSORFLOW_ROOT_DIR)/build
+TENSORFLOW_BUILD_DIR = $(ROOTDIR)/build/tensorflow/execroot/org_tensorflow/bazel-out/k8-opt
 
 BACKEND_DEPS =
-BACKEND_CXXFLAGS = 
-BACKEND_LD_FLAGS = 
+BACKEND_CXXFLAGS =
+BACKEND_LD_FLAGS =
 
 ifeq ($(USE_CAFFE2), 1)
 	BACKEND_DEPS += caffe2
@@ -96,10 +98,12 @@ ifeq ($(USE_DARKNET), 1)
 	BACKEND_LD_FLAGS += -L$(DARKNET_BUILD_DIR) -ldarknet -Wl,-rpath,$(DARKNET_BUILD_DIR)
 endif
 ifeq ($(USE_TENSORFLOW), 1)
-	export PKG_CONFIG_PATH:=$(TENSORFLOW_BUILD_DIR)/lib/pkgconfig:${PKG_CONFIG_PATH}
-	BACKEND_DEPS += tensorflow
-	BACKEND_CXXFLAGS += -DUSE_TENSORFLOW `pkg-config --cflags tensorflow`
-	BACKEND_LD_FLAGS += `pkg-config --libs tensorflow`
+	# BACKEND_DEPS += tensorflow
+	BACKEND_CXXFLAGS += -DUSE_TENSORFLOW
+	BACKEND_CXXFLAGS += -I$(TENSORFLOW_BUILD_DIR)/genfiles/tensorflow/include
+	BACKEND_CXXFLAGS += -I$(TENSORFLOW_BUILD_DIR)/genfiles/tensorflow/include/external/com_google_absl
+	BACKEND_LD_FLAGS += -L$(TENSORFLOW_BUILD_DIR)/bin/tensorflow -ltensorflow -ltensorflow_cc -ltensorflow_framework
+	BACKEND_LD_FLAGS += -Wl,-rpath,$(TENSORFLOW_BUILD_DIR)/bin/tensorflow
 endif
 
 all: proto python lib backend scheduler tools
@@ -107,7 +111,8 @@ all: proto python lib backend scheduler tools
 caffe: $(CAFFE_BUILD_DIR)/lib/libcaffe.so
 caffe2: $(CAFFE2_INSTALL_DIR)/lib/libcaffe2_gpu.so
 darknet: $(DARKNET_BUILD_DIR)/libdarknet.so
-tensorflow: $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so
+# tensorflow: $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so
+tensorflow: ;
 
 $(CAFFE_BUILD_DIR)/lib/libcaffe.so:
 	cd $(CAFFE_ROOT_DIR) && $(MAKE) proto && $(MAKE) all && $(MAKE) pycaffe && cd -
@@ -121,14 +126,14 @@ $(CAFFE2_INSTALL_DIR)/lib/libcaffe2_gpu.so:
 $(DARKNET_BUILD_DIR)/libdarknet.so:
 	cd $(DARKNET_ROOT_DIR) && $(MAKE) all && cd -
 
-$(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so:
-	@mkdir -p $(TENSORFLOW_BUILD_DIR)
-	cd $(TENSORFLOW_BUILD_DIR) && cmake -DCMAKE_INSTALL_PREFIX=. .. && make
-	@if [ -e $(TENSORFLOW_ROOT_DIR)/bazel-bin/tensorflow/libtensorflow_cc.so ]; then \
-	 	cd $(TENSORFLOW_BUILD_DIR) && make install; \
-	else \
-		echo "Build Tensorflow failed"; exit 0; \
-	fi
+# $(TENSORFLOW_BUILD_DIR)/lib/tensorflow/libtensorflow_cc.so:
+# 	@mkdir -p $(TENSORFLOW_BUILD_DIR)
+# 	cd $(TENSORFLOW_BUILD_DIR) && cmake -DCMAKE_INSTALL_PREFIX=. .. && make
+# 	@if [ -e $(TENSORFLOW_ROOT_DIR)/bazel-bin/tensorflow/libtensorflow_cc.so ]; then \
+# 	 	cd $(TENSORFLOW_BUILD_DIR) && make install; \
+# 	else \
+# 		echo "Build Tensorflow failed"; exit 0; \
+# 	fi
 
 proto: $(PROTO_GEN_CC)
 
@@ -140,12 +145,12 @@ backend: build/bin/backend
 
 scheduler: build/bin/scheduler
 
-tools: build/bin/profiler
+tools: build/bin/profiler build/bin/test_pb
 
 test: build/bin/runtest
 
 runtest: test
-	@build/bin/runtest -model_db $(ROOTDIR)/tests/data/model_db
+	@build/bin/runtest -model_root $(ROOTDIR)/tests/data/model_db
 
 build/lib/libnexus.so: $(CXX_COMMON_OBJS) $(CXX_APP_OBJS)
 	@mkdir -p $(@D)
@@ -160,6 +165,10 @@ build/bin/scheduler: $(CXX_COMMON_OBJS) $(CXX_SCHEDULER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS)
 
 build/bin/profiler: $(CXX_LIB_OBJS) build/obj/tools/profiler/profiler.o
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
+
+build/bin/test_pb: $(CXX_LIB_OBJS) build/obj/tools/profiler/test_pb.o
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LD_FLAGS) $(BACKEND_LD_FLAGS)
 
@@ -207,7 +216,7 @@ build/obj/tests/%.o: tests/cpp/%.cpp
 	clean clean-darknet clean-caffe clean-caffe2 clean-tensorflow cleanall
 
 clean:
-	rm -rf build $(PROTO_GEN_PY_DIR) $(PROTO_GEN_CC) $(PROTO_GEN_HEADERS)
+	rm -rf build/gen build/lib build/obj $(PROTO_GEN_PY_DIR) $(PROTO_GEN_CC) $(PROTO_GEN_HEADERS)
 
 clean-darknet:
 	cd $(DARKNET_ROOT_DIR) && $(MAKE) clean && cd -

@@ -1,11 +1,15 @@
 #include <boost/filesystem.hpp>
 #include <fstream>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "nexus/common/model_db.h"
 #include "nexus/common/model_def.h"
 #include "nexus/common/util.h"
 
 namespace fs = boost::filesystem;
+
+DEFINE_string(model_root, "", "Model root dicrectory");
 
 namespace nexus {
 
@@ -50,6 +54,7 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
 
 float ModelProfile::GetForwardLatency(uint32_t batch) const {
   if (forward_lats_.find(batch) == forward_lats_.end()) {
+    LOG(FATAL) << "Cannot find forward latency: model=" << profile_id() << " batch=" << batch;
     return 0.;
   }
   auto entry = forward_lats_.at(batch);
@@ -72,7 +77,7 @@ size_t ModelProfile::GetMemoryUsage(uint32_t batch) const {
 }
 
 uint32_t ModelProfile::GetMaxBatch(float latency_sla_ms) const {
-  float latency_budget = latency_sla_ms * 1000 - network_latency_;
+  float latency_budget = latency_sla_ms * 1000 - network_latency_us_;
   latency_budget -= GetPreprocessLatency();
   latency_budget -= GetPostprocessLatency();
   // divide by 2 is because half of time will spend in batching
@@ -98,9 +103,9 @@ std::pair<uint32_t, float> ModelProfile::GetMaxThroughput(float latency_sla_ms)
   float max_throughput = 0;
   uint32_t best_batch = 0;
   // divide by 2 is becuase half of time will spend in batching
-  float exec_budget = (latency_sla_ms * 1000 - network_latency_ -
+  float exec_budget = (latency_sla_ms * 1000 - network_latency_us_ -
                        GetPreprocessLatency() - GetPostprocessLatency()) * 0.5;
-  for (uint32_t batch = 1; ; ++batch) {
+  for (uint32_t batch = 1; batch <= forward_lats_.size() ; ++batch) {
     float forward_lat = GetForwardLatency(batch);
     if (forward_lat < 0 || forward_lat > exec_budget) {
       break;
@@ -115,29 +120,9 @@ std::pair<uint32_t, float> ModelProfile::GetMaxThroughput(float latency_sla_ms)
 }
 
 ModelDatabase& ModelDatabase::Singleton() {
-  static ModelDatabase model_db_;
+  CHECK_GT(FLAGS_model_root.length(), 0) << "Missing model_root";
+  static ModelDatabase model_db_(FLAGS_model_root);
   return model_db_;
-}
-
-void ModelDatabase::Init(const std::string& db_root_dir) {
-  db_root_dir_ = db_root_dir;
-  fs::path db_dir(db_root_dir);
-  CHECK(fs::is_directory(db_dir)) << "Database root directory " <<
-      db_dir << " doesn't exist";
-  // Check model store directory exists
-  fs::path model_store_dir = db_dir / "store";
-  CHECK(fs::is_directory(model_store_dir)) << "Model store directory " <<
-      model_store_dir << " doesn't exist";
-  model_store_dir_ = model_store_dir.string();
-  // Load model DB file
-  fs::path db_file = db_dir / "db" / "model_db.yml";
-  CHECK(fs::exists(db_file)) << "Model DB file " << db_file << " doesn't exist";
-  LoadModelInfo(db_file.string());
-  // Load model profiles
-  fs::path profile_dir = db_dir / "profiles";
-  CHECK(fs::is_directory(profile_dir)) << "Model profile directory " <<
-      profile_dir << " doesn't exist";
-  LoadModelProfiles(profile_dir.string());
 }
 
 const YAML::Node* ModelDatabase::GetModelInfo(const std::string& model_id)
@@ -177,6 +162,13 @@ const ModelProfile* ModelDatabase::GetModelProfile(
     return nullptr;
   }
   return &itr2->second;
+}
+
+std::shared_ptr<TFShareInfo> ModelDatabase::GetTFShareInfo(const std::string& model_name) const {
+  auto iter = tf_share_models_.find(model_name);
+  if (iter != tf_share_models_.end())
+    return iter->second;
+  return nullptr;
 }
 
 float ModelDatabase::GetModelForwardLatency(const std::string& gpu_device,
@@ -226,6 +218,27 @@ std::vector<std::string> ModelDatabase::GetPrefixShareModels(
   return models;
 }
 
+ModelDatabase::ModelDatabase(const std::string& db_root_dir) {
+  db_root_dir_ = db_root_dir;
+  fs::path db_dir(db_root_dir);
+  CHECK(fs::is_directory(db_dir)) << "Database root directory " <<
+      db_dir << " doesn't exist";
+  // Check model store directory exists
+  fs::path model_store_dir = db_dir / "store";
+  CHECK(fs::is_directory(model_store_dir)) << "Model store directory " <<
+      model_store_dir << " doesn't exist";
+  model_store_dir_ = model_store_dir.string();
+  // Load model DB file
+  fs::path db_file = db_dir / "db" / "model_db.yml";
+  CHECK(fs::exists(db_file)) << "Model DB file " << db_file << " doesn't exist";
+  LoadModelInfo(db_file.string());
+  // Load model profiles
+  fs::path profile_dir = db_dir / "profiles";
+  CHECK(fs::is_directory(profile_dir)) << "Model profile directory " <<
+      profile_dir << " doesn't exist";
+  LoadModelProfiles(profile_dir.string());
+}
+
 void ModelDatabase::LoadModelInfo(const std::string& db_file) {
   VLOG(1) << "Load model DB from " << db_file;
   YAML::Node db = YAML::LoadFile(db_file);
@@ -251,6 +264,7 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
     std::string model_id = ModelID(framework, model_name, version);
     model_info_table_[model_id] = model_info;
   }
+
   const YAML::Node& shares = db["share_prefix"];
   for (uint i = 0; i < shares.size(); ++i) {
     auto const& share = shares[i];
@@ -277,9 +291,40 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
       }
     }
   }
+
+  const YAML::Node& tf_share = db["tf_share"];
+  for (uint i = 0; i < tf_share.size(); ++i) {
+    const auto& node = tf_share[i];
+    auto info = std::make_shared<TFShareInfo>(node);
+    std::vector<std::string> output_layers(info->suffix_models.size());
+    for (const auto &suffix_model : info->suffix_models) {
+      const auto &name = suffix_model.first;
+      CHECK(tf_share_models_.count(name) == 0) << "Duplicated model " << name;
+      tf_share_models_[name] = info;
+      CHECK(model_info_table_.count(name) == 0) << "Duplicated model " << name;
+      output_layers[suffix_model.second.suffix_index] = suffix_model.second.output_layer;
+
+      // FIXME: hack for the ModelInstance constructor
+      YAML::Node model_info;
+      model_info["model_dir"] = model_store_dir_;
+      std::string model_id = ModelID("tf_share", name, 1);
+      model_info_table_[model_id] = model_info;
+    }
+
+    // TODO refactor ModelInstance constructor so that it doesn't look up the ModelDB Singleton
+    YAML::Node model_info = node;
+    model_info["framework"] = "tensorflow";
+    model_info["model_name"] = info->hack_internal_id;
+    model_info["version"] = 1;
+    model_info["type"] = "classification";  // FIXME
+    model_info["model_dir"] = model_store_dir_;
+    model_info["output_layer"] = output_layers;
+    std::string model_id = ModelID("tensorflow", info->hack_internal_id, 1);
+    model_info_table_[model_id] = model_info;
+  }
 }
 
-void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) { 
+void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
   fs::path root_dir(profile_dir);
   fs::directory_iterator end_iter;
   for (fs::directory_iterator dir_itr(root_dir); dir_itr != end_iter;
@@ -304,5 +349,32 @@ void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
     }
   }
 }
+
+TFShareSuffixInfo::TFShareSuffixInfo(size_t suffix_index_, const YAML::Node &node) :
+    suffix_index(suffix_index_),
+    model_name(node["model_name"].as<std::string>()),
+    output_layer(node["output_layer"].as<std::string>()),
+    type(node["type"].as<std::string>()),
+    class_names(node["class_names"].as<std::string>()) {
+}
+
+TFShareInfo::TFShareInfo(const YAML::Node &node) :
+    model_file(node["model_file"].as<std::string>()),
+    input_layer(node["input_layer"].as<std::string>()),
+    slice_beg_vector(node["slice_beg_vector"].as<std::string>()),
+    slice_len_vector(node["slice_len_vector"].as<std::string>()),
+    image_height(node["image_height"].as<int>()),
+    image_width(node["image_width"].as<int>()) {
+  hack_internal_id = "tf_share";
+  const auto& models = node["suffix_models"];
+  for (size_t i = 0; i < models.size(); ++i) {
+    TFShareSuffixInfo suffix(i, models[i]);
+    CHECK(suffix_models.count(suffix.model_name) == 0) << "Duplicated model_name " << suffix.model_name;
+    suffix_models.emplace(suffix.model_name, suffix);
+    hack_internal_id += '|';
+    hack_internal_id += suffix.model_name;
+  }
+}
+
 
 } // namespace nexus

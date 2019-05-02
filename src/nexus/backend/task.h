@@ -16,6 +16,7 @@
 namespace nexus {
 namespace backend {
 
+class ModelExecutor;
 class ModelInstance;
 class Task;
 
@@ -27,14 +28,15 @@ class Input : public DeadlineItem {
  public:
   /*!
    * \brief Construct a Input
-   * \param task Task that input belongs to.
-   * \param arr Input array that contains the input data
+   * \param deadline Deadline of corresponding task
+   * \param tid Task id of corresponding task
    * \param idx Index in the inputs of task
+   * \param arr Input array that contains the input data
    */
   Input(TimePoint deadline, uint64_t tid, int idx, ArrayPtr arr);
 
   /*! \brief Task id */
-  uint64_t tid;
+  uint64_t task_id;
   /*! \brief Index in the input vector of task. */
   int index;
   /*! \brief Input array that contains the data. */
@@ -48,14 +50,15 @@ class Output {
  public:
   /*!
    * \brief Construct an Output.
-   * \param output_batch Pointer to the BatchOutput class.
-   * \param arrays Map from name to arrays.
+   * \param tid Task id of corresponding task
+   * \param idx Index in the outputs of task
+   * \param arrs Map from name to output arrays.
    */
   Output(uint64_t tid, int idx,
          const std::unordered_map<std::string, ArrayPtr>& arrs);
   
   /*! \brief Task id */
-  uint64_t tid;
+  uint64_t task_id;
   /*! \brief Index in the output vector of task. */
   int index;
   /*! \brief Map from array name to array. */
@@ -106,15 +109,22 @@ class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
   bool AddVirtualOutput(int index);
 
   /*! \brief Task id */
-  uint64_t tid;
+  uint64_t task_id;
   /*! \brief Connection to frontend. */
   std::shared_ptr<Connection> connection;
+  /*! \brief Message type */
+  MessageType msg_type;
   /*! \brief Query to process */
   QueryProto query;
   /*! \brief Query result */
   QueryResultProto result;
   /*! \brief Model instance to execute for the task */
-  std::shared_ptr<ModelInstance> model;
+  std::shared_ptr<ModelExecutor> model;
+  /*!
+   * \brief Suffix model for postprocessing, only used in the share prefix
+   * model.
+   */
+  std::shared_ptr<ModelInstance> suffix_model;
   /*! \brief Current task processing stage */
   volatile Stage stage;
   std::vector<std::shared_ptr<Input> > inputs;
@@ -129,7 +139,7 @@ class Task : public DeadlineItem, public std::enable_shared_from_this<Task> {
 
  private:
   /*! \brief Global task ID */
-  static std::atomic<uint64_t> global_tid_;
+  static std::atomic<uint64_t> global_task_id_;
 };
 
 } // namespace backend

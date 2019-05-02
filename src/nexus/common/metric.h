@@ -32,6 +32,8 @@ class IntervalCounter : public Metric, public Tickable {
  public:
   IntervalCounter(uint32_t interval_sec);
 
+  virtual ~IntervalCounter() = default;
+
   void Increase(uint64_t value);
 
   void Reset() override;
@@ -77,7 +79,7 @@ class MetricRegistry {
 
   std::shared_ptr<IntervalCounter> CreateIntervalCounter(uint32_t interval_sec);
 
-  void RemoveMetric(std::shared_ptr<Metric> metric);
+  void RemoveMetric(std::shared_ptr<IntervalCounter> metric);
 
  private:
   MetricRegistry() {}

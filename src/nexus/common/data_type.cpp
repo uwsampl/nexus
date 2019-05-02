@@ -1,4 +1,5 @@
 #include "nexus/common/data_type.h"
+#include <glog/logging.h>
 
 namespace nexus {
 
@@ -96,7 +97,10 @@ Value::Value(const ValueProto& value) :
     data_type_(value.data_type()) {
   switch (data_type_) {
     case DT_BOOL: { b_ = value.b(); break; }
-    case DT_INT: { i_ = value.i(); break; }
+    case DT_INT8:
+    case DT_UINT8:
+    case DT_INT32:
+    case DT_UINT32: { i_ = value.i(); break; }
     case DT_FLOAT: { f_ = value.f(); break; }
     case DT_DOUBLE: { d_ = value.d(); break; }
     case DT_STRING: { s_ = value.s(); break; }
@@ -131,7 +135,10 @@ const bool& Value::as<bool>() const {
 
 template<>
 const int& Value::as<int>() const {
-  CHECK_EQ(data_type_, DT_INT) << "Data type mismatch";
+  if (data_type_ != DT_INT8 && data_type_ != DT_UINT8 &&
+      data_type_ != DT_INT32 && data_type_ != DT_UINT32) {
+    LOG(FATAL) << "Data type mismatch";
+  }
   return i_;
 }
 
@@ -175,7 +182,10 @@ void Value::ToProto(ValueProto* proto) const {
   proto->set_data_type(data_type_);
   switch (data_type_) {
     case DT_BOOL: { proto->set_b(b_); break; }
-    case DT_INT: { proto->set_i(i_); break; }
+    case DT_INT8:
+    case DT_UINT8:
+    case DT_INT32:
+    case DT_UINT32: { proto->set_i(i_); break; }
     case DT_FLOAT: { proto->set_f(f_); break; }
     case DT_DOUBLE: { proto->set_d(d_); break; }
     case DT_STRING: { proto->set_s(s_); break; }

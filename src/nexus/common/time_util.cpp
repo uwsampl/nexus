@@ -39,11 +39,9 @@ TimePoint* Timer::GetTimepoint(const std::string& tag) {
 Tickable::Tickable(uint32_t tick_interval_sec) :
       tick_interval_sec_(tick_interval_sec),
       sec_since_last_tick_(0) {
-  TimeSystem::Singleton().AddTickable(this);
 }
 
 Tickable::~Tickable() {
-  TimeSystem::Singleton().RemoveTickable(this);
 }
 
 void Tickable::Tick() {
@@ -74,7 +72,7 @@ void TimeSystem::Stop() {
   thread_.join();
 }
 
-bool TimeSystem::AddTickable(Tickable* tickable) {
+bool TimeSystem::AddTickable(std::shared_ptr<Tickable> tickable) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (tickables_.find(tickable) != tickables_.end()) {
     return false;
@@ -83,7 +81,7 @@ bool TimeSystem::AddTickable(Tickable* tickable) {
   return true;
 }
 
-bool TimeSystem::RemoveTickable(Tickable* tickable) {
+bool TimeSystem::RemoveTickable(std::shared_ptr<Tickable> tickable) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto iter = tickables_.find(tickable);
   if (iter == tickables_.end()) {

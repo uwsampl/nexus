@@ -5,6 +5,7 @@
 #include <grpc++/grpc++.h>
 #include <thread>
 #include <vector>
+#include "nexus/common/rpc_call.h"
 
 namespace nexus {
 
@@ -49,9 +50,17 @@ class AsyncRpcServiceBase {
     running_ = false;
     server_->Shutdown();
     cq_->Shutdown();
+
+    void *tag;
+    bool ok;
+    while (cq_->Next(&tag, &ok)) {
+      LOG(WARNING) << "There is a event in the grpc::ServerCompletionQueue not handled at " << tag;
+    }
+
     for (auto& thread : thread_pool_) {
       thread.join();
     }
+
     LOG(INFO) << "RPC service stopped";
   }
 

@@ -32,11 +32,19 @@ class SimpleApp : public AppBase {
     model_ = GetModelHandler(framework_, model_name_, version_,
                              latency_sla_ms_, estimate_workload_,
                              {image_height_, image_width_});
-  }
-
-  void Process(const RequestProto& request, ReplyProto* reply) final {
-    auto output = model_->Execute(request.input());
-    output->FillReply(reply);
+    auto func1 = [&](std::shared_ptr<RequestContext> ctx) {
+      auto output = model_->Execute(ctx, ctx->const_request().input());
+      return std::vector<VariablePtr>{
+        std::make_shared<Variable>("output", output)};
+    };
+    auto func2 = [&](std::shared_ptr<RequestContext> ctx) {
+      auto output = ctx->GetVariable("output")->result();
+      output->ToProto(ctx->reply());
+      return std::vector<VariablePtr>{};
+    };
+    ExecBlock* b1 = new ExecBlock(0, func1, {});
+    ExecBlock* b2 = new ExecBlock(1, func2, {"output"});
+    qp_ = new QueryProcessor({b1, b2});
   }
   
  private:
@@ -53,12 +61,12 @@ class SimpleApp : public AppBase {
 DEFINE_string(port, "9001", "Server port");
 DEFINE_string(rpc_port, "9002", "RPC port");
 DEFINE_string(sch_addr, "127.0.0.1", "Scheduler address");
-DEFINE_int32(nthread, 1000, "Number of threads processing requests");
+DEFINE_int32(nthread, 4, "Number of threads processing requests");
 DEFINE_string(framework, "", "Framework (caffe2, caffe, darknet, tensorflow)");
 DEFINE_string(model, "", "Model name");
-DEFINE_int32(model_version, 1, "Model version (default: 1)");
-DEFINE_int32(latency, 500, "Latency SLA in ms (default: 500)");
-DEFINE_double(workload, 0, "Estimated request rate (default: 0)");
+DEFINE_int32(model_version, 1, "Model version");
+DEFINE_int32(latency, 500, "Latency SLA in ms");
+DEFINE_double(workload, 0, "Estimated request rate");
 DEFINE_int32(height, 0, "Image height");
 DEFINE_int32(width, 0, "Image width");
 
