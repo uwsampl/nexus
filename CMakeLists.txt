@@ -298,6 +298,13 @@ target_link_libraries(test_complex_query PRIVATE common)
 
 
 
+###### tools/bench_tfshare ######
+add_executable(bench_tfshare tools/bench_tfshare.cpp)
+target_compile_features(bench_tfshare PRIVATE cxx_std_11)
+target_link_libraries(bench_tfshare PRIVATE common backend_obj)
+
+
+
 # FIXME ###### tests ######
 # add_executable(runtest
 #         tests/cpp/scheduler/backend_delegate_test.cpp
