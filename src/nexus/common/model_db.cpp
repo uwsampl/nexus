@@ -10,6 +10,7 @@
 namespace fs = boost::filesystem;
 
 DEFINE_string(model_root, "", "Model root dicrectory");
+DEFINE_double(profile_multiplier, 1.15, "Multiplier to forward latency in profile.");
 
 namespace nexus {
 
@@ -34,8 +35,8 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
     SplitString(line, ',', &tokens);
     ProfileEntry entry;
     uint32_t batch = stoi(tokens[0]);
-    entry.latency_mean = stof(tokens[1]);
-    entry.latency_std = stof(tokens[2]);
+    entry.latency_mean = stof(tokens[1]) * FLAGS_profile_multiplier;
+    entry.latency_std = stof(tokens[2]) * FLAGS_profile_multiplier;
     entry.memory_usage = stoll(tokens[3]);
     forward_lats_.emplace(batch, entry);
   }
