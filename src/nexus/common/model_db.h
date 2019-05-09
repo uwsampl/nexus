@@ -12,6 +12,7 @@ struct ProfileEntry {
   float latency_mean;
   float latency_std;
   size_t memory_usage;
+  int repeat;
 };
 
 class ModelProfile {
@@ -19,6 +20,8 @@ class ModelProfile {
   ModelProfile() {}
 
   ModelProfile(const std::string& file_path);
+
+  void MergeProfile(const ModelProfile& rhs);
 
   void LoadProfile(const std::string& file_path);
 

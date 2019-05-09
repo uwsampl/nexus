@@ -79,7 +79,9 @@ class GPUDevice : public Device {
 
   std::string name() const final { return name_; }
 
-  std::string device_name() { return device_name_; }
+  std::string device_name() const { return device_name_; }
+
+  std::string uuid() const { return uuid_; }
 
   size_t FreeMemory() const;
 
@@ -93,6 +95,7 @@ private:
   int gpu_id_;
   std::string name_;
   std::string device_name_;
+  std::string uuid_;
   size_t total_memory_;
 };
 

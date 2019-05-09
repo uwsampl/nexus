@@ -15,8 +15,21 @@ GPUDevice::GPUDevice(int gpu_id) :
     device_name_.assign(prop.name, strlen(prop.name));
     std::replace(device_name_.begin(), device_name_.end(), ' ', '_');
     total_memory_ = prop.totalGlobalMem;
-    LOG(INFO) << "GPU " << gpu_id << " " << device_name_ << ": total memory " <<
-              total_memory_ / 1024. / 1024. / 1024. << "GB";
+
+    auto* u = reinterpret_cast<unsigned char*>(&prop.uuid);
+    char uuid_hex[37] = {};
+    sprintf(uuid_hex,
+            "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+            u[0], u[1], u[2], u[3],
+            u[4], u[5],
+            u[6], u[7],
+            u[8], u[9],
+            u[10], u[11], u[12], u[13], u[14], u[15]);
+    uuid_ = uuid_hex;
+
+    LOG(INFO) << "GPU " << gpu_id << " " << device_name_
+              << "(" << uuid_ << ")"
+              << ": total memory " << total_memory_ / 1024. / 1024. / 1024. << "GB";
 }
 
 void *GPUDevice::Allocate(size_t nbytes) {
