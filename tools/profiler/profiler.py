@@ -227,7 +227,7 @@ def profile_model_concurrent(gpus, min_batch, max_batch, prof_id, output):
             preprocess_lats = merge_mean_std(preprocess_lats, pre)
             postprocess_lats = merge_mean_std(postprocess_lats, post)
         if len(gpus) > 1:
-            gpu_uuid = 'multiple GPUs are used to produce this profile'
+            gpu_uuid = 'generic'
         print_profile(output, prof_id, gpu_name, gpu_uuid, forward_stats, preprocess_lats, postprocess_lats)
 
     print('joining worker...')

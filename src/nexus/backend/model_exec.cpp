@@ -28,7 +28,7 @@ ModelExecutor::ModelExecutor(int gpu_id, const ModelInstanceConfig& config,
 #ifdef USE_GPU
   auto gpu_device = DeviceManager::Singleton().GetGPUDevice(gpu_id);
   profile_ = ModelDatabase::Singleton().GetModelProfile(
-      gpu_device->device_name(), model_->profile_id());
+      gpu_device->device_name(), gpu_device->uuid(), model_->profile_id());
 #endif
   req_counter_ = MetricRegistry::Singleton().CreateIntervalCounter(
       FLAGS_backend_count_interval);

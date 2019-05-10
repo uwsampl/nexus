@@ -71,6 +71,7 @@ message RegisterRequest {
   string server_port = 3;
   string rpc_port = 4;
   string gpu_device_name = 10;
+  string gpu_uuid = 12;
   uint64 gpu_available_memory = 11;
 }
 

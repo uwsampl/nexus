@@ -62,7 +62,7 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
   std::getline(fin, gpu_device_name_);
   std::string line;
   std::vector<std::string> tokens;
-  std::getline(fin, line); // gpu_uuid
+  std::getline(fin, gpu_uuid_);
   std::getline(fin, line); // Forward latency
   std::getline(fin, line); // batch,latency(us),std(us),memory(B),repeat
   while (true) {
@@ -187,20 +187,41 @@ const YAML::Node* ModelDatabase::GetModelInfo(
 }
 
 const ModelProfile* ModelDatabase::GetModelProfile(
-    const std::string& gpu_device, const std::string& profile_id) const {
+    const std::string& gpu_device,
+    const std::string& gpu_uuid,
+    const std::string& profile_id) const {
   auto itr = device_profile_table_.find(gpu_device);
   if (itr == device_profile_table_.end()) {
     LOG(ERROR) << "Cannot find model profile for GPU " << gpu_device;
     return nullptr;
   }
   auto& profile_table = itr->second;
-  auto itr2 = profile_table.find(profile_id);
-  if (itr2 == profile_table.end()) {
-    LOG(ERROR) << "Cannot find model profile " << profile_id << " on " <<
-        gpu_device;
+  auto key = profile_id + ":" + gpu_uuid;
+  auto itr2 = profile_table.find(key);
+  if (itr2 != profile_table.end())
+    return &itr2->second;
+
+  std::vector<std::string> tokens;
+  SplitString(profile_id, ':', &tokens);
+  const auto &model = tokens[1];
+  auto pos = model.rfind('_');
+  if (pos == std::string::npos) {
+    LOG(ERROR) << "Cannot find model profile " << key << " on " << gpu_device;
     return nullptr;
   }
-  return &itr2->second;
+  auto mirror_model = model.substr(0, pos) + "_0";
+  auto mirror_profile_id = tokens[0] + ":" + mirror_model;
+  for (size_t i = 2; i < tokens.size(); ++i) {
+    mirror_profile_id += ':';
+    mirror_profile_id += tokens[i];
+  }
+  auto key3 = mirror_profile_id + ':' + gpu_uuid;
+  auto itr3 = profile_table.find(key3);
+  if (itr3 != profile_table.end())
+    return &itr3->second;
+  LOG(ERROR) << "Cannot find model profile " << key
+             << " or " << key3 << " on " << gpu_device;
+  return nullptr;
 }
 
 std::shared_ptr<TFShareInfo> ModelDatabase::GetTFShareInfo(const std::string& model_name) const {
@@ -208,26 +229,6 @@ std::shared_ptr<TFShareInfo> ModelDatabase::GetTFShareInfo(const std::string& mo
   if (iter != tf_share_models_.end())
     return iter->second;
   return nullptr;
-}
-
-float ModelDatabase::GetModelForwardLatency(const std::string& gpu_device,
-                                            const std::string& profile_id,
-                                            uint32_t batch) const {
-  auto profile = GetModelProfile(gpu_device, profile_id);
-  if (profile == nullptr) {
-    return 0;
-  }
-  return profile->GetForwardLatency(batch);
-}
-
-size_t ModelDatabase::GetModelMemoryUsage(const std::string& gpu_device,
-                                          const std::string& profile_id,
-                                          uint32_t batch) const {
-  auto profile = GetModelProfile(gpu_device, profile_id);
-  if (profile == nullptr) {
-    return 0;
-  }
-  return profile->GetMemoryUsage(batch);
 }
 
 int ModelDatabase::GetSharePrefixLength(const std::string& model_id1,
@@ -391,12 +392,19 @@ void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
     if (device_profile_table_.find(device) == device_profile_table_.end()) {
       device_profile_table_.emplace(device, ProfileTable());
     }
-    auto &table = device_profile_table_.at(device);
-    auto it = table.find(profile.profile_id());
+    auto &table = device_profile_table_[device];
+
+    auto key_generic = profile.profile_id() + ":generic";
+    auto it = table.find(key_generic);
     if (it == table.end()) {
-      table.emplace(profile.profile_id(), profile);
+      table[key_generic] = profile;
     } else {
       it->second.MergeProfile(profile);
+    }
+
+    if (profile.gpu_uuid() != "generic") {
+      auto key = profile.profile_id() + ":" + profile.gpu_uuid();
+      table[key] = profile;
     }
   }
 }

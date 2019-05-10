@@ -454,6 +454,7 @@ void BackendServer::Register() {
   GPUDevice* gpu_device = DeviceManager::Singleton().GetGPUDevice(
       gpu_id_);
   request.set_gpu_device_name(gpu_device->device_name());
+  request.set_gpu_uuid(gpu_device->uuid());
   request.set_gpu_available_memory(gpu_device->FreeMemory());
   
   while (true) {

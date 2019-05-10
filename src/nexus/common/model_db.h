@@ -29,6 +29,8 @@ class ModelProfile {
 
   std::string gpu_device_name() const { return gpu_device_name_; }
 
+  std::string gpu_uuid() const { return gpu_uuid_; }
+
   float GetForwardLatency(uint32_t batch) const;
 
   float GetPreprocessLatency() const;
@@ -52,10 +54,11 @@ class ModelProfile {
  private:
   std::string profile_id_;
   std::string gpu_device_name_;
+  std::string gpu_uuid_;
   std::unordered_map<uint32_t, ProfileEntry> forward_lats_;
   ProfileEntry preprocess_;
   ProfileEntry postprocess_;
-  const float network_latency_us_ = 2000; // us
+  float network_latency_us_ = 2000; // us
 };
 
 struct TFShareSuffixInfo {
@@ -92,15 +95,8 @@ class ModelDatabase {
                                  uint32_t version) const;
 
   const ModelProfile* GetModelProfile(const std::string& gpu_device,
+                                      const std::string& gpu_uuid,
                                       const std::string& profile_id) const;
-
-  float GetModelForwardLatency(const std::string& gpu_device,
-                               const std::string& profile_id,
-                               uint32_t batch) const;
-  
-  size_t GetModelMemoryUsage(const std::string& gpu_device,
-                             const std::string& profile_id,
-                             uint32_t batch) const;
 
   int GetSharePrefixLength(const std::string& model_id1,
                            const std::string& model_id2) const;

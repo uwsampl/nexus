@@ -24,7 +24,7 @@ class BackendDelegate {
  public:
   BackendDelegate(uint32_t node_id, const std::string& ip,
                   const std::string& server_port, const std::string& rpc_port,
-                  const std::string& gpu_device, size_t gpu_available_memory,
+                  const std::string& gpu_device, const std::string& gpu_uuid, size_t gpu_available_memory,
                   int beacon_sec);
 
   uint32_t node_id() const { return node_id_; }
@@ -108,6 +108,7 @@ class BackendDelegate {
   std::string server_port_;
   std::string rpc_port_;
   std::string gpu_device_;
+  std::string gpu_uuid_;
   size_t gpu_available_memory_;
   int beacon_sec_;
   long timeout_ms_;

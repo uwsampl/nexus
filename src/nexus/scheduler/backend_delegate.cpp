@@ -61,12 +61,14 @@ BackendDelegate::BackendDelegate(uint32_t node_id, const std::string& ip,
                                  const std::string& server_port,
                                  const std::string& rpc_port,
                                  const std::string& gpu_device,
+                                 const std::string& gpu_uuid,
                                  size_t gpu_available_memory, int beacon_sec):
     node_id_(node_id),
     ip_(ip),
     server_port_(server_port),
     rpc_port_(rpc_port),
     gpu_device_(gpu_device),
+    gpu_uuid_(gpu_uuid),
     gpu_available_memory_(gpu_available_memory),
     beacon_sec_(beacon_sec),
     timeout_ms_(beacon_sec * 3 * 1000),
@@ -136,8 +138,8 @@ bool BackendDelegate::PrepareLoadModel(
     return false;
   }
   std::string profile_id = ModelSessionToProfileID(model_sess);
-  auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
-                                                            profile_id);
+  auto profile = ModelDatabase::Singleton()
+      .GetModelProfile(gpu_device_, gpu_uuid_, profile_id);
   if (profile == nullptr) {
     // Cannot find model profile for this GPU
     return false;
@@ -205,8 +207,8 @@ void BackendDelegate::LoadModel(const YAML::Node& model_info) {
   }
   std::string model_session_id = ModelSessionToString(sess);
   std::string profile_id = ModelSessionToProfileID(sess);
-  auto profile = ModelDatabase::Singleton().GetModelProfile(gpu_device_,
-                                                            profile_id);
+  auto profile = ModelDatabase::Singleton()
+      .GetModelProfile(gpu_device_, gpu_uuid_, profile_id);
   auto inst_info = std::make_shared<InstanceInfo>();
   inst_info->model_sessions.push_back(sess);
   inst_info->profile = profile;
