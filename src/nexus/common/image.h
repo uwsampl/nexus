@@ -12,7 +12,10 @@ enum ChannelOrder {
   CO_BGR = 1,
 };
 
-cv::Mat DecodeImage(const ImageProto& image, ChannelOrder order);
+cv::Mat _Hack_DecodeImageByFilename(const ImageProto &image,
+                                    ChannelOrder order);
+
+cv::Mat DecodeImage(const ImageProto &image, ChannelOrder order);
 
 } // namespace nexus
 

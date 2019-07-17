@@ -13,3 +13,5 @@ python/nexus/proto/
 
 cmake-build*/
 .clion.source.upload.marker
+.clangd/
+compile_commands.json
