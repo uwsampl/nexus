@@ -1,15 +1,19 @@
 #include <fstream>
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <unordered_set>
 
-#include "nexus/common/util.h"
 #include "nexus/backend/utils.h"
+#include "nexus/common/util.h"
+
+DEFINE_bool(hack_reply_omit_output, false,
+            "HACK: omit output field in ReplyProto");
 
 namespace nexus {
 namespace backend {
 
-void LoadClassnames(const std::string& filepath,
-                    std::unordered_map<int, std::string>* classnames) {
+void LoadClassnames(const std::string &filepath,
+                    std::unordered_map<int, std::string> *classnames) {
   std::ifstream infile(filepath);
   CHECK(infile.good()) << "Classname file " << filepath << " doesn't exist";
   std::string line;
@@ -28,13 +32,13 @@ void LoadClassnames(const std::string& filepath,
 }
 
 void PostprocessClassification(
-    const QueryProto& query, const float* prob, size_t nprobs,
-    QueryResultProto* result,
-    const std::unordered_map<int, std::string>* classnames) {
+    const QueryProto &query, const float *prob, size_t nprobs,
+    QueryResultProto *result,
+    const std::unordered_map<int, std::string> *classnames) {
   // TODO: handle top k and threshold in the query
   if (classnames != nullptr) {
-    CHECK_EQ(classnames->size(), nprobs) << "Mismatch between number of " <<
-        "class names and number of outputs";
+    CHECK_EQ(classnames->size(), nprobs) << "Mismatch between number of "
+                                         << "class names and number of outputs";
   }
   std::unordered_set<std::string> output_fields(query.output_field().begin(),
                                                 query.output_field().end());
@@ -45,7 +49,7 @@ void PostprocessClassification(
   }
   float max_prob = 0.;
   int max_idx = -1;
-  for (int i = 0; i < (int) nprobs; ++i) {
+  for (int i = 0; i < (int)nprobs; ++i) {
     float p = prob[i];
     if (p > max_prob) {
       max_prob = p;
@@ -54,6 +58,8 @@ void PostprocessClassification(
   }
   if (max_idx > -1) {
     auto record = result->add_output();
+    if (FLAGS_hack_reply_omit_output)
+      return;
     for (auto field : output_fields) {
       if (field == "class_id") {
         auto value = record->add_named_value();

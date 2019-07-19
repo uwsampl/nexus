@@ -339,6 +339,8 @@ void TensorflowModel::MarshalDetectionResult(
   }
   for (int i = 0; i < num_boxes; ++i) {
     auto record = result->add_output();
+    if (FLAGS_hack_reply_omit_output)
+      continue;
     int class_id = static_cast<int>(classes[i]);
     for (auto field : output_fields) {
       if (field == "rect") {

@@ -954,7 +954,7 @@ void Scheduler::EpochSchedule() {
   }
 
   // 3. Consolidate low utilization backends
-  ConsolidateBackends(&changed_sessions);
+  // ConsolidateBackends(&changed_sessions);
   
   // 4. Allocate the unassigned workloads to backends that still have space
   AllocateUnassignedWorkloads(&changed_sessions);

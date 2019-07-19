@@ -77,7 +77,7 @@ def find_max_batch(framework, model_name, gpus):
         for line in out.split('\n'):
             if flag:
                 items = line.split(',')
-                lat = float(items[1]) + float(items[2]) # mean + std
+                lat = float(items[1]) + float(items[2])  # mean + std
                 curr_tp = right * 1e6 / lat
                 break
             if line.startswith('batch,latency'):
@@ -115,7 +115,8 @@ def run_profiler(gpu, prof_id, input_queue, output_queue):
             break
         cmd.append(f'-gpu={gpu}')
         print(' '.join(cmd))
-        proc = subprocess.Popen(cmd, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            cmd, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = proc.communicate()
         if proc.returncode != 0:
             sys.stderr.write(err)
@@ -134,7 +135,8 @@ def run_profiler(gpu, prof_id, input_queue, output_queue):
             if line.startswith('Preprocess latency (mean,std,repeat)'):
                 break
             batch_size, lat, std, mem, repeat = line.split(',')
-            forward_stats.append((int(batch_size), float(lat), float(std), int(mem), int(repeat)))
+            forward_stats.append((int(batch_size), float(
+                lat), float(std), int(mem), int(repeat)))
 
         mean, std, repeat = next(lines).split(',')
         preprocess_lats = (float(mean), float(std), int(repeat))
@@ -143,7 +145,8 @@ def run_profiler(gpu, prof_id, input_queue, output_queue):
         mean, std, repeat = next(lines).split(',')
         postprocess_lats = (float(mean), float(std), int(repeat))
 
-        output_queue.put((gpu_name, gpu_uuid, forward_stats, preprocess_lats, postprocess_lats))
+        output_queue.put((gpu_name, gpu_uuid, forward_stats,
+                          preprocess_lats, postprocess_lats))
 
 
 def print_profile(output, prof_id, gpu_name, gpu_uuid, forward_stats, preprocess_lats, postprocess_lats):
@@ -159,7 +162,7 @@ def print_profile(output, prof_id, gpu_name, gpu_uuid, forward_stats, preprocess
         f.write('Preprocess latency (mean,std,repeat)\n')
         mean, std, repeat = preprocess_lats
         f.write(f'{mean},{std},{repeat}\n')
-        f.write('Preprocess latency (mean,std,repeat)\n')
+        f.write('Postprocess latency (mean,std,repeat)\n')
         mean, std, repeat = postprocess_lats
         f.write(f'{mean},{std},{repeat}\n')
 
@@ -192,7 +195,8 @@ def profile_model_concurrent(gpus, min_batch, max_batch, prof_id, output):
     output_queue = multiprocessing.Queue(max_batch - min_batch + 1)
     workers = []
     for gpu in gpus:
-        worker = multiprocessing.Process(target=run_profiler, args=(gpu, prof_id, input_queue, output_queue))
+        worker = multiprocessing.Process(target=run_profiler, args=(
+            gpu, prof_id, input_queue, output_queue))
         worker.start()
         workers.append(worker)
     for batch in range(min_batch, max_batch + 1):
@@ -228,7 +232,8 @@ def profile_model_concurrent(gpus, min_batch, max_batch, prof_id, output):
             postprocess_lats = merge_mean_std(postprocess_lats, post)
         if len(gpus) > 1:
             gpu_uuid = 'generic'
-        print_profile(output, prof_id, gpu_name, gpu_uuid, forward_stats, preprocess_lats, postprocess_lats)
+        print_profile(output, prof_id, gpu_name, gpu_uuid,
+                      forward_stats, preprocess_lats, postprocess_lats)
 
     print('joining worker...')
     for worker in workers:
@@ -239,7 +244,8 @@ def profile_model_concurrent(gpus, min_batch, max_batch, prof_id, output):
 def profile_model_single_gpu(gpu, min_batch, max_batch, prof_id, output):
     input_queue = multiprocessing.Queue()
     output_queue = multiprocessing.Queue()
-    worker = multiprocessing.Process(target=run_profiler, args=(gpu, prof_id, input_queue, output_queue))
+    worker = multiprocessing.Process(target=run_profiler, args=(
+        gpu, prof_id, input_queue, output_queue))
     worker.start()
     cmd = get_profiler_cmd(args)
     cmd += [f'-min_batch={min_batch}', f'-max_batch={max_batch}']
@@ -257,7 +263,8 @@ def profile_model_single_gpu(gpu, min_batch, max_batch, prof_id, output):
         print('worker joined')
         output_queue.join_thread()
         raise
-    print_profile(output, prof_id, gpu_name, gpu_uuid, forward_stats, preprocess_lats, postprocess_lats)
+    print_profile(output, prof_id, gpu_name, gpu_uuid,
+                  forward_stats, preprocess_lats, postprocess_lats)
 
     print('joining worker...')
     worker.join()
@@ -288,7 +295,8 @@ def profile_model(args):
     if len(gpus) > 1:
         profile_model_concurrent(gpus, min_batch, max_batch, prof_id, output)
     else:
-        profile_model_single_gpu(gpus[0], min_batch, max_batch, prof_id, output)
+        profile_model_single_gpu(
+            gpus[0], min_batch, max_batch, prof_id, output)
     with open(output) as f:
         next(f)
         gpu_name = next(f).strip()
@@ -313,7 +321,8 @@ def profile_model(args):
 def main():
     parser = argparse.ArgumentParser(description='Profile models')
     parser.add_argument('framework',
-                        choices=['caffe', 'caffe2', 'tensorflow', 'darknet', 'tf_share'],
+                        choices=['caffe', 'caffe2',
+                                 'tensorflow', 'darknet', 'tf_share'],
                         help='Framework name')
     parser.add_argument('model', type=str, help='Model name')
     parser.add_argument('model_root', type=str,
@@ -322,7 +331,8 @@ def main():
                         help='Dataset directory')
     parser.add_argument('--version', type=int, default=1,
                         help='Model version (default: 1)')
-    parser.add_argument('--gpus', default='0-7', help='GPU indexes. e.g. 0-2,4,5,7-8')
+    parser.add_argument('--gpus', default='0-7',
+                        help='GPU indexes. e.g. 0-2,4,5,7-8')
     parser.add_argument('--height', type=int, default=0, help='Image height')
     parser.add_argument('--width', type=int, default=0, help='Image width')
     parser.add_argument('--prefix', action='store_true',
@@ -343,11 +353,12 @@ def main():
         return
     load_model_db(os.path.join(args.model_root, 'db', 'model_db.yml'))
     if args.model not in _models[args.framework]:
-        sys.stderr.write('%s:%s not found in model DB\n' % (args.framework, args.model))
+        sys.stderr.write('%s:%s not found in model DB\n' %
+                         (args.framework, args.model))
         return
 
     profile_model(args)
-    
+
 
 if __name__ == '__main__':
     main()

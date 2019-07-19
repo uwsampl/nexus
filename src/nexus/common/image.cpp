@@ -29,7 +29,7 @@ public:
       if (it->path().extension().string() != ".jpg")
         continue;
 
-      std::ifstream fin(it->path().filename().string(), std::ios::binary);
+      std::ifstream fin(it->path().string(), std::ios::binary);
       std::istreambuf_iterator<char> fin_beg(fin), fin_end;
       std::vector<char> data(fin_beg, fin_end);
 
@@ -88,9 +88,13 @@ cv::Mat _Hack_DecodeImageByFilename(const ImageProto &image,
 }
 
 cv::Mat DecodeImage(const ImageProto &image, ChannelOrder order) {
-  const std::string &data = image.data();
-  std::vector<char> vec_data(data.c_str(), data.c_str() + data.size());
-  return DecodeImageImpl(vec_data, image.color(), order);
+  if (image.hack_filename().empty()) {
+    const std::string &data = image.data();
+    std::vector<char> vec_data(data.c_str(), data.c_str() + data.size());
+    return DecodeImageImpl(vec_data, image.color(), order);
+  } else {
+    return _Hack_DecodeImageByFilename(image, order);
+  }
 }
 
 } // namespace nexus
