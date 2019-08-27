@@ -18,6 +18,12 @@ message ImageProto {
   bytes data = 1;
   ImageFormat format = 2;
   bool color = 3;
+
+  // This is a hack. Provide the filename to the image instead of transfering
+  // the real bytes. Hopefully this should save a lot of bandwidth so that a
+  // single frontend server could handle all requests, thus we don't need to
+  // deal with the problem of imbalanced load at backends.
+  string hack_filename = 4;
 }
 
 enum DataType {

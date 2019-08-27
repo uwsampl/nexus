@@ -3,22 +3,15 @@ Nexus
 Nexus is a scalable and efficient serving system for DNN applications on GPU
 cluster.
 
-This is a joint research project between University of Washington and Microsoft Research.
+## Installation
 
-Compile and Deploy Nexus
-========================
+See [INSTALL.md](INSTALL.md) for details.
 
-Download nexus and sample models
---------------
+## SOSP 2019 Paper
 
-### Download Nexus
+* Check out the [Google Drive](https://drive.google.com/open?id=104UqrlNrfJoQnGdkxTQ56mfxSBFyJTcr) that contains the artifacts.
 
-Download nexus and framworks it supports from github
-```
-$ git clone --recursive https://github.com/uwsaml/nexus.git
-$ cd nexus
-$ git submodule update --init --recursive
-```
+## Deployment
 
 ### Download Model Zoo
 
@@ -36,65 +29,8 @@ $ mkdir nexus-models
 $ aws s3 sync s3://nexus-models nexus-models/
 ```
 
-Pre-requisites
---------------
-
-Recommended development environment on Ubuntu (>=16.04)
-
-### General dependencies
-```
-$ [sudo] apt-get install libboost-all-dev libgflags-dev libgoogle-glog-dev \
-libgtest-dev libyaml-cpp-dev libopenblas-dev libleveldb-dev liblmdb-dev \
-libhdf5-serial-dev
-```
-
-### Required libraries
-* protobuf >= 3.5.0
-* [grpc](https://github.com/grpc/grpc/blob/master/INSTALL.md) >= v1.4.x
-* OpenCV >= 3.0
-* bazel >= 0.10.0
-* CUDA >= 8.0
-* CUDNN >= 6.0
-
-### Pre-requsites for Deploy Nexus Service
-
-Nexus is able to be compiled from source, but if it is necessary to run Nexus service across multiple servers, we use the use docker swarm. So we recommand to deploy nexus by docker.
-
-To build nexus docker images and deploy Nexus, following packages are required
-* [CUDA 8.0](https://developer.nvidia.com/cuda-80-ga2-download-archive)
-* [docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/)(>=1.12)
-* [nvidia-docker](https://github.com/NVIDIA/nvidia-docker)
-
-Set Config for Nexus
---------------------
-
-There is a file names Makefile.config in the nexus folder. You can config the CUDA and CUDNN library path in the config file. $(CUDA_PATH) should be set as CUDA/library/path, and $(CUDNN_PATH) should be set as CUDNN/library/path.
-
-Other varaibles such as $(USE_CAFFE) decide if the corresponding frameworks nexus need to support. Nexus is not able to support caffe and caffe2 at the same time.
-
-
 Local Tests without Docker
 --------------------------
-
-### Compile from source
-
-Nexus can be compiled from source with make command
-```
-$ cd nexus
-$ cp frameworks/tf_configure.bazelrc frameworks/tensorflow/.tf_configure.bazelrc
-$ cd frameworks/tensorflow
-$ bazel --output_base=../../build/tensorflow build --config=opt //tensorflow:libtensorflow.so //tensorflow:libtensorflow_cc.so //tensorflow:libtensorflow_framework.so //tensorflow:install_headers
-$ cd ../..
-$ make all
-```
-
-In the Nexus repo, we provide a few sample applications located at `nexus/apps`.
-Go to the directory at each application, e.g., nexus/apps/simple_app/, you can
-compile the application by
-```
-$ cd nexus/apps/simple_app
-$ make
-```
 
 ### Local Tests
 
@@ -128,8 +64,8 @@ Since we recommand to use docker, there are four docker images that needs to be 
 First you need to build the base docker image that installs all dependent libraries required for Nexus.
 
 Following docker build commands contain -t and -f options. -t option is followed
-by name and optionally a tag in the ‘name:tag’ format. -f option is followed by
-name of the Dockerfile (Default is ‘PATH/Dockerfile’).
+by name and optionally a tag in the `name:tag` format. -f option is followed by
+name of the Dockerfile (Default is `PATH/Dockerfile`).
 
 ```
 $ cd nexus/dockerfiles

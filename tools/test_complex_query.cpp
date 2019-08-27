@@ -18,7 +18,7 @@ ComplexQuery::NodeID add_node(ComplexQuery &cq, const std::string &gpu,
   if (image_height > 0) {
     profile_id += ":" + std::to_string(image_height) + "x" + std::to_string(image_width);
   }
-  auto *profile = ModelDatabase::Singleton().GetModelProfile(gpu, profile_id);
+  auto *profile = ModelDatabase::Singleton().GetModelProfile(gpu, "generic", profile_id);
   CHECK(profile != nullptr);
   cq.AddNode(node, model_sess_id, *profile);
   return node;
@@ -26,7 +26,7 @@ ComplexQuery::NodeID add_node(ComplexQuery &cq, const std::string &gpu,
 
 void add_node(ComplexQuery &cq, ComplexQuery::NodeID &node, const std::string &profile_id, const std::string &gpu) {
   auto model_sess_id = node.framework + ':' + node.model_name + ":0";
-  auto *profile = ModelDatabase::Singleton().GetModelProfile(gpu, profile_id);
+  auto *profile = ModelDatabase::Singleton().GetModelProfile(gpu, "generic", profile_id);
   cq.AddNode(node, model_sess_id, *profile);
 }
 

@@ -214,29 +214,21 @@ class ModelProfiler {
       *fout << ModelSessionToProfileID(model_sess_) << "\n";
     }
     *fout << gpu_device_->device_name() << "\n";
+    *fout << gpu_device_->uuid() << "\n";
+    float mean, std;
     *fout << "Forward latency\n";
-    *fout << "batch,latency(us),std(us),memory(B)\n";
+    *fout << "batch,latency(us),std(us),memory(B),repeat\n";
     for (int batch = min_batch; batch <= max_batch; ++batch) {
-      float mean, std;
       size_t memory_usage;
       std::tie(mean, std, memory_usage) = forward_stats.at(batch);
-      *fout << batch << "," << mean << "," << std << "," << memory_usage << "\n";
+      *fout << batch << "," << mean << "," << std << "," << memory_usage << "," << repeat << "\n";
     }
-    *fout << "Preprocess latencies(us)";
-    for (size_t i = 0; i < preprocess_lats.size(); ++i) {
-      if (i % 10 == 0)
-        *fout << std::endl;
-      *fout << preprocess_lats[i] << "\t";
-    }
-    *fout << std::endl;
-    *fout << "Postprocess latencies(us)";
-    for (size_t i = 0; i < postprocess_lats.size(); ++i) {
-      if (i % 10 == 0)
-        *fout << std::endl;
-      *fout << postprocess_lats[i] << "\t";
-      if (i % 10 == 9)
-        *fout << std::endl;
-    }
+    *fout << "Preprocess latency (mean,std,repeat)\n";
+    std::tie(mean, std) = GetStats<uint64_t>(preprocess_lats);
+    *fout << mean << "," << std << "," << preprocess_lats.size() << "\n";
+    *fout << "Postprocess latency (mean,std,repeat)\n";
+    std::tie(mean, std) = GetStats<uint64_t>(postprocess_lats);
+    *fout << mean << "," << std << "," << postprocess_lats.size() << "\n";
     if (fout != &std::cout) {
       delete fout;
     }

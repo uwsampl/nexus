@@ -99,7 +99,7 @@ void Scheduler::Register(const grpc::ServerContext& ctx,
   if (request.node_type() == BACKEND_NODE) {
     auto backend = std::make_shared<BackendDelegate>(
         request.node_id(), ip, request.server_port(), request.rpc_port(),
-        request.gpu_device_name(), request.gpu_available_memory(),
+        request.gpu_device_name(), request.gpu_uuid(), request.gpu_available_memory(),
         beacon_interval_sec_);
     RegisterBackend(std::move(backend), reply);
   } else { // FRONTEND_NODE
@@ -954,7 +954,7 @@ void Scheduler::EpochSchedule() {
   }
 
   // 3. Consolidate low utilization backends
-  ConsolidateBackends(&changed_sessions);
+  // ConsolidateBackends(&changed_sessions);
   
   // 4. Allocate the unassigned workloads to backends that still have space
   AllocateUnassignedWorkloads(&changed_sessions);

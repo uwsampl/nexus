@@ -1,5 +1,7 @@
-#include <boost/filesystem.hpp>
+#include <cmath>
 #include <fstream>
+#include <queue>
+#include <boost/filesystem.hpp>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
@@ -7,14 +9,50 @@
 #include "nexus/common/model_def.h"
 #include "nexus/common/util.h"
 
+std::pair<double, double> MergeMeanStd(double mean1, double std1, int n1,
+                                       double mean2, double std2, int n2) {
+  double mean = ((n1 - 1) * mean1 + (n2 - 1) * mean2) / (n1 + n2 - 1);
+  double var = ((n1 - 1) * std1 * std1 + (n2 - 1) * std2 * std2
+      + n1 * (mean1 - mean) * (mean1 - mean)
+      + n2 * (mean2 - mean) * (mean2 - mean)) / (n1 + n2 - 1);
+  return {mean, std::sqrt(var)};
+}
+
 namespace fs = boost::filesystem;
 
 DEFINE_string(model_root, "", "Model root dicrectory");
+DEFINE_double(profile_multiplier, 1.15, "Multiplier to forward latency in profile.");
 
 namespace nexus {
 
+void MergeMeanStd(ProfileEntry& dst, const ProfileEntry& src) {
+  double mean, std;
+  std::tie(mean, std) = ::MergeMeanStd(
+      dst.latency_mean, dst.latency_std, dst.repeat,
+      src.latency_mean, src.latency_std, src.repeat);
+  dst.latency_mean = mean;
+  dst.latency_std = std;
+  dst.repeat += src.repeat;
+}
+
 ModelProfile::ModelProfile(const std::string& filepath) {
   LoadProfile(filepath);
+}
+
+void ModelProfile::MergeProfile(const ModelProfile& rhs) {
+  uint32_t batch = 1;
+  while (batch <= forward_lats_.size() && batch <= rhs.forward_lats_.size()) {
+    auto &rec1 = forward_lats_.at(batch);
+    const auto &rec2 = rhs.forward_lats_.at(batch);
+    MergeMeanStd(rec1, rec2);
+    ++batch;
+  }
+  while (batch <= rhs.forward_lats_.size()) {
+    forward_lats_[batch] = rhs.forward_lats_.at(batch);
+    ++batch;
+  }
+  MergeMeanStd(preprocess_, rhs.preprocess_);
+  MergeMeanStd(postprocess_, rhs.postprocess_);
 }
 
 void ModelProfile::LoadProfile(const std::string& filepath) {
@@ -24,32 +62,33 @@ void ModelProfile::LoadProfile(const std::string& filepath) {
   std::getline(fin, gpu_device_name_);
   std::string line;
   std::vector<std::string> tokens;
-  std::getline(fin, line);
-  std::getline(fin, line);
+  std::getline(fin, gpu_uuid_);
+  std::getline(fin, line); // Forward latency
+  std::getline(fin, line); // batch,latency(us),std(us),memory(B),repeat
   while (true) {
     std::getline(fin, line);
-    if (line.find(",") == std::string::npos) {
+    if (line.find("Preprocess latency (mean,std,repeat)") == 0)
       break;
-    }
     SplitString(line, ',', &tokens);
     ProfileEntry entry;
     uint32_t batch = stoi(tokens[0]);
-    entry.latency_mean = stof(tokens[1]);
-    entry.latency_std = stof(tokens[2]);
+    entry.latency_mean = stof(tokens[1]) * FLAGS_profile_multiplier;
+    entry.latency_std = stof(tokens[2]) * FLAGS_profile_multiplier;
     entry.memory_usage = stoll(tokens[3]);
+    entry.repeat = std::stoi(tokens[4]);
     forward_lats_.emplace(batch, entry);
   }
   std::getline(fin, line);
+  SplitString(line, ',', &tokens);
+  preprocess_.latency_mean = stof(tokens[0]) * FLAGS_profile_multiplier;
+  preprocess_.latency_std = stof(tokens[1]) * FLAGS_profile_multiplier;
+  preprocess_.repeat = std::stoi(tokens[2]);
+  std::getline(fin, line); // Postprocess latency (mean,std,repeat)
   std::getline(fin, line);
   SplitString(line, ',', &tokens);
-  preprocess_.latency_mean = stof(tokens[0]);
-  preprocess_.latency_std = stof(tokens[1]);
-  std::getline(fin, line);
-  std::getline(fin, line);
-  std::getline(fin, line);
-  SplitString(line, ',', &tokens);
-  postprocess_.latency_mean = stof(tokens[0]);
-  postprocess_.latency_std = stof(tokens[1]);
+  postprocess_.latency_mean = stof(tokens[0]) * FLAGS_profile_multiplier;
+  postprocess_.latency_std = stof(tokens[1]) * FLAGS_profile_multiplier;
+  postprocess_.repeat = std::stoi(tokens[2]);
 }
 
 float ModelProfile::GetForwardLatency(uint32_t batch) const {
@@ -148,20 +187,41 @@ const YAML::Node* ModelDatabase::GetModelInfo(
 }
 
 const ModelProfile* ModelDatabase::GetModelProfile(
-    const std::string& gpu_device, const std::string& profile_id) const {
+    const std::string& gpu_device,
+    const std::string& gpu_uuid,
+    const std::string& profile_id) const {
   auto itr = device_profile_table_.find(gpu_device);
   if (itr == device_profile_table_.end()) {
     LOG(ERROR) << "Cannot find model profile for GPU " << gpu_device;
     return nullptr;
   }
   auto& profile_table = itr->second;
-  auto itr2 = profile_table.find(profile_id);
-  if (itr2 == profile_table.end()) {
-    LOG(ERROR) << "Cannot find model profile " << profile_id << " on " <<
-        gpu_device;
+  auto key = profile_id + ":" + gpu_uuid;
+  auto itr2 = profile_table.find(key);
+  if (itr2 != profile_table.end())
+    return &itr2->second;
+
+  std::vector<std::string> tokens;
+  SplitString(profile_id, ':', &tokens);
+  const auto &model = tokens[1];
+  auto pos = model.rfind('_');
+  if (pos == std::string::npos) {
+    LOG(ERROR) << "Cannot find model profile " << key << " on " << gpu_device;
     return nullptr;
   }
-  return &itr2->second;
+  auto mirror_model = model.substr(0, pos) + "_0";
+  auto mirror_profile_id = tokens[0] + ":" + mirror_model;
+  for (size_t i = 2; i < tokens.size(); ++i) {
+    mirror_profile_id += ':';
+    mirror_profile_id += tokens[i];
+  }
+  auto key3 = mirror_profile_id + ':' + gpu_uuid;
+  auto itr3 = profile_table.find(key3);
+  if (itr3 != profile_table.end())
+    return &itr3->second;
+  LOG(ERROR) << "Cannot find model profile " << key
+             << " or " << key3 << " on " << gpu_device;
+  return nullptr;
 }
 
 std::shared_ptr<TFShareInfo> ModelDatabase::GetTFShareInfo(const std::string& model_name) const {
@@ -169,26 +229,6 @@ std::shared_ptr<TFShareInfo> ModelDatabase::GetTFShareInfo(const std::string& mo
   if (iter != tf_share_models_.end())
     return iter->second;
   return nullptr;
-}
-
-float ModelDatabase::GetModelForwardLatency(const std::string& gpu_device,
-                                            const std::string& profile_id,
-                                            uint32_t batch) const {
-  auto profile = GetModelProfile(gpu_device, profile_id);
-  if (profile == nullptr) {
-    return 0;
-  }
-  return profile->GetForwardLatency(batch);
-}
-
-size_t ModelDatabase::GetModelMemoryUsage(const std::string& gpu_device,
-                                          const std::string& profile_id,
-                                          uint32_t batch) const {
-  auto profile = GetModelProfile(gpu_device, profile_id);
-  if (profile == nullptr) {
-    return 0;
-  }
-  return profile->GetMemoryUsage(batch);
 }
 
 int ModelDatabase::GetSharePrefixLength(const std::string& model_id1,
@@ -325,27 +365,46 @@ void ModelDatabase::LoadModelInfo(const std::string& db_file) {
 }
 
 void ModelDatabase::LoadModelProfiles(const std::string& profile_dir) {
-  fs::path root_dir(profile_dir);
+  std::vector<fs::path> files;
   fs::directory_iterator end_iter;
-  for (fs::directory_iterator dir_itr(root_dir); dir_itr != end_iter;
-       ++dir_itr) {
-    auto path = dir_itr->path();
-    if (!fs::is_directory(path)) {
-      continue;
-    }
-    VLOG(1) << "Load model profiles for GPU " << path.filename().string();
-    for (fs::directory_iterator file_itr(path); file_itr != end_iter;
-         ++file_itr) {
-      if (file_itr->path().filename().string()[0] == '.') {
+
+  std::queue<fs::path> dirs;
+  dirs.emplace(profile_dir);
+  while (!dirs.empty()) {
+    auto dir = dirs.front();
+    dirs.pop();
+    for (fs::directory_iterator dir_itr(dir); dir_itr != end_iter; ++dir_itr) {
+      auto path = dir_itr->path();
+      if (dir_itr->path().filename().string()[0] == '.') {
         continue;
       }
-      VLOG(1) << "- Load model profile " << file_itr->path().string();
-      ModelProfile profile(file_itr->path().string());
-      auto device = profile.gpu_device_name();
-      if (device_profile_table_.find(device) == device_profile_table_.end()) {
-        device_profile_table_.emplace(device, ProfileTable());
+      if (fs::is_directory(path)) {
+        dirs.emplace(path);
+      } else {
+        files.emplace_back(path);
       }
-      device_profile_table_.at(device).emplace(profile.profile_id(), profile);
+    }
+  }
+
+  for (const auto &filepath : files) {
+    ModelProfile profile(filepath.string());
+    auto device = profile.gpu_device_name();
+    if (device_profile_table_.find(device) == device_profile_table_.end()) {
+      device_profile_table_.emplace(device, ProfileTable());
+    }
+    auto &table = device_profile_table_[device];
+
+    auto key_generic = profile.profile_id() + ":generic";
+    auto it = table.find(key_generic);
+    if (it == table.end()) {
+      table[key_generic] = profile;
+    } else {
+      it->second.MergeProfile(profile);
+    }
+
+    if (profile.gpu_uuid() != "generic") {
+      auto key = profile.profile_id() + ":" + profile.gpu_uuid();
+      table[key] = profile;
     }
   }
 }

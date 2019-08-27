@@ -179,10 +179,11 @@ cd ../..
 
 # YAY!!! FINALLY US!!! nexus
 cd ..
-git clone git@github.com:abcdabcd987/nexus.git -b lqchen
+git clone https://github.com/uwsampl/nexus.git
 cd nexus
 git submodule update --init --recursive
 mkdir build
+cd build
 cmake .. -DCMAKE_CXX_COMPILER=g++-8.3 -DCMAKE_BUILD_TYPE=Debug -DUSE_GPU=ON -DCUDA_PATH=/usr/local/cuda-10.0 -DUSE_TENSORFLOW=ON -DUSE_CAFFE=OFF -DUSE_CAFFE2=OFF -DUSE_DARKNET=OFF
 make -j$(nproc)
 ```

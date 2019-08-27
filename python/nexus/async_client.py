@@ -68,6 +68,19 @@ class AsyncClient:
         self._req_id += 1
         return req
 
+    def request_with_hack_filename(self, filename):
+        req = npb.RequestProto()
+        req.user_id = self._user_id
+        req.req_id = self._req_id
+        req.input.data_type = npb.DT_IMAGE
+        req.input.image.hack_filename = filename
+        req.input.image.format = npb.ImageProto.JPEG
+        req.input.image.color = True
+        self._req_id += 1
+
+        msg = self._prepare_message(MSG_USER_REQUEST, req)
+        return self._do_request(req, msg)
+
     def _prepare_message(self, msg_type, request):
         body = request.SerializeToString()
         header = struct.pack('!LLL', MAGIC_NUMBER, msg_type, len(body))
