@@ -14,7 +14,6 @@
 	path = frameworks/tensorflow
 	url = https://github.com/tensorflow/tensorflow.git
 	branch = master
-	shallow = true
 [submodule "frameworks/caffe2"]
 	path = frameworks/caffe2
 	url = https://github.com/abcdabcd987/caffe2-nexus.git
