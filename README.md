@@ -9,7 +9,7 @@ See [INSTALL.md](INSTALL.md) for details.
 
 ## SOSP 2019 Paper
 
-* Check out the [Google Drive](https://drive.google.com/open?id=104UqrlNrfJoQnGdkxTQ56mfxSBFyJTcr) that contains the artifacts.
+* Check out the [Google Drive](https://drive.google.com/open?id=104UqrlNrfJoQnGdkxTQ56mfxSBFyJTcr) that contains a sample of video dataset.
 
 ## Deployment
 
