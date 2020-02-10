@@ -1,6 +1,8 @@
 #include <glog/logging.h>
 #include <gflags/gflags.h>
+#include <limits>
 #include <typeinfo>
+#include <algorithm>
 
 #include "nexus/app/model_handler.h"
 #include "nexus/app/request_context.h"
@@ -88,16 +90,12 @@ ModelHandler::ModelHandler(const std::string& model_session_id,
   LOG(INFO) << model_session_id_ << " load balance policy: " << lb_policy_;
   if (lb_policy_ == LB_DeficitRR) {
     running_ = true;
-    deficit_thread_ = std::thread(&ModelHandler::DeficitDaemon, this);
   }
 }
 
 ModelHandler::~ModelHandler() {
   MetricRegistry::Singleton().RemoveMetric(counter_);
-  if (deficit_thread_.joinable()) {
-    running_ = false;
-    deficit_thread_.join();
-  }
+  running_ = false;
 }
 
 std::shared_ptr<QueryResult> ModelHandler::Execute(
@@ -158,22 +156,30 @@ void ModelHandler::UpdateRoute(const ModelRouteProto& route) {
   backends_.clear();
   backend_rates_.clear();
   total_throughput_ = 0.;
+
+  double min_rate = std::numeric_limits<double>::max();
+  for (auto itr : route.backend_rate()) {
+    min_rate = std::min(min_rate, itr.throughput());
+  }
+  quantum_to_rate_ratio_ = 1. / min_rate;
   
   for (auto itr : route.backend_rate()) {
     uint32_t backend_id = itr.info().node_id();
     backends_.push_back(backend_id);
-    backend_rates_.emplace(backend_id, itr.throughput());
-    total_throughput_ += itr.throughput();
-    LOG(INFO) << "- backend " << backend_id << ": " << itr.throughput();
-    if (backend_quantums_.count(backend_id) == 0) {
-      backend_quantums_.emplace(backend_id, 0.);
+    const auto rate = itr.throughput();
+    backend_rates_.emplace(backend_id, rate);
+    total_throughput_ += rate;
+    LOG(INFO) << "- backend " << backend_id << ": " << rate;
+    if (backend_quanta_.count(backend_id) == 0) {
+      backend_quanta_.emplace(backend_id, rate * quantum_to_rate_ratio_);
     }
   }
   LOG(INFO) << "Total throughput: " << total_throughput_;
   std::sort(backends_.begin(), backends_.end());
-  for (auto iter = backend_quantums_.begin(); iter != backend_quantums_.end();) {
+  current_drr_index_ %= backends_.size();
+  for (auto iter = backend_quanta_.begin(); iter != backend_quanta_.end();) {
     if (backend_rates_.count(iter->first) == 0) {
-      iter = backend_quantums_.erase(iter);
+      iter = backend_quanta_.erase(iter);
     } else {
       ++iter;
     }
@@ -197,10 +203,8 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
     }
     case LB_DeficitRR: {
       auto backend = GetBackendDeficitRoundRobin();
-      if (backend != nullptr) {
-        return backend;
-      }
-      return GetBackendWeightedRoundRobin();
+      CHECK(backend != nullptr) << "Deficit round robin didn't return a backend.";
+      return backend;
     }
     case LB_Query: {
       auto candidate1 = GetBackendWeightedRoundRobin();
@@ -248,32 +252,25 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackendWeightedRoundRobin() {
 }
 
 std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
-  for (int i = 0; i < backends_.size(); ++i) {
-    uint32_t idx = backend_idx_.fetch_add(1, std::memory_order_relaxed) %
-                   backends_.size();
+  // At most n+1 rounds
+  for (size_t i = 0; i <= backends_.size(); ++i) {
+    size_t idx = (current_drr_index_ + i) % backends_.size();
     uint32_t backend_id = backends_[idx];
-    if (backend_quantums_.at(backend_id) >= 1) {
+    if (backend_quanta_.at(backend_id) >= 1. - 1e-6) {
       auto backend = backend_pool_.GetBackend(backend_id);
       if (backend != nullptr) {
-        --backend_quantums_[backend_id];
+        backend_quanta_[backend_id] -= 1.;
         return backend;
+      } else {
+        backend_quanta_[backend_id] = 0;
       }
     }
+    auto rate = backend_rates_[backend_id];
+    backend_quanta_[backend_id] += rate * quantum_to_rate_ratio_;
+    current_drr_index_ = (current_drr_index_ + 1) % backends_.size();
   }
-  return nullptr;
-}
 
-void ModelHandler::DeficitDaemon() {
-  std::chrono::milliseconds gap(200); // 200 ms
-  std::unique_lock<std::mutex> lock(route_mu_, std::defer_lock);
-  while (running_) {
-    lock.lock();
-    for (auto backend_id : backends_) {
-      backend_quantums_[backend_id] = backend_rates_[backend_id] * .2;
-    }
-    lock.unlock();
-    std::this_thread::sleep_for(gap);
-  }
+  return nullptr;
 }
 
 } // namespace app

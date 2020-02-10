@@ -107,8 +107,6 @@ class ModelHandler {
 
   std::shared_ptr<BackendSession> GetBackendDeficitRoundRobin();
 
-  void DeficitDaemon();
-
   ModelSession model_session_;
   std::string model_session_id_;
   BackendPool& backend_pool_;
@@ -123,7 +121,9 @@ class ModelHandler {
    */
   std::unordered_map<uint32_t, double> backend_rates_;
 
-  std::unordered_map<uint32_t, double> backend_quantums_;
+  std::unordered_map<uint32_t, double> backend_quanta_;
+  double quantum_to_rate_ratio_ = 0;
+  size_t current_drr_index_ = 0;
   float total_throughput_;
   /*! \brief Interval counter to count number of requests within each
    *  interval.
@@ -134,12 +134,10 @@ class ModelHandler {
   std::mutex route_mu_;
   std::mutex query_ctx_mu_;
   /*! \brief random number generator */
-  std::atomic<uint32_t> backend_idx_;
   std::random_device rd_;
   std::mt19937 rand_gen_;
 
   std::atomic<bool> running_;
-  std::thread deficit_thread_;
 };
 
 } // namespace app
