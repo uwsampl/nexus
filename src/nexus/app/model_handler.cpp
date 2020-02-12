@@ -203,8 +203,10 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackend() {
     }
     case LB_DeficitRR: {
       auto backend = GetBackendDeficitRoundRobin();
-      CHECK(backend != nullptr) << "Deficit round robin didn't return a backend.";
-      return backend;
+      if (backend != nullptr) {
+        return backend;
+      }
+      return GetBackendWeightedRoundRobin();
     }
     case LB_Query: {
       auto candidate1 = GetBackendWeightedRoundRobin();
@@ -252,8 +254,7 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackendWeightedRoundRobin() {
 }
 
 std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
-  // At most n+1 rounds
-  for (size_t i = 0; i <= backends_.size(); ++i) {
+  for (size_t i = 0; i < 2 * backends_.size(); ++i) {
     size_t idx = (current_drr_index_ + i) % backends_.size();
     uint32_t backend_id = backends_[idx];
     if (backend_quanta_.at(backend_id) >= 1. - 1e-6) {
@@ -262,12 +263,15 @@ std::shared_ptr<BackendSession> ModelHandler::GetBackendDeficitRoundRobin() {
         backend_quanta_[backend_id] -= 1.;
         return backend;
       } else {
-        backend_quanta_[backend_id] = 0;
+        // The backend has disappeared. Could this be fixed by
+        // making `backend_pool_` share the same lock with `backend_`?
+        current_drr_index_ = (current_drr_index_ + 1) % backends_.size();
       }
+    } else {
+      auto rate = backend_rates_[backend_id];
+      backend_quanta_[backend_id] += rate * quantum_to_rate_ratio_;
+      current_drr_index_ = (current_drr_index_ + 1) % backends_.size();
     }
-    auto rate = backend_rates_[backend_id];
-    backend_quanta_[backend_id] += rate * quantum_to_rate_ratio_;
-    current_drr_index_ = (current_drr_index_ + 1) % backends_.size();
   }
 
   return nullptr;
