@@ -1,6 +1,16 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.12)
 project(nexus LANGUAGES CXX)
 list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+set(NEXUS_DEP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/build-dep-install)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/boost)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/gflags)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/glog)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/grpc)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/gtest)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/opencv)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/protobuf)
+list(INSERT CMAKE_PREFIX_PATH 0 ${NEXUS_DEP_DIR}/yaml-cpp)
 
 # We don't support caffe2/caffe/darknet any more
 #option(USE_GPU        "Use GPU"        ON )
@@ -13,7 +23,6 @@ set(USE_TENSORFLOW ON)
 set(USE_DARKNET OFF)
 #set(USE_CAFFE2 OFF)
 set(USE_CAFFE OFF)
-option(DEBUG_TF_BUILD "Build TensorFlow in Debug model" OFF)
 if(USE_CAFFE2 AND USE_CAFFE)
     message(FATAL_ERROR "`USE_CAFFE2` and `USE_CAFFE` cannot be set at the same time.")
 endif()
@@ -25,6 +34,7 @@ find_package(Protobuf REQUIRED)
 find_package(gRPC REQUIRED)
 find_package(glog REQUIRED)
 find_package(gflags REQUIRED COMPONENTS shared)
+find_package(GTest REQUIRED)
 find_package(yaml-cpp 0.6.2 REQUIRED)
 find_package(OpenCV REQUIRED)
 include(ProcessorCount)
@@ -84,7 +94,7 @@ target_include_directories(common PUBLIC
         ${GENERATED_SRC_DIR}/src)
 target_compile_features(common PUBLIC cxx_std_11)
 target_link_libraries(common PUBLIC
-        yaml-cpp gflags glog::glog gRPC::grpc++ protobuf::libprotobuf
+        yaml-cpp gflags glog::glog gRPC::grpc++ GTest::GTest protobuf::libprotobuf
         ${OpenCV_LIBS} Boost::filesystem Boost::system)
 set_target_properties(common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -117,7 +127,7 @@ add_library(nexus SHARED
 target_include_directories(nexus PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
-target_compile_features(nexus PRIVATE cxx_std_11)
+target_compile_features(nexus PUBLIC cxx_std_11)
 target_link_libraries(nexus PUBLIC common)
 
 
@@ -156,61 +166,20 @@ endif()
 
 ## backend: TensorFlow support ##
 if(USE_TENSORFLOW)
-    target_compile_definitions(backend_obj PUBLIC USE_TENSORFLOW)
-    target_sources(backend_obj PUBLIC
+    target_compile_definitions(backend_obj PRIVATE USE_TENSORFLOW)
+    target_sources(backend_obj PRIVATE
             src/nexus/backend/tensorflow_model.cpp
             src/nexus/backend/tf_share_model.cpp)
-    # set_source_files_properties(src/nexus/backend/tensorflow_model.cpp PROPERTIES COMPILE_OPTIONS -DNDEBUG)
-    set(TENSORFLOW_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/execroot/org_tensorflow/bazel-out)
-
-    # tensorflow/core/lib/core/refcount.h is REALLY REALLY annoying. Need NDEBUG here.
-    # https://github.com/tensorflow/tensorflow/issues/17316
-    if(CMAKE_BUILD_TYPE MATCHES DEBUG)
-        target_compile_definitions(backend_obj PUBLIC NDEBUG)
-    endif()
-    if(DEBUG_TF_BUILD)
-        set(TENSORFLOW_BUILD_ROOT ${TENSORFLOW_BUILD_ROOT}/k8-dbg)
-        set(TENSORFLOW_BUILD_OPT --compilation_mode=dbg --strip=never --copt="-DNDEBUG" --copt="-march=x86-64")
-    else()
-        set(TENSORFLOW_BUILD_ROOT ${TENSORFLOW_BUILD_ROOT}/k8-opt)
-        set(TENSORFLOW_BUILD_OPT --config=opt)
-    endif()
-
-    set(TENSORFLOW_SO
-            ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow_cc.so
-            ${TENSORFLOW_BUILD_ROOT}/bin/tensorflow/libtensorflow_framework.so)
-    add_custom_command(
-        OUTPUT ${TENSORFLOW_SO}
-        WORKING_DIRECTORY
-            ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow
-        COMMAND
-            cp  ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tf_configure.bazelrc
-                ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow/.tf_configure.bazelrc
-        COMMAND
-            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow build ${TENSORFLOW_BUILD_OPT}
-                --action_env CUDA_TOOLKIT_PATH=${CUDA_PATH}
-                --action_env CUDNN_INSTALL_PATH=${CUDA_PATH}
-                //tensorflow:libtensorflow_cc.so
-                //tensorflow:libtensorflow_framework.so
-                //tensorflow:install_headers
-        COMMAND
-            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow shutdown)
-    add_custom_target(tensorflow DEPENDS ${TENSORFLOW_SO})
-    add_custom_target(clean-tensorflow
-        WORKING_DIRECTORY
-            ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/tensorflow
-        COMMAND
-            bazel --output_base=${CMAKE_CURRENT_BINARY_DIR}/tensorflow clean)
-    target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include)
-    target_include_directories(backend_obj PUBLIC ${TENSORFLOW_BUILD_ROOT}/genfiles/tensorflow/include/external/com_google_absl)
-    target_link_libraries(backend_obj PUBLIC ${TENSORFLOW_SO})
-    add_dependencies(backend_obj tensorflow)
+    set(TENSORFLOW_BUILD_ROOT /host/nexus-deps-src/tensorflow/bazel-out/k8-opt/bin/tensorflow)
+    target_include_directories(backend_obj PRIVATE ${TENSORFLOW_BUILD_ROOT}/include)
+    target_link_libraries(backend_obj PRIVATE ${TENSORFLOW_BUILD_ROOT}/libtensorflow_cc.so)
+    target_link_libraries(backend_obj PRIVATE ${TENSORFLOW_BUILD_ROOT}/libtensorflow_framework.so)
 endif()
 
 ## backend: Caffe2 support ##
 if(USE_CAFFE2)
     target_compile_definitions(backend_obj PRIVATE USE_CAFFE2)
-    target_sources(backend_obj PUBLIC src/nexus/backend/caffe2_model.cpp)
+    target_sources(backend_obj PRIVATE src/nexus/backend/caffe2_model.cpp)
     set(CAFFE2_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/caffe2)
     set(CAFFE2_SO
             ${CAFFE2_BUILD_ROOT}/install/lib/libcaffe2.so
@@ -230,15 +199,15 @@ if(USE_CAFFE2)
         COMMAND make -j${NPROC} install
     )
     add_custom_target(caffe2 DEPENDS ${CAFFE2_SO})
-    target_include_directories(backend_obj PUBLIC ${CAFFE2_BUILD_ROOT}/install/include)
-    target_link_libraries(backend_obj PUBLIC ${CAFFE2_SO})
+    target_include_directories(backend_obj PRIVATE ${CAFFE2_BUILD_ROOT}/install/include)
+    target_link_libraries(backend_obj PRIVATE ${CAFFE2_SO})
     add_dependencies(backend_obj caffe2)
 endif()
 
 ## backend: Caffe support ##
 if(USE_CAFFE)
     target_compile_definitions(backend PRIVATE USE_CAFFE)
-    target_sources(backend_obj PUBLIC
+    target_sources(backend_obj PRIVATE
         src/nexus/backend/caffe_densecap_model.cpp
         src/nexus/backend/caffe_model.cpp)
     set(CAFFE_SRC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/frameworks/caffe)
@@ -249,9 +218,9 @@ if(USE_CAFFE)
         WORKING_DIRECTORY ${CAFFE_SRC_ROOT}
         COMMAND make -j${NPROC} all)
     add_custom_target(caffe DEPENDS ${CAFFE_SO})
-    target_include_directories(backend_obj PUBLIC ${CAFFE_SRC_ROOT}/src)
-    target_include_directories(backend_obj PUBLIC ${CAFFE_SRC_ROOT}/include)
-    target_link_libraries(backend_obj PUBLIC ${CAFFE_SO})
+    target_include_directories(backend_obj PRIVATE ${CAFFE_SRC_ROOT}/src)
+    target_include_directories(backend_obj PRIVATE ${CAFFE_SRC_ROOT}/include)
+    target_link_libraries(backend_obj PRIVATE ${CAFFE_SO})
     add_dependencies(backend_obj caffe)
 endif()
 
@@ -266,9 +235,9 @@ if(USE_DARKNET)
         WORKING_DIRECTORY ${DARKNET_SRC_ROOT}
         COMMAND make -j${NPROC} all)
     add_custom_target(darknet DEPENDS ${DARKNET_SO})
-    target_include_directories(backend_obj PUBLIC ${DARKNET_SRC_ROOT}/src)
-    target_include_directories(backend_obj PUBLIC ${DARKNET_SRC_ROOT}/include)
-    target_link_libraries(backend_obj PUBLIC ${DARKNET_SO})
+    target_include_directories(backend_obj PRIVATE ${DARKNET_SRC_ROOT}/src)
+    target_include_directories(backend_obj PRIVATE ${DARKNET_SRC_ROOT}/include)
+    target_link_libraries(backend_obj PRIVATE ${DARKNET_SO})
     add_dependencies(backend_obj darknet)
 endif()
 

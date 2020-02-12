@@ -9,6 +9,8 @@ obj/
 lib/
 bin/
 build/
+build-dep-src/
+build-dep-install/
 python/nexus/proto/
 
 cmake-build*/

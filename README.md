@@ -1,11 +1,12 @@
 Nexus
 =====
+
 Nexus is a scalable and efficient serving system for DNN applications on GPU
 cluster.
 
-## Installation
+## Building Nexus
 
-See [INSTALL.md](INSTALL.md) for details.
+See [BUILDING.md](BUILDING.md) for details.
 
 ## SOSP 2019 Paper
 
