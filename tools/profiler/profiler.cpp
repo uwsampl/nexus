@@ -145,6 +145,25 @@ class ModelProfiler {
     std::this_thread::sleep_for(std::chrono::microseconds(200));
     LOG(INFO) << "Preprocess finished";
 
+    // output to file
+    std::ostream* fout;
+    if (output.length() == 0) {
+      fout = &std::cout;
+    } else {
+      fout = new std::ofstream(output, std::ofstream::out);
+    }
+
+    if (FLAGS_share_prefix) {
+      *fout << ModelSessionToProfileID(model_sess_) << "-prefix\n";
+    } else {
+      *fout << ModelSessionToProfileID(model_sess_) << "\n";
+    }
+    *fout << gpu_device_->device_name() << "\n";
+    *fout << gpu_device_->uuid() << "\n";
+    *fout << "Forward latency\n";
+    *fout << "batch,latency(us),std(us),memory(B),repeat\n";
+    *fout << std::flush;
+
     // forward and postprocess
     int dryrun = 4;
     for (int batch = min_batch; batch <= max_batch; ++batch) {
@@ -194,41 +213,25 @@ class ModelProfiler {
       std::tie(mean, std) = GetStats<uint64_t>(forward_lats);
       forward_stats.emplace(batch, std::make_tuple(mean, std, memory_usage));
       CHECK_EQ(task_queue.size(), 0) << "Task queue is not empty";
+
+      // output to file
+      *fout << batch << "," << mean << "," << std << "," << memory_usage << "," << repeat << std::endl;
+
       std::this_thread::sleep_for(std::chrono::microseconds(200));
     }
 
     LOG(INFO) << "Final free memory: " << gpu_device_->FreeMemory();
     preproc_tasks.clear();
-    
-    // output to file
-    std::ostream* fout;
-    if (output.length() == 0) {
-      fout = &std::cout;
-    } else {
-      fout = new std::ofstream(output, std::ofstream::out);
-    }
 
-    if (FLAGS_share_prefix) {
-      *fout << ModelSessionToProfileID(model_sess_) << "-prefix\n";
-    } else {
-      *fout << ModelSessionToProfileID(model_sess_) << "\n";
-    }
-    *fout << gpu_device_->device_name() << "\n";
-    *fout << gpu_device_->uuid() << "\n";
+    // output to file
     float mean, std;
-    *fout << "Forward latency\n";
-    *fout << "batch,latency(us),std(us),memory(B),repeat\n";
-    for (int batch = min_batch; batch <= max_batch; ++batch) {
-      size_t memory_usage;
-      std::tie(mean, std, memory_usage) = forward_stats.at(batch);
-      *fout << batch << "," << mean << "," << std << "," << memory_usage << "," << repeat << "\n";
-    }
     *fout << "Preprocess latency (mean,std,repeat)\n";
     std::tie(mean, std) = GetStats<uint64_t>(preprocess_lats);
     *fout << mean << "," << std << "," << preprocess_lats.size() << "\n";
     *fout << "Postprocess latency (mean,std,repeat)\n";
     std::tie(mean, std) = GetStats<uint64_t>(postprocess_lats);
     *fout << mean << "," << std << "," << postprocess_lats.size() << "\n";
+    *fout << std::flush;
     if (fout != &std::cout) {
       delete fout;
     }
@@ -288,7 +291,7 @@ class ModelProfiler {
 int main(int argc, char** argv) {
   using namespace nexus;
   using namespace nexus::backend;
-  
+
   // log to stderr
   FLAGS_logtostderr = 1;
   // Init glog

@@ -1,6 +1,7 @@
 import math
 import multiprocessing
 import os
+import io
 import sys
 import argparse
 import subprocess
@@ -60,6 +61,7 @@ def find_max_batch(framework, model_name, gpus):
     curr_tp = None
     out_of_memory = False
     while True:
+        print('Finding max_batch in [%d, inf)' % right)
         prev_tp = curr_tp
         curr_tp = None
         cmd = cmd_base + ' -min_batch %s -max_batch %s' % (right, right)
@@ -70,7 +72,7 @@ def find_max_batch(framework, model_name, gpus):
                                 stderr=subprocess.PIPE)
         out, err = proc.communicate()
         if 'out of memory' in err or 'out of memory' in out:
-            print('batch %s: out of memory' % right)
+            print('Batch size %s: out of memory' % right)
             out_of_memory = True
             break
         flag = False
@@ -86,7 +88,6 @@ def find_max_batch(framework, model_name, gpus):
             # Unknown error happens, need to fix first
             print(err)
             exit(1)
-        print('batch %s: throughput %s' % (right, curr_tp))
         if prev_tp is not None and curr_tp / prev_tp < 1.01:
             break
         left = right
@@ -94,7 +95,7 @@ def find_max_batch(framework, model_name, gpus):
     if not out_of_memory:
         return right
     while right - left > 1:
-        print(left, right)
+        print('Finding max_batch in [%d, %s)' % (left, right))
         mid = (left + right) // 2
         cmd = cmd_base + ' -min_batch %s -max_batch %s' % (mid, mid)
         print(cmd)
@@ -116,13 +117,29 @@ def run_profiler(gpu, prof_id, input_queue, output_queue):
         cmd.append(f'-gpu={gpu}')
         print(' '.join(cmd))
         proc = subprocess.Popen(
-            cmd, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = proc.communicate()
+            cmd, bufsize=0, encoding='utf-8', stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+        sio = io.StringIO(newline='')
+        try:
+            while True:
+                if proc.poll() is not None:
+                    break
+                ch = proc.stdout.read(1)
+                sio.write(ch)
+                sys.stdout.write(ch)
+                sys.stdout.flush()
+        except KeyboardInterrupt:
+            proc.terminate()
+            proc.wait()
+            raise
         if proc.returncode != 0:
-            sys.stderr.write(err)
+            sys.stderr.write('Profiler exited with', proc.returncode)
+            sys.stderr.flush()
             return
 
-        lines = iter(out.splitlines())
+        lines = iter(sio.getvalue().splitlines())
+        sio.close()
         for line in lines:
             if line.startswith(prof_id):
                 break
@@ -279,7 +296,7 @@ def profile_model(args):
     prof_id = '%s:%s:%s' % (args.framework, args.model, args.version)
     if args.height > 0 and args.width > 0:
         prof_id += ':%sx%s' % (args.height, args.width)
-    print('Profile %s' % prof_id)
+    print('Start profiling %s' % prof_id)
 
     if args.min_batch > 0 and args.max_batch > 0:
         max_batch = args.max_batch
@@ -290,8 +307,9 @@ def profile_model(args):
     min_batch = max(1, args.min_batch)
     print('Min batch: %s' % min_batch)
     print('Max batch: %s' % max_batch)
+    print('Start profiling. This could take a long time.')
 
-    output = str(uuid.uuid4()) + '.txt'
+    output = prof_id.replace(':', '-') + '-' + str(uuid.uuid4()) + '.txt'
     if len(gpus) > 1:
         profile_model_concurrent(gpus, min_batch, max_batch, prof_id, output)
     else:
@@ -331,8 +349,8 @@ def main():
                         help='Dataset directory')
     parser.add_argument('--version', type=int, default=1,
                         help='Model version (default: 1)')
-    parser.add_argument('--gpus', default='0-7',
-                        help='GPU indexes. e.g. 0-2,4,5,7-8')
+    parser.add_argument('--gpus', required=True,
+                        help='GPU indexes. e.g. "0" or "0-2,4,5,7-8".')
     parser.add_argument('--height', type=int, default=0, help='Image height')
     parser.add_argument('--width', type=int, default=0, help='Image width')
     parser.add_argument('--prefix', action='store_true',
