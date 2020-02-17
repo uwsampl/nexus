@@ -11,7 +11,7 @@ mkdir -p "$INSTALL_DIR"
 
 cd "$SRC_DIR"
 
-if [ ! -d "$INSTALL_DIR/tensorflow" ]; then
+if [ ! -d "$SRC_DIR/tensorflow" ]; then
     # TensorFlow 2.0 master
     git clone https://github.com/tensorflow/tensorflow.git
 fi
@@ -19,17 +19,17 @@ cd tensorflow
 git checkout 906f537c0be010929a0bda3c7d061de9d3d8d5b0
 
 # Tensorflow build config
-export PYTHON_BIN_PATH=/usr/bin/python3
+export PYTHON_BIN_PATH="${PYTHON_BIN_PATH:-/usr/bin/python}"
 export PYTHON_LIB_PATH="$($PYTHON_BIN_PATH -c 'import site; print(site.getsitepackages()[0])')"
 export TF_ENABLE_XLA=0
 export TF_NEED_OPENCL_SYCL=0
 export TF_NEED_ROCM=0
 export TF_NEED_CUDA=1
 export TF_NEED_TENSORRT=0
-export TF_CUDA_COMPUTE_CAPABILITIES=3.5,3.7,5.2,6.0,6.1,7.0,7.5
-export TF_CUDA_PATHS=/usr/local/cuda-10.0,/usr
+export TF_CUDA_COMPUTE_CAPABILITIES="${TF_CUDA_COMPUTE_CAPABILITIES:-3.5,3.7,5.2,6.0,6.1,7.0,7.5}"
+export TF_CUDA_PATHS="${TF_CUDA_PATHS:-/usr/local/cuda-10.0,/usr}"
 export TF_CUDA_CLANG=0
-export GCC_HOST_COMPILER_PATH=/usr/bin/gcc
+export GCC_HOST_COMPILER_PATH="${GCC_HOST_COMPILER_PATH:-/usr/bin/gcc}"
 export TF_NEED_MPI=0
 export TF_SET_ANDROID_WORKSPACE=0
 export CC_OPT_FLAGS="-march=native -Wno-sign-compare"
