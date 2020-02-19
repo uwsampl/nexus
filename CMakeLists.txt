@@ -124,7 +124,7 @@ add_library(nexus SHARED
         src/nexus/app/request_context.cpp
         src/nexus/app/rpc_service.cpp
         src/nexus/app/worker.cpp)
-target_include_directories(nexus PRIVATE
+target_include_directories(nexus PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GENERATED_SRC_DIR}/src)
 target_compile_features(nexus PUBLIC cxx_std_11)
@@ -170,7 +170,7 @@ if(USE_TENSORFLOW)
     target_sources(backend_obj PRIVATE
             src/nexus/backend/tensorflow_model.cpp
             src/nexus/backend/tf_share_model.cpp)
-    set(TENSORFLOW_BUILD_ROOT /host/nexus-deps-src/tensorflow/bazel-out/k8-opt/bin/tensorflow)
+    set(TENSORFLOW_BUILD_ROOT ${NEXUS_DEP_DIR}/tensorflow)
     target_include_directories(backend_obj PRIVATE ${TENSORFLOW_BUILD_ROOT}/include)
     target_link_libraries(backend_obj PRIVATE ${TENSORFLOW_BUILD_ROOT}/libtensorflow_cc.so)
     target_link_libraries(backend_obj PRIVATE ${TENSORFLOW_BUILD_ROOT}/libtensorflow_framework.so)
@@ -281,3 +281,10 @@ target_link_libraries(bench_tfshare PRIVATE common backend_obj)
 #         tests/cpp/test_main.cpp)
 # target_compile_features(runtest PRIVATE cxx_std_11)
 # target_link_libraries(runtest PRIVATE common backend_obj)
+
+
+
+###### examples/simple_app ######
+add_executable(simple examples/simple_app/src/frontend.cpp)
+target_compile_features(simple PRIVATE cxx_std_11)
+target_link_libraries(simple PRIVATE nexus gflags)

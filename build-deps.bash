@@ -123,7 +123,7 @@ if [ ! -d "$INSTALL_DIR/grpc" ]; then
         cd grpc-1.27
     fi
     make -j$(nproc)
-    make install --prefix="$INSTALL_DIR/grpc"
+    make install prefix="$INSTALL_DIR/grpc"
     cd ..
 fi
 

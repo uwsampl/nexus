@@ -7,7 +7,7 @@
 sudo apt-get install -y unzip build-essential git autoconf automake libtool pkg-config curl make zlib1g-dev wget
 
 # For OpenCV
-sudo apt-get install -y libswscale-dev libjpeg-dev libpng-dev
+sudo apt-get install -y libswscale-dev libjpeg-dev libpng-dev libsm6 libxext6 libxrender-dev
 
 # Python 2.7 for building Tensorflow
 sudo apt-get install -y python-dev python-pip
@@ -18,7 +18,7 @@ sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt-get install -y python3.7 python3.7-dev
 curl https://bootstrap.pypa.io/get-pip.py | python3.7
-python3.7 -m pip install --upgrade --user numpy matplotlib protobuf grpcio opencv-python pyyaml six
+python3.7 -m pip install --upgrade --user numpy matplotlib protobuf grpcio opencv-python pyyaml six tqdm
 
 # CMake 3.16.3 (install globally)
 # ref: https://cmake.org/install/
@@ -36,6 +36,7 @@ cd ..
 ## Install NVIDIA driver
 
 ```bash
+sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y ppa:graphics-drivers/ppa
 sudo apt-get update
 sudo apt-get install -y nvidia-headless-440
@@ -82,4 +83,5 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCUDA_PATH=/usr/local/cuda-10.0 -DUSE_TENSORFLOW=ON -DUSE_CAFFE2=OFF
 make -j$(nproc)
+python3.7 -m pip install --user --editable ./python
 ```

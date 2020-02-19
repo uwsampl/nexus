@@ -10,25 +10,42 @@ See [BUILDING.md](BUILDING.md) for details.
 
 ## SOSP 2019 Paper
 
+* Check out our SOSP 2019 paper [here](https://doi.org/10.1145/3341301.3359658).
 * Check out the [Google Drive](https://drive.google.com/open?id=104UqrlNrfJoQnGdkxTQ56mfxSBFyJTcr) that contains a sample of video dataset.
 
 ## Deployment
 
 ### Download Model Zoo
 
-Nexus publishes public model zoo on the Amazon S3. To download the model zoo
-from S3, you need to install [AWS CLI](https://aws.amazon.com/cli/) via
-`pip install awscli`, and configure AWS CLI by `aws configure`.
+Nexus publishes public model zoo on our department-hosted GitLab. To download,
+you need to install [Git LFS](https://git-lfs.github.com/) first. Then, run:
 
-The configuration will prompt you to provide your AWS access key ID and
-secret access key. Instructions for creating the access key pair can be found
-at [AWS user guide](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html).
+```bash
+git clone https://gitlab.cs.washington.edu/syslab/nexus-models
+cd nexus-models
+git lfs checkout
+```
 
-To download the Nexus public model zoo, run
+### Run the Profiler
+
+Nexus is a profile-based system. So before running Nexus, make sure you have
+profiled all the GPUs. To profile a certain model on a certain GPU, run:
+
+```bash
+nexus/tools/profiler/profiler.py --gpu_list=GPU_INDEX --gpu_uuid \
+    --framework=tensorflow --model=MODEL_NAME \
+    --model_root=nexus-models/ --dataset=/path/to/datasets/
 ```
-$ mkdir nexus-models
-$ aws s3 sync s3://nexus-models nexus-models/
-```
+
+The profile will be saved to the `--model_root` directory.
+See [examples](examples/README.md) for more concrete usage.
+
+## Run Nexus
+
+To run Nexus, you need to run the **scheduler** first, then spawn a **backend** for each
+GPU card, and finally run the Nexus **frontend** of your application.
+See [examples](examples/README.md) for more concrete usage.
+
 
 Local Tests without Docker
 --------------------------

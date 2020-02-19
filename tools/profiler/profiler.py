@@ -289,7 +289,7 @@ def profile_model_single_gpu(gpu, min_batch, max_batch, prof_id, output):
 
 
 def profile_model(args):
-    gpus = parse_int_list(args.gpus)
+    gpus = parse_int_list(args.gpu_list)
     if len(gpus) != 1 and args.gpu_uuid:
         raise ValueError('--gpu_uuid cannot be set with more than one --gpus')
 
@@ -338,18 +338,18 @@ def profile_model(args):
 
 def main():
     parser = argparse.ArgumentParser(description='Profile models')
-    parser.add_argument('framework',
+    parser.add_argument('--framework', required=True,
                         choices=['caffe', 'caffe2',
                                  'tensorflow', 'darknet', 'tf_share'],
                         help='Framework name')
-    parser.add_argument('model', type=str, help='Model name')
-    parser.add_argument('model_root', type=str,
+    parser.add_argument('--model', type=str, required=True, help='Model name')
+    parser.add_argument('--model_root', type=str, required=True,
                         help='Nexus model root directory')
-    parser.add_argument('dataset', type=str,
+    parser.add_argument('--dataset', type=str, required=True,
                         help='Dataset directory')
     parser.add_argument('--version', type=int, default=1,
                         help='Model version (default: 1)')
-    parser.add_argument('--gpus', required=True,
+    parser.add_argument('--gpu_list', required=True,
                         help='GPU indexes. e.g. "0" or "0-2,4,5,7-8".')
     parser.add_argument('--height', type=int, default=0, help='Image height')
     parser.add_argument('--width', type=int, default=0, help='Image width')
