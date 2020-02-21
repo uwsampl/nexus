@@ -23,7 +23,13 @@ RUN apt-get update \
  && mkdir /nexus/build \
  && cd /nexus/build \
  && cmake .. -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCUDA_PATH=/usr/local/cuda-10.0 -DUSE_TENSORFLOW=ON -DUSE_CAFFE2=OFF \
- && make -j$(nproc)
+ && make -j$(nproc) \
+ \
+ && find /nexus/build-dep-install -type d \( -name "bin" -o -name "include" -o -name "share" \) -exec rm -rf {} + \
+ && find /nexus/build-dep-install -type f -name "*.a" -exec rm -f {} + \
+ && rm -rf /nexus/build-dep-install/bazel \
+ && cd /nexus/build \
+ && rm -rf CMakeFiles gen *.a *.txt *.cmake Makefile bench_tfshare test_*
 
 
 FROM nvidia/cuda:10.0-cudnn7-devel-ubuntu18.04
@@ -43,11 +49,5 @@ RUN apt-get update \
  && python3.7 -m pip uninstall -y pip \
  && apt-get purge -y python3.7-dev software-properties-common wget \
  && apt-get autoremove -y \
- && rm -rf /var/lib/apt/lists/* /root/.cache/pip \
- \
- && find /nexus/build-dep-install -type d \( -name "bin" -o -name "include" -o -name "share" \) -exec rm -rf {} + \
- && find /nexus/build-dep-install -type f -name "*.a" -exec rm -f {} + \
- && rm -rf /nexus/build-dep-install/bazel \
- && cd /nexus/build \
- && rm -rf CMakeFiles gen *.a *.txt *.cmake Makefile bench_tfshare test_*
+ && rm -rf /var/lib/apt/lists/* /root/.cache/pip
 WORKDIR /nexus
