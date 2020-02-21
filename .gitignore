@@ -12,6 +12,7 @@ build/
 build-dep-src/
 build-dep-install/
 python/nexus/proto/
+python/nexus.egg-info/
 
 cmake-build*/
 .clion.source.upload.marker

@@ -7,7 +7,7 @@
 sudo apt-get install -y unzip build-essential git autoconf automake libtool pkg-config curl make zlib1g-dev wget
 
 # For OpenCV
-sudo apt-get install -y libswscale-dev libjpeg-dev libpng-dev libsm6 libxext6 libxrender-dev
+sudo apt-get install -y libswscale-dev libjpeg-dev libpng-dev
 
 # Python 2.7 for building Tensorflow
 sudo apt-get install -y python-dev python-pip
@@ -16,21 +16,17 @@ pip install --upgrade --user pip six numpy wheel setuptools mock 'future>=0.17.1
 # Python 3.7 for Nexus
 sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt-get update
 sudo apt-get install -y python3.7 python3.7-dev
 curl https://bootstrap.pypa.io/get-pip.py | python3.7
-python3.7 -m pip install --upgrade --user numpy matplotlib protobuf grpcio opencv-python pyyaml six tqdm
+python3.7 -m pip install --upgrade --user numpy protobuf Pillow pyyaml
 
-# CMake 3.16.3 (install globally)
-# ref: https://cmake.org/install/
-# ref: https://stackoverflow.com/questions/44633043/cmake-libcurl-was-built-with-ssl-disabled-https-not-supported
-sudo apt-get install -y libcurl4-openssl-dev
-wget https://github.com/Kitware/CMake/releases/download/v3.16.3/cmake-3.16.3.tar.gz
-tar xf cmake-3.16.3.tar.gz
-cd cmake-3.16.3
-./bootstrap --system-curl --parallel=$(nproc)
-make -j$(nproc)
-sudo make install
-cd ..
+# CMake > 3.12
+# See https://apt.kitware.com/ for more details.
+wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | sudo apt-key add -
+sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
+sudo apt-get update
+sudo apt-get install -y cmake
 ```
 
 ## Install NVIDIA driver
@@ -73,8 +69,14 @@ cd nexus
 
 ```bash
 ./build-deps.bash
-./build-tensorflow.bash  # see the file if you need to change configs
+./build-tensorflow.bash
 ```
+
+By default, the script will build TensorFlow with the following
+[CUDA compute capabilities](https://en.wikipedia.org/wiki/CUDA#GPUs_supported):
+`5.2, 6.1, 7.5`. If you want to change any build options
+for TensorFlow, set the environment variables specified in
+[`./build-tensorflow.bash`](build-tensorflow.bash)
 
 ## Build Nexus
 

@@ -6,14 +6,17 @@ import sys
 import argparse
 import subprocess
 import shutil
+import tempfile
 import uuid
 import yaml
 import numpy as np
+from PIL import Image
 
 
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 _profiler = os.path.join(_root, 'build/profiler')
 _models = {}
+_dataset_dir = None
 
 
 def parse_int_list(s):
@@ -29,7 +32,7 @@ def parse_int_list(s):
 
 def load_model_db(path):
     with open(path) as f:
-        model_db = yaml.load(f.read())
+        model_db = yaml.safe_load(f.read())
     for model_info in model_db['models']:
         framework = model_info['framework']
         model_name = model_info['model_name']
@@ -51,7 +54,7 @@ def load_model_db(path):
 def find_max_batch(framework, model_name, gpus):
     global args
     cmd_base = '%s -model_root %s -image_dir %s -gpu %s -framework %s -model %s -model_version %s' % (
-        _profiler, args.model_root, args.dataset, gpus[0], framework, model_name, args.version)
+        _profiler, args.model_root, _dataset_dir, gpus[0], framework, model_name, args.version)
     if args.height > 0 and args.width > 0:
         cmd_base += ' -height %s -width %s' % (args.height, args.width)
     if args.prefix:
@@ -197,7 +200,7 @@ def merge_mean_std(tuple1, tuple2):
 
 def get_profiler_cmd(args):
     cmd = [_profiler,
-           f'-model_root={args.model_root}', f'-image_dir={args.dataset}',
+           f'-model_root={args.model_root}', f'-image_dir={_dataset_dir}',
            f'-framework={args.framework}', f'-model={args.model}', f'-model_version={args.version}']
     if args.height > 0 and args.width > 0:
         cmd.append(f'-height={args.height}')
@@ -288,10 +291,19 @@ def profile_model_single_gpu(gpu, min_batch, max_batch, prof_id, output):
     print('worker joined')
 
 
+def generate_dataset(width, height):
+    global _dataset_dir
+    _dataset_dir = tempfile.mkdtemp(prefix='random-{}x{}-'.format(width, height))
+    buf = np.random.randint(256, size=(224, 224, 3), dtype=np.uint8)
+    img = Image.frombytes('RGB', (224, 224), buf)
+    img.save(os.path.join(_dataset_dir, '{}x{}.jpg'.format(width, height)))
+
+
 def profile_model(args):
     gpus = parse_int_list(args.gpu_list)
     if len(gpus) != 1 and args.gpu_uuid:
         raise ValueError('--gpu_uuid cannot be set with more than one --gpus')
+    generate_dataset(args.width, args.height)
 
     prof_id = '%s:%s:%s' % (args.framework, args.model, args.version)
     if args.height > 0 and args.width > 0:
@@ -334,6 +346,7 @@ def profile_model(args):
     else:
         shutil.move(output, prof_file)
         print('Save profile to %s' % prof_file)
+    shutil.rmtree(_dataset_dir)
 
 
 def main():
@@ -345,20 +358,18 @@ def main():
     parser.add_argument('--model', type=str, required=True, help='Model name')
     parser.add_argument('--model_root', type=str, required=True,
                         help='Nexus model root directory')
-    parser.add_argument('--dataset', type=str, required=True,
-                        help='Dataset directory')
     parser.add_argument('--version', type=int, default=1,
                         help='Model version (default: 1)')
     parser.add_argument('--gpu_list', required=True,
                         help='GPU indexes. e.g. "0" or "0-2,4,5,7-8".')
-    parser.add_argument('--height', type=int, default=0, help='Image height')
-    parser.add_argument('--width', type=int, default=0, help='Image width')
+    parser.add_argument('--height', type=int, required=True, help='Image height')
+    parser.add_argument('--width', type=int, required=True, help='Image width')
     parser.add_argument('--prefix', action='store_true',
                         help='Enable prefix batching')
     parser.add_argument('--max_batch', type=int, default=0,
-                        help='Limit the max batch size (default: 0)')
+                        help='Limit the max batch size')
     parser.add_argument('--min_batch', type=int, default=0,
-                        help='Limit the min batch size (default: 0)')
+                        help='Limit the min batch size')
     parser.add_argument('-f', '--force', action='store_true',
                         help='Overwrite the existing model profile in model DB')
     parser.add_argument('--gpu_uuid', action='store_true', default=False,
