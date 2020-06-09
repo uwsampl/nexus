@@ -46,7 +46,7 @@ docker run -it --rm --gpus all --network=nexus-net -v=$MODEL_DIR:$MODEL_DIR --na
                          -sch_addr=nexus-scheduler:10001
 
 docker run -it --rm --gpus all --network=nexus-net --name=nexus-simple-frontend -p=9001 -p=9002 abcdabcd987/nexus \
-    /nexus/build/simple -framework=tensorflow -model=resnet_0 -latency=50 -alsologtostderr -colorlogtostderr \
+    /nexus/build/simple -framework=tensorflow -model=resnet_0 -latency=50 -width=224 -height=224 -alsologtostderr -colorlogtostderr \
                         -sch_addr=nexus-scheduler:10001
 ```
 
