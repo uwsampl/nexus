@@ -55,6 +55,8 @@ class ModelExecutor {
 
   int NumberOfOpenRequests() const;
 
+  uint64_t GetPeakMemoryUsage();
+
  private:
   std::pair<std::shared_ptr<BatchTask>, int> GetBatchTaskSlidingWindow(uint32_t batch_size);
   std::pair<std::shared_ptr<BatchTask>, int> GetBatchTaskEarliest(uint32_t batch_size);

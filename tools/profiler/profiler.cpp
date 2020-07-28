@@ -79,12 +79,9 @@ class ModelProfiler {
 
   void Profile(int min_batch, int max_batch, const std::string output="",
                int repeat=10) {
-    size_t origin_freemem = gpu_device_->FreeMemory();
-    LOG(INFO) << "Origin free memory: " << origin_freemem;
-
     std::vector<uint64_t> preprocess_lats;
     std::vector<uint64_t> postprocess_lats;
-    std::unordered_map<int, std::tuple<float, float, size_t> > forward_stats;
+    std::unordered_map<int, std::tuple<float, float, uint64_t> > forward_stats;
     ModelInstanceConfig config;
     config.add_model_session()->CopyFrom(model_sess_);
     if (FLAGS_share_prefix) {
@@ -194,8 +191,7 @@ class ModelProfiler {
         forward_lats.push_back(
             std::chrono::duration_cast<duration>(end - beg).count());
       }
-      size_t curr_freemem = gpu_device_->FreeMemory();
-      size_t memory_usage = origin_freemem - curr_freemem;
+      auto memory_usage = model->GetPeakMemoryUsage();
       LOG(INFO) << "memory usage: " << memory_usage;
       for (int i = 0; i < batch * (repeat + dryrun); ++i) {
         auto task = task_queue.pop();

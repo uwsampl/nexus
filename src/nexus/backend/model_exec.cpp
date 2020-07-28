@@ -199,6 +199,10 @@ int ModelExecutor::NumberOfOpenRequests() const {
   return open_requests_.load(std::memory_order_relaxed);
 }
 
+uint64_t ModelExecutor::GetPeakMemoryUsage() {
+  return model_->GetPeakBytesInUse();
+}
+
 TimePoint ModelExecutor::LastExecuteFinishTime() {
   std::lock_guard<std::mutex> lock(time_mu_);
   return last_exec_finish_;
