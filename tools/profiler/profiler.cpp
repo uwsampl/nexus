@@ -192,7 +192,6 @@ class ModelProfiler {
             std::chrono::duration_cast<duration>(end - beg).count());
       }
       auto memory_usage = model->GetPeakMemoryUsage();
-      CHECK_GE(memory_usage, 0) << "get_peak_memory_usage not implemented";
       LOG(INFO) << "memory usage: " << memory_usage;
       for (int i = 0; i < batch * (repeat + dryrun); ++i) {
         auto task = task_queue.pop();
