@@ -25,15 +25,11 @@ TensorflowModel::TensorflowModel(int gpu_id, const ModelInstanceConfig& config):
   gpu_opt->set_visible_device_list(std::to_string(gpu_id));
   gpu_opt->set_allocator_type("BFC");
   LOG(INFO) << "model memory usage: " << config.memory_usage() << " B";
-//  gpu_opt->set_allow_growth(true);
   if (config.memory_usage() > 0) {
     double memory_usage = config.memory_usage();
     LOG(INFO) << "model memory usage: " << memory_usage << " B";
     gpu_opt->set_per_process_gpu_memory_fraction(
         memory_usage / gpu_device_->TotalMemory());
-    gpu_opt->set_allow_growth(false);
-  } else {
-    gpu_opt->set_allow_growth(true);
   }
   (*cpu_option_.config.mutable_device_count())["GPU"] = 0;
 
@@ -305,6 +301,11 @@ void TensorflowModel::Postprocess(std::shared_ptr<Task> task) {
       break;
     }
   }
+}
+
+int64_t TensorflowModel::get_peak_bytes_in_use() {
+  auto stats = gpu_allocator_->GetStats();
+  return stats->peak_bytes_in_use;
 }
 
 tf::Tensor* TensorflowModel::NewInputTensor() {
