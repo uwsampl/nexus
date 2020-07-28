@@ -81,7 +81,7 @@ class ModelProfiler {
                int repeat=10) {
     std::vector<uint64_t> preprocess_lats;
     std::vector<uint64_t> postprocess_lats;
-    std::unordered_map<int, std::tuple<float, float, int64_t> > forward_stats;
+    std::unordered_map<int, std::tuple<float, float, uint64_t> > forward_stats;
     ModelInstanceConfig config;
     config.add_model_session()->CopyFrom(model_sess_);
     if (FLAGS_share_prefix) {
@@ -191,7 +191,7 @@ class ModelProfiler {
         forward_lats.push_back(
             std::chrono::duration_cast<duration>(end - beg).count());
       }
-      auto memory_usage = model->get_peak_memory_usage();
+      auto memory_usage = model->GetPeakMemoryUsage();
       CHECK_GE(memory_usage, 0) << "get_peak_memory_usage not implemented";
       LOG(INFO) << "memory usage: " << memory_usage;
       for (int i = 0; i < batch * (repeat + dryrun); ++i) {

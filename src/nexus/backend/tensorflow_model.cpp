@@ -303,7 +303,7 @@ void TensorflowModel::Postprocess(std::shared_ptr<Task> task) {
   }
 }
 
-int64_t TensorflowModel::get_peak_bytes_in_use() {
+uint64_t TensorflowModel::GetPeakBytesInUse() {
   auto stats = gpu_allocator_->GetStats();
   return stats->peak_bytes_in_use;
 }

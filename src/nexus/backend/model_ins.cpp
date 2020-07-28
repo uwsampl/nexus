@@ -102,5 +102,8 @@ void ModelInstance::ForwardAsync(std::shared_ptr<BatchTask> batch_task) {
 void ModelInstance::WaitOutput(std::shared_ptr<BatchTask> batch_task) {
   LOG(WARNING) << "Don't support async forward";
 }
+uint64_t ModelInstance::GetPeakBytesInUse() {
+  LOG(FATAL) << "GetPeakBytesInUse not implemented";
+}
 } // namespace backend
 } // namespace nexus
